@@ -1,0 +1,18 @@
+/* Cores suaves para os cards */
+.bg-light-blue {
+    background-color: #e3f2fd; /* Azul claro */
+}
+
+.bg-light-green {
+    background-color: #e8f5e9; /* Verde claro */
+}
+
+.bg-light-yellow {
+    background-color: #fffde7; /* Amarelo claro */
+}
+
+/* Personalização geral dos cards */
+.card-custom {
+    border-radius: 0.75rem; /* Arredondar os cantos */
+    padding: 1.5rem; /* Adicionar espaçamento interno */
+}
