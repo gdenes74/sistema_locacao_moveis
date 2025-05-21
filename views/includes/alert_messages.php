@@ -3,7 +3,7 @@
 if (!empty($_SESSION['message'])): ?>
     <div class="alert alert-success alert-dismissible fade show" role="alert">
         <?php
-        echo htmlspecialchars($_SESSION['message']); 
+        echo htmlspecialchars($_SESSION['message']);
         unset($_SESSION['message']); // Remove mensagem após exibi-la
         ?>
         <button type="button" class="close" data-dismiss="alert" aria-label="Close">

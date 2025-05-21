@@ -1,59 +1,162 @@
-        <!-- Fim do conteúdo específico da página -->
+<?php
+// Arquivo: views/includes/footer.php
 
-        </div> <!-- Fecha a div class="container main-content-container" aberta no header.php -->
+// BASE_URL deve estar definida (config.php)
+if (!defined('BASE_URL')) {
+    die('Erro Crítico: BASE_URL não está definida no footer.php. Verifique se config/config.php foi incluído corretamente.');
+}
+?>
 
-<!-- Rodapé da Página (Opcional) -->
-<footer class="text-center mt-4 mb-4">
-    <small class="text-muted">Sistema Toalhas &copy; <?php echo date("Y"); ?></small>
-</footer>
-
-
-<!-- =============================================== -->
-<!-- SCRIPTS JAVASCRIPT - COLOCADOS AQUI NO FINAL -->
-<!-- =============================================== -->
-
-<!-- 1. jQuery (Necessário para Bootstrap 4 JS) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-
-<!-- 2. Popper.js (Necessário para componentes como dropdowns, tooltips e o Modal do Bootstrap 4) -->
-<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
-<!-- Alternativa Popper v2 (se usar BS5 ou precisar de versão mais nova):
-<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/2.9.3/umd/popper.min.js"></script>
+    <!-- Control Sidebar (Opcional, para configurações de tema do AdminLTE) -->
+    <aside class="control-sidebar control-sidebar-dark">
+        <!-- Control sidebar content vai aqui -->
+        
+        <div class="p-3">
+            <!--<h5>Configurações de Tema</h5>
+            <p>Alguma opção de configuração aqui./p>
 -->
+        </div>
+    </aside>
+    <!-- /.control-sidebar -->
 
-<!-- 3. Bootstrap JS (v4.6.2 - Deve vir DEPOIS do jQuery e Popper) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.min.js"></script>
+    <!-- Main Footer (Rodapé principal visível na página) -->
+    <footer class="main-footer">
+        <strong>Copyright &copy; <?php echo date('Y'); ?> <a href="<?php echo BASE_URL; ?>"><?php echo defined('APP_NAME') ? APP_NAME : 'Seu Sistema'; ?></a>.</strong>
+        Todos os direitos reservados.
+        <div class="float-right d-none d-sm-inline-block">
+            <b>Versão</b> <?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?>
+        </div>
+    </footer>
 
-<!-- 4. Outros Scripts JS (Ex: máscara de dinheiro, scripts personalizados) -->
-<!-- Certifique-se que jQuery já está carregado antes destes -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-maskmoney/3.0.2/jquery.maskMoney.min.js"></script>
+</div>
+<!-- ./wrapper (Esta div foi aberta no header.php) -->
 
-<!-- Seu script personalizado (onde você colocou a lógica do .custom-file-input e .money) -->
+<!-- SCRIPTS JS ESSENCIAIS -->
+
+<!-- jQuery -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/jquery/jquery.min.js"></script>
+
+<!-- jQuery UI 1.11.4 (Se precisar de interações como draggable, sortable, ou o datepicker do jQuery UI) -->
+<!-- Note que o AdminLTE 3 usa mais o Tempusdominus para date/time, mas jQuery UI ainda pode ser útil -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/jquery-ui/jquery-ui.min.js"></script>
 <script>
-    $(document).ready(function(){
-      // Máscara de dinheiro
-      $('.money').maskMoney({
-          prefix: 'R$ ',
-          allowNegative: false,
-          thousands: '.',
-          decimal: ',',
-          affixesStay: true
-      });
-
-      // Script para mostrar nome do arquivo no input file
-      $('.custom-file-input').on('change', function() {
-        let fileName = $(this).val().split("").pop();
-        $(this).next('.custom-file-label').addClass("selected").html(fileName || 'Escolher arquivo...');
-      });
-
-      // Ativar tooltips do Bootstrap (se você usar o atributo 'title' em algum lugar)
-      $('[data-toggle="tooltip"]').tooltip();
-    });
+  // Resolve conflito entre tooltip do jQuery UI e tooltip do Bootstrap (se ambos estiverem ativos)
+  $.widget.bridge('uibutton', $.ui.button)
 </script>
 
-<!-- Adicione mais links de scripts aqui se necessário -->
-<!-- <script src="<?php // echo BASE_URL; ?>assets/js/main.js"></script> -->
+<!-- Bootstrap 4 JS -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
 
+<!-- Select2 JS (Para selects melhorados) -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/select2/js/select2.full.min.js"></script>
+
+<!-- Moment.js (Necessário para Tempusdominus e Daterangepicker) -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/moment/moment.min.js"></script>
+<script src="<?php echo BASE_URL; ?>/assets/plugins/moment/locale/pt-br.js"></script> <!-- Tradução para PT-BR -->
+
+
+<!-- Tempusdominus Bootstrap 4 (Para Date/Time Picker) -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/tempusdominus-bootstrap-4/js/tempusdominus-bootstrap-4.min.js"></script>
+
+<!-- Daterange picker (Para seleção de intervalo de datas) -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/daterangepicker/daterangepicker.js"></script>
+
+<!-- overlayScrollbars (Para barras de rolagem customizadas) -->
+<script src="<?php echo BASE_URL; ?>/assets/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
+
+<!-- AdminLTE App JS (Lógica principal do AdminLTE) -->
+<script src="<?php echo BASE_URL; ?>/assets/dist/js/adminlte.js"></script>
+
+<!-- ChartJS (Para gráficos, se for usar) -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/chart.js/Chart.min.js"></script> -->
+
+<!-- Sparkline (Para mini gráficos inline, se for usar) -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/sparklines/sparkline.js"></script> -->
+
+<!-- JQVMap (Para mapas vetoriais, se for usar) -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/jqvmap/jquery.vmap.min.js"></script> -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/jqvmap/maps/jquery.vmap.usa.js"></script> --> <!-- Exemplo mapa EUA -->
+
+<!-- Summernote (Editor de Texto Rico, se for usar) -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/summernote/summernote-bs4.min.js"></script> -->
+<!-- <script src="<?php echo BASE_URL; ?>/assets/plugins/summernote/lang/summernote-pt-BR.js"></script> --> <!-- Tradução PT-BR -->
+
+
+<!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS (OPCIONAL, mas recomendado) -->
+<script>
+$(function () {
+    // Inicializar Select2 em todos os elementos com a classe .select2
+    $('.select2').select2({
+        theme: 'bootstrap4' // Usa o tema do Bootstrap 4 para o Select2
+    });
+
+    // Inicializar o Datepicker do jQuery UI (se estiver usando ele ao invés do Tempusdominus)
+    // Tradução para Datepicker do jQuery UI (certifique-se que o jquery-ui.min.js está carregado)
+    if (typeof $.datepicker !== 'undefined') {
+        $.datepicker.regional['pt-BR'] = {
+            closeText: 'Fechar', prevText: '&#x3C;Anterior', nextText: 'Próximo&#x3E;', currentText: 'Hoje',
+            monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
+            monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],
+            dayNames: ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'],
+            dayNamesShort: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
+            dayNamesMin: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
+            weekHeader: 'Sm', dateFormat: 'dd/mm/yy', firstDay: 0, isRTL: false, showMonthAfterYear: false, yearSuffix: ''
+        };
+        $.datepicker.setDefaults($.datepicker.regional['pt-BR']);
+
+        $('.datepicker').datepicker({
+            dateFormat: 'dd/mm/yy',
+            changeMonth: true,
+            changeYear: true,
+            showButtonPanel: true
+        });
+    }
+
+
+    // Inicializar Tempusdominus Bootstrap 4 Datepicker (para campos com a classe .datetimepicker-input)
+    // Este é o date/time picker mais integrado com AdminLTE 3
+    // Exemplo de uso no HTML:
+    // <div class="input-group date" id="meuDatepicker" data-target-input="nearest">
+    //     <input type="text" class="form-control datetimepicker-input" data-target="#meuDatepicker" name="data_exemplo"/>
+    //     <div class="input-group-append" data-target="#meuDatepicker" data-toggle="datetimepicker">
+    //         <div class="input-group-text"><i class="fa fa-calendar"></i></div>
+    //     </div>
+    // </div>
+    $('[data-toggle="datetimepicker"]').datetimepicker({
+        locale: 'pt-br', // Usa o locale do Moment.js carregado
+        format: 'L', // Formato de data Localizado (ex: 13/05/2025)
+        // Para incluir hora: format: 'L LT' (ex: 13/05/2025 05:20)
+        icons: {
+            time: 'far fa-clock',
+            date: 'far fa-calendar-alt',
+            up: 'fas fa-arrow-up',
+            down: 'fas fa-arrow-down',
+            previous: 'fas fa-chevron-left',
+            next: 'fas fa-chevron-right',
+            today: 'far fa-calendar-check',
+            clear: 'fas fa-trash',
+            close: 'fas fa-times'
+        }
+    });
+
+    // Inicializar tooltips do Bootstrap (para dicas ao passar o mouse)
+    $('[data-toggle="tooltip"]').tooltip();
+
+});
+</script>
+
+<!-- Scripts específicos da página (se houver) podem ser adicionados aqui pela view que inclui este footer,
+     ou você pode ter uma seção de scripts no seu arquivo de view principal (ex: orcamentos/index.php)
+     logo após incluir este footer.php.
+     Exemplo:
+     <?php
+     if (isset($extra_js) && is_array($extra_js)) {
+         foreach ($extra_js as $js_file) {
+             echo '<script src="' . htmlspecialchars($js_file) . '"></script>';
+         }
+     }
+     ?>
+-->
 
 </body>
 </html>

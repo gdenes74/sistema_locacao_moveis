@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
+
     <!-- Define o título da página. -->
     <title><?php echo htmlspecialchars($page_title ?? 'Sistema Toalhas'); ?></title>
 
