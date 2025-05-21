@@ -7,161 +7,294 @@ require_once __DIR__ . '/../../models/Secao.php';
 require_once __DIR__ . '/../../models/Categoria.php';
 require_once __DIR__ . '/../../models/Subcategoria.php';
 
-if (session_status() == PHP_SESSION_NONE) { session_start(); }
+// Inicializa a conexão e os modelos
+$database = new Database();
+$conn = $database->getConnection();
 
-// --- Config Upload ---
-if (!defined('UPLOAD_DIR_PRODUTOS')) define('UPLOAD_DIR_PRODUTOS', 'assets/uploads/produtos/');
-if (!defined('UPLOAD_MAX_SIZE')) define('UPLOAD_MAX_SIZE', 2 * 1024 * 1024); // 2MB
-if (!defined('UPLOAD_ALLOWED_TYPES')) define('UPLOAD_ALLOWED_TYPES', ['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-
-$database = new Database(); $db = $database->getConnection();
-if (!$db) { error_log("DB Conn Failed - create.php"); die("DB Error."); }
-
-$produto = new Produto($db); $secaoModel = new Secao($db);
-$categoriaModel = new Categoria($db); $subcategoriaModel = new Subcategoria($db);
-
-// --- Tratamento de Mensagens e Dados de Formulário ---
-$error = $_SESSION['error_message'] ?? null; unset($_SESSION['error_message']);
-$message = $_SESSION['message'] ?? null; unset($_SESSION['message']);
-$form_data = $_SESSION['form_data'] ?? ($_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : []);
-unset($_SESSION['form_data']);
-
-// --- Carregar Dados Hierárquicos ---
-$secoes = []; $categorias = []; $subcategorias = [];
-$jsDataHierarchy = ['secoes'=>[], 'categorias'=>[], 'subcategorias'=>[]]; // INICIALIZA estrutura JS vazia
-try {
-    $stmtSec = $secaoModel->listar(); $secoes = $stmtSec ? $stmtSec->fetchAll(PDO::FETCH_ASSOC) : [];
-    $stmtCat = $categoriaModel->listar(); $categorias = $stmtCat ? $stmtCat->fetchAll(PDO::FETCH_ASSOC) : [];
-    $stmtSub = $subcategoriaModel->listar(); $subcategorias = $stmtSub ? $stmtSub->fetchAll(PDO::FETCH_ASSOC) : [];
-    // Preenche a estrutura JS SOMENTE se os dados foram carregados
-    if (!empty($secoes) || !empty($categorias) || !empty($subcategorias)) {
-        $jsDataHierarchy = ['secoes'=>$secoes, 'categorias'=>$categorias, 'subcategorias'=>$subcategorias];
-    }
-} catch (Exception $e) {
-    $error = "Erro crítico ao carregar opções de seleção. Verifique tabelas e logs.";
-    error_log("Hierarchy Load Err - create.php: " . $e->getMessage());
-    // Mantém a estrutura JS vazia em caso de erro
-}
-// --- Fim Carregar Dados ---
-
-// --- Processamento do Formulário POST ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $form_data = $_POST;
-    $error = null;
-
-    // Validações Essenciais (verificando se os IDs são inteiros > 0)
-    if (empty($form_data['nome_produto'])) { $error = "Nome do Produto é obrigatório."; }
-    elseif (empty($form_data['secao_id']) || !filter_var($form_data['secao_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) { $error = "Seleção de Seção inválida ou ausente."; }
-    elseif (empty($form_data['categoria_id']) || !filter_var($form_data['categoria_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) { $error = "Seleção de Categoria inválida ou ausente."; }
-    elseif (empty($form_data['subcategoria_id']) || !filter_var($form_data['subcategoria_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]])) { $error = "Seleção de Subcategoria inválida ou ausente."; }
-    elseif (!isset($form_data['quantidade_total']) || !is_numeric($form_data['quantidade_total']) || (int)$form_data['quantidade_total'] < 0) { $error = "Quantidade Total inválida."; }
-
-    // Upload Foto (Mesma lógica anterior, com pequenas melhorias nos logs)
-    $uploaded_file_path = null; $temp_file_server_path = null;
-    if ($error === null && isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['foto']; $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $file_type = $finfo->file($file['tmp_name']);
-
-        if (!in_array($file_type, UPLOAD_ALLOWED_TYPES)) { $error = "Tipo de arquivo de foto inválido (Permitidos: JPG, PNG, GIF, WebP)."; }
-        elseif ($file['size'] > UPLOAD_MAX_SIZE) { $error = "Arquivo de foto muito grande (Máximo: " . (UPLOAD_MAX_SIZE / 1024 / 1024) . "MB)."; }
-        else {
-            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            $unique_filename = uniqid('prod_', true) . '.' . $ext;
-            $destination_path_db = UPLOAD_DIR_PRODUTOS . $unique_filename;
-            $destination_path_server = rtrim(dirname(__DIR__, 2), '/\\') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, ltrim($destination_path_db, '/'));
-            $upload_dir_server = dirname($destination_path_server);
-
-            if (!is_dir($upload_dir_server)) { if (!@mkdir($upload_dir_server, 0775, true)) { $error = "Falha crítica ao criar diretório de uploads."; error_log("Upload Mkdir Fail - create.php: " . $upload_dir_server); } }
-            if ($error === null && !is_writable($upload_dir_server)) { $error = "Erro de permissão: Diretório de uploads sem permissão de escrita."; error_log("Upload Dir Write Err - create.php: " . $upload_dir_server); }
-            if ($error === null) {
-                if (move_uploaded_file($file['tmp_name'], $destination_path_server)) { $uploaded_file_path = $destination_path_db; $temp_file_server_path = $destination_path_server; }
-                else { $error = "Falha ao salvar o arquivo de foto no servidor."; error_log("Move Upload Fail - create.php: " . $destination_path_server . " (from: ".$file['tmp_name'].")"); }
-            }
-        }
-    } elseif (isset($_FILES['foto']) && $_FILES['foto']['error'] !== UPLOAD_ERR_NO_FILE && $_FILES['foto']['error'] !== UPLOAD_ERR_OK) {
-         $error = "Ocorreu um erro durante o upload da foto (Código: {$_FILES['foto']['error']})."; error_log("Upload Err Code - create.php: {$_FILES['foto']['error']}");
-    }
-    // --- Fim Upload Foto ---
-
-    // --- Persistência no Banco de Dados ---
-    if ($error === null) {
-        try {
-            $produto->atribuir($form_data);
-            $produto->foto_path = $uploaded_file_path;
-            if (!isset($form_data['quantidade_disponivel'])) $produto->quantidade_disponivel = $produto->quantidade_total;
-            if (!isset($form_data['quantidade_reservada'])) $produto->quantidade_reservada = 0;
-            //... (outras quantidades default = 0)
-
-            if ($produto->criar()) {
-                $_SESSION['message'] = "Produto '" . htmlspecialchars($produto->nome_produto) . "' adicionado!";
-                unset($_SESSION['form_data']); header("Location: index.php"); exit;
-            } else {
-                $error = $_SESSION['error_message'] ?? "Erro desconhecido ao salvar no banco.";
-                if ($temp_file_server_path && file_exists($temp_file_server_path)) { @unlink($temp_file_server_path); }
-            }
-        } catch (Exception $e) {
-             $error = "Erro inesperado. Consulte logs."; error_log("Create Prod Exception - create.php: " . $e->getMessage());
-             if ($temp_file_server_path && file_exists($temp_file_server_path)) { @unlink($temp_file_server_path); }
-        }
-    }
-    // Se houve erro, guarda dados na sessão
-    if ($error !== null) { $_SESSION['form_data'] = $form_data; }
-}
-// --- FIM DO PROCESSAMENTO POST ---
+$produto = new Produto($conn);
+$secaoModel = new Secao($conn);
+$categoriaModel = new Categoria($conn);
+$subcategoriaModel = new Subcategoria($conn);
 
 $page_title = "Adicionar Novo Produto";
+$error = null;
+$success = null;
+
+// Carrega as Seções, Categorias e Subcategorias
+try {
+    $secoes = $secaoModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $categorias = $categoriaModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $subcategorias = $subcategoriaModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $dataHierarchy = json_encode([
+        'secoes' => $secoes,
+        'categorias' => $categorias,
+        'subcategorias' => $subcategorias,
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+} catch (Exception $e) {
+    $error = 'Erro ao carregar dados: ' . $e->getMessage();
+    error_log("Erro ao carregar hierarquia: " . $e->getMessage());
+}
+
+// Processamento do formulário (POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Atribuir dados do POST ao objeto Produto usando o método __set
+    // O método __set já está implementado na classe Produto e fará a sanitização
+    
+    // Atribui subcategoria_id
+    if (isset($_POST['subcategoria_id']) && !empty($_POST['subcategoria_id'])) {
+        $produto->subcategoria_id = (int)$_POST['subcategoria_id'];
+    } else {
+        $error = "A subcategoria é obrigatória.";
+    }
+    
+    // Atribui nome_produto
+    if (isset($_POST['nome_produto']) && !empty($_POST['nome_produto'])) {
+        $produto->nome_produto = trim($_POST['nome_produto']);
+    } else {
+        $error = "O nome do produto é obrigatório.";
+    }
+    
+    // Atribui outros campos
+    $produto->codigo = isset($_POST['codigo']) && !empty($_POST['codigo']) ? trim($_POST['codigo']) : null;
+    $produto->descricao_detalhada = isset($_POST['descricao_detalhada']) ? trim($_POST['descricao_detalhada']) : null;
+    $produto->dimensoes = isset($_POST['dimensoes']) ? trim($_POST['dimensoes']) : null;
+    $produto->cor = isset($_POST['cor']) ? trim($_POST['cor']) : null;
+    $produto->material = isset($_POST['material']) ? trim($_POST['material']) : null;
+    $produto->quantidade_total = isset($_POST['quantidade_total']) ? (int)$_POST['quantidade_total'] : 0;
+    
+    // Tratamento especial para os campos de preço
+    if (isset($_POST['preco_locacao']) && !empty($_POST['preco_locacao'])) {
+        $produto->preco_locacao = $_POST['preco_locacao']; // O método __set fará a conversão
+    } else {
+        $produto->preco_locacao = 0.00;
+    }
+    
+    if (isset($_POST['preco_venda']) && !empty($_POST['preco_venda'])) {
+        $produto->preco_venda = $_POST['preco_venda']; // O método __set fará a conversão
+    } else {
+        $produto->preco_venda = 0.00;
+    }
+    
+    if (isset($_POST['preco_custo']) && !empty($_POST['preco_custo'])) {
+        $produto->preco_custo = $_POST['preco_custo']; // O método __set fará a conversão
+    } else {
+        $produto->preco_custo = 0.00;
+    }
+    
+    // Checkboxes
+    $produto->disponivel_venda = isset($_POST['disponivel_venda']) ? 1 : 0;
+    $produto->disponivel_locacao = isset($_POST['disponivel_locacao']) ? 1 : 0;
+    
+    // Observações
+    $produto->observacoes = isset($_POST['observacoes']) ? trim($_POST['observacoes']) : null;
+
+    // Processar upload de foto
+    if (isset($_FILES['foto']) && $_FILES['foto']['error'] == UPLOAD_ERR_OK) {
+        $upload_dir = __DIR__ . '/../../uploads/produtos/';
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0755, true);
+        }
+        $foto_name = uniqid('foto_') . '_' . basename($_FILES['foto']['name']);
+        $foto_path = $upload_dir . $foto_name;
+        if (move_uploaded_file($_FILES['foto']['tmp_name'], $foto_path)) {
+            $produto->foto_path = 'uploads/produtos/' . $foto_name;
+        } else {
+            $error = "Erro ao fazer upload da foto.";
+        }
+    }
+
+    // Se não houver erro, tenta criar o produto
+    if (!$error) {
+        try {
+            if ($produto->criar()) {
+                $_SESSION['success'] = "Produto criado com sucesso!";
+                header("Location: index.php");
+                exit;
+            } else {
+                $error = "Erro ao criar o produto. Verifique os logs para mais detalhes.";
+            }
+        } catch (Exception $e) {
+            $error = "Erro ao criar o produto: " . $e->getMessage();
+        }
+    }
+}
+
+// Inclui o cabeçalho
 include_once __DIR__ . '/../includes/header.php';
 include_once __DIR__ . '/../includes/sidebar.php';
 ?>
 
-<!-- Content Wrapper -->
+<!-- Conteúdo principal -->
 <div class="content-wrapper">
     <section class="content-header">
         <div class="container-fluid">
-            <div class="row mb-2"><div class="col-sm-6"><h1><?= htmlspecialchars($page_title); ?></h1></div><div class="col-sm-6"><ol class="breadcrumb float-sm-right"><li class="breadcrumb-item"><a href="../dashboard/dashboard.php">Dashboard</a></li><li class="breadcrumb-item"><a href="index.php">Produtos</a></li><li class="breadcrumb-item active">Adicionar</li></ol></div></div>
+            <div class="row mb-2">
+                <div class="col-sm-6">
+                    <h1>Adicionar Produto</h1>
+                </div>
+                <div class="col-sm-6">
+                    <ol class="breadcrumb float-sm-right">
+                        <li class="breadcrumb-item"><a href="<?php echo BASE_URL; ?>/dashboard">Início</a></li>
+                        <li class="breadcrumb-item"><a href="<?php echo BASE_URL; ?>/views/produtos/index.php">Produtos</a></li>
+                        <li class="breadcrumb-item active">Adicionar</li>
+                    </ol>
+                </div>
+            </div>
         </div>
     </section>
 
     <section class="content">
         <div class="container-fluid">
-            <div class="card card-primary card-outline">
-                <div class="card-header"><h3 class="card-title">Formulário de Cadastro</h3></div>
-                <form method="POST" action="create.php" enctype="multipart/form-data" id="formProduto" novalidate>
-                    <div class="card-body">
-                        <?php if ($error): ?><div class="alert alert-danger alert-dismissible"><button type="button" class="close" data-dismiss="alert">&times;</button><h5><i class="icon fas fa-ban"></i> Erro!</h5><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
-                        <?php if ($message): ?><div class="alert alert-success alert-dismissible"><button type="button" class="close" data-dismiss="alert">&times;</button><h5><i class="icon fas fa-check"></i> Sucesso!</h5><?= htmlspecialchars($message, ENT_QUOTES, 'UTF-8'); ?></div><?php endif; ?>
+            <?php if ($error): ?>
+                <div class="alert alert-danger alert-dismissible">
+                    <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
+                    <h5><i class="icon fas fa-ban"></i> Erro!</h5>
+                    <?php echo $error; ?>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (isset($_SESSION['success'])): ?>
+                <div class="alert alert-success alert-dismissible">
+                    <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
+                    <h5><i class="icon fas fa-check"></i> Sucesso!</h5>
+                    <?php echo $_SESSION['success']; unset($_SESSION['success']); ?>
+                </div>
+            <?php endif; ?>
 
-                        <div class="row">
-                            <div class="col-md-8 form-group"><label for="nome_produto">Nome do Produto <span class="text-danger">*</span></label><input type="text" class="form-control <?= ($error && empty($form_data['nome_produto'])) ? 'is-invalid' : ''; ?>" id="nome_produto" name="nome_produto" required value="<?= htmlspecialchars($form_data['nome_produto'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"><div class="invalid-feedback">O nome é obrigatório.</div></div>
-                            <div class="col-md-4 form-group"><label for="codigo">Código <span class="text-muted">(Opcional)</span></label><input type="text" class="form-control <?= (isset($error) && stripos($error, 'código') !== false) ? 'is-invalid' : ''; ?>" id="codigo" name="codigo" value="<?= htmlspecialchars($form_data['codigo'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"><?php if (isset($error) && stripos($error, 'código') !== false): ?><div class="invalid-feedback d-block">Código já em uso.</div><?php endif; ?></div>
+            <div class="card card-primary">
+                <div class="card-header">
+                    <h3 class="card-title">Novo Produto</h3>
+                </div>
+
+                <form method="POST" action="create.php" enctype="multipart/form-data">
+                    <div class="card-body">
+
+                        <!-- Dropdowns dependentes -->
+                        <div class="form-group row">
+                            <div class="col-md-4">
+                                <label for="secao_id">Seção *</label>
+                                <select id="secao_id" name="secao_id" class="form-control" required>
+                                    <option value="">-- Selecione a Seção --</option>
+                                    <?php foreach ($secoes as $secao): ?>
+                                        <option value="<?php echo htmlspecialchars($secao['id']); ?>">
+                                            <?php echo htmlspecialchars($secao['nome']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="categoria_id">Categoria *</label>
+                                <select id="categoria_id" name="categoria_id" class="form-control" required disabled>
+                                    <option value="">-- Selecione Seção Primeiro --</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="subcategoria_id">Subcategoria *</label>
+                                <select id="subcategoria_id" name="subcategoria_id" class="form-control" required disabled>
+                                    <option value="">-- Selecione Categoria Primeiro --</option>
+                                </select>
+                            </div>
                         </div>
+
+                        <!-- Outros campos do formulário -->
                         <div class="row">
-                             <div class="col-md-4 form-group"><label for="secao_id">Seção <span class="text-danger">*</span></label><select class="form-control <?= ($error && (empty($form_data['secao_id']) || !filter_var($form_data['secao_id'], FILTER_VALIDATE_INT))) ? 'is-invalid' : ''; ?>" id="secao_id" name="secao_id" required><option value="">-- Selecione --</option><?php foreach ($secoes as $sec): ?><option value="<?= $sec['id']; ?>" <?= (isset($form_data['secao_id']) && $form_data['secao_id'] == $sec['id']) ? 'selected' : ''; ?>><?= htmlspecialchars($sec['nome'], ENT_QUOTES, 'UTF-8'); ?></option><?php endforeach; ?></select><div class="invalid-feedback">Selecione uma seção.</div></div>
-                             <div class="col-md-4 form-group"><label for="categoria_id">Categoria <span class="text-danger">*</span></label><select class="form-control <?= ($error && (!empty($form_data['secao_id']) && (empty($form_data['categoria_id']) || !filter_var($form_data['categoria_id'], FILTER_VALIDATE_INT)))) ? 'is-invalid' : ''; ?>" id="categoria_id" name="categoria_id" required disabled><option value="">-- Selecione Seção --</option></select><div class="invalid-feedback">Selecione uma categoria.</div></div>
-                             <div class="col-md-4 form-group"><label for="subcategoria_id">Subcategoria <span class="text-danger">*</span></label><select class="form-control <?= ($error && (!empty($form_data['categoria_id']) && (empty($form_data['subcategoria_id']) || !filter_var($form_data['subcategoria_id'], FILTER_VALIDATE_INT)))) ? 'is-invalid' : ''; ?>" id="subcategoria_id" name="subcategoria_id" required disabled><option value="">-- Selecione Categoria --</option></select><div class="invalid-feedback">Selecione a subcategoria.</div></div>
+                            <div class="col-md-8">
+                                <div class="form-group">
+                                    <label for="nome_produto">Nome do Produto *</label>
+                                    <input type="text" id="nome_produto" name="nome_produto" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="codigo">Código</label>
+                                    <input type="text" id="codigo" name="codigo" class="form-control">
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group"><label for="descricao_detalhada">Descrição</label><textarea class="form-control" id="descricao_detalhada" name="descricao_detalhada" rows="2"><?= htmlspecialchars($form_data['descricao_detalhada'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea></div>
-                        <div class="row">
-                            <div class="col-md-4 form-group"><label for="dimensoes">Dimensões</label><input type="text" class="form-control" id="dimensoes" name="dimensoes" value="<?= htmlspecialchars($form_data['dimensoes'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"></div>
-                            <div class="col-md-4 form-group"><label for="cor">Cor</label><input type="text" class="form-control" id="cor" name="cor" value="<?= htmlspecialchars($form_data['cor'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"></div>
-                            <div class="col-md-4 form-group"><label for="material">Material</label><input type="text" class="form-control" id="material" name="material" value="<?= htmlspecialchars($form_data['material'] ?? '', ENT_QUOTES, 'UTF-8'); ?>"></div>
-                         </div>
-                         <div class="row align-items-center mb-3">
-                             <div class="col-lg-3 col-md-6 form-group"><label for="quantidade_total">Qtd. Total <span class="text-danger">*</span></label><input type="number" class="form-control <?= ($error && (!isset($form_data['quantidade_total']) || !is_numeric($form_data['quantidade_total']) || (int)$form_data['quantidade_total'] < 0)) ? 'is-invalid' : ''; ?>" id="quantidade_total" name="quantidade_total" min="0" step="1" required value="<?= htmlspecialchars($form_data['quantidade_total'] ?? '0', ENT_QUOTES, 'UTF-8'); ?>"><div class="invalid-feedback">Inválido.</div></div>
-                             <div class="col-lg-3 col-md-6 form-group d-flex align-items-center pt-lg-4"><div class="custom-control custom-switch custom-switch-lg"><input type="checkbox" class="custom-control-input" id="disponivel_locacao" name="disponivel_locacao" value="1" <?php echo (!isset($_POST['submit']) && empty($form_data)) || !empty($form_data['disponivel_locacao']) ? 'checked' : ''; ?>><label class="custom-control-label" for="disponivel_locacao">Locação?</label></div></div>
-                             <div class="col-lg-2 col-md-6 form-group d-flex align-items-center pt-lg-4"><div class="custom-control custom-switch custom-switch-lg"><input type="checkbox" class="custom-control-input" id="disponivel_venda" name="disponivel_venda" value="1" <?= !empty($form_data['disponivel_venda']) ? 'checked' : ''; ?>><label class="custom-control-label" for="disponivel_venda">Venda?</label></div></div>
-                             <div class="col-lg-4 col-md-6 form-group"><label for="foto">Foto</label><div class="custom-file"><input type="file" class="custom-file-input <?= (isset($error) && (stripos($error, 'foto') !== false || stripos($error, 'upload') !== false)) ? 'is-invalid' : ''; ?>" id="foto" name="foto" accept=".jpg,.jpeg,.png,.gif,.webp"><label class="custom-file-label" for="foto" data-browse="Procurar">Escolher...</label></div><small class="form-text text-muted">Max 2MB</small><?php if (isset($error) && (stripos($error, 'foto') !== false || stripos($error, 'upload') !== false)): ?><div class="text-danger small mt-1"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?></div>
-                         </div><hr>
-                         <div class="row">
-                            <div class="col-md-4 form-group"><label for="preco_locacao">Preço Locação (R$)</label><input type="text" class="form-control money" id="preco_locacao" name="preco_locacao" value="<?= htmlspecialchars($form_data['preco_locacao'] ?? '0,00', ENT_QUOTES, 'UTF-8'); ?>"></div>
-                            <div class="col-md-4 form-group"><label for="preco_venda">Preço Venda (R$)</label><input type="text" class="form-control money" id="preco_venda" name="preco_venda" value="<?= htmlspecialchars($form_data['preco_venda'] ?? '0,00', ENT_QUOTES, 'UTF-8'); ?>"></div>
-                            <div class="col-md-4 form-group"><label for="preco_custo">Preço Custo (R$)</label><input type="text" class="form-control money" id="preco_custo" name="preco_custo" value="<?= htmlspecialchars($form_data['preco_custo'] ?? '0,00', ENT_QUOTES, 'UTF-8'); ?>"><small class="text-muted">Ref. interna.</small></div>
-                         </div>
-                         <div class="form-group"><label for="observacoes">Obs. Internas</label><textarea class="form-control" id="observacoes" name="observacoes" rows="2"><?= htmlspecialchars($form_data['observacoes'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea></div>
+
+                        <div class="form-group">
+                            <label for="descricao_detalhada">Descrição Detalhada</label>
+                            <textarea id="descricao_detalhada" name="descricao_detalhada" class="form-control" rows="3"></textarea>
+                        </div>
+
+                        <div class="form-group row">
+                            <div class="col-md-4">
+                                <label for="dimensoes">Dimensões</label>
+                                <input type="text" id="dimensoes" name="dimensoes" class="form-control">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="cor">Cor</label>
+                                <input type="text" id="cor" name="cor" class="form-control">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="material">Material</label>
+                                <input type="text" id="material" name="material" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="form-group row">
+                            <div class="col-md-4">
+                                <label for="quantidade_total">Quantidade Total *</label>
+                                <input type="number" id="quantidade_total" name="quantidade_total" class="form-control" min="0" value="0" required>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group mt-4">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" id="disponivel_venda" name="disponivel_venda" value="1" class="custom-control-input" checked>
+                                        <label for="disponivel_venda" class="custom-control-label">Disponível para Venda</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group mt-4">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" id="disponivel_locacao" name="disponivel_locacao" value="1" class="custom-control-input" checked>
+                                        <label for="disponivel_locacao" class="custom-control-label">Disponível para Locação</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <div class="form-group row">
+                            <div class="col-md-4">
+                                <label for="preco_locacao">Preço Locação (R$)</label>
+                                <input type="text" id="preco_locacao" name="preco_locacao" class="form-control money" placeholder="0,00">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="preco_venda">Preço Venda (R$)</label>
+                                <input type="text" id="preco_venda" name="preco_venda" class="form-control money" placeholder="0,00">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="preco_custo">Preço Custo (R$)</label>
+                                <input type="text" id="preco_custo" name="preco_custo" class="form-control money" placeholder="0,00">
+                                <small class="text-muted">Referência interna.</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="foto">Foto do Produto</label>
+                            <div class="custom-file">
+                                <input type="file" class="custom-file-input" id="foto" name="foto" accept="image/*">
+                                <label class="custom-file-label" for="foto" data-browse="Procurar">Escolher arquivo...</label>
+                            </div>
+                            <small class="form-text text-muted">Máximo 2MB (JPG, PNG, GIF, WebP)</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="observacoes">Observações Internas</label>
+                            <textarea id="observacoes" name="observacoes" class="form-control" rows="2"></textarea>
+                        </div>
+
                     </div>
+
+                    <!-- Botões -->
                     <div class="card-footer text-right">
-                         <a href="index.php" class="btn btn-secondary mr-2"><i class="fas fa-times mr-1"></i> Cancelar</a>
-                         <button type="submit" name="submit" class="btn btn-primary"><i class="fas fa-save mr-1"></i> Salvar Produto</button>
+                        <a href="index.php" class="btn btn-secondary">Cancelar</a>
+                        <button type="submit" class="btn btn-success"><i class="fas fa-save mr-1"></i> Salvar Produto</button>
                     </div>
                 </form>
             </div>
@@ -169,143 +302,75 @@ include_once __DIR__ . '/../includes/sidebar.php';
     </section>
 </div>
 
+<!-- Inclui o rodapé -->
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
 
-<!-- ========================================== -->
-<!--         SCRIPTS JS ESPECÍFICOS           -->
-<!-- ========================================== -->
+<!-- Inicialização do plugin de máscara monetária -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-maskmoney/3.0.2/jquery.maskMoney.min.js"></script>
 <script>
 $(document).ready(function() {
-
-    // ----- Plugins -----
-    $('.money').maskMoney({prefix:'R$ ', allowNegative: false, thousands:'.', decimal:',', affixesStay: false, precision: 2}).maskMoney('mask');
-    if (typeof bsCustomFileInput !== 'undefined') { bsCustomFileInput.init(); }
-    else { $('.custom-file-input').on('change', function(e) { var fn = e.target.files.length ? e.target.files[0].name : 'Escolher...'; $(this).next('.custom-file-label').text(fn); }); }
-
-    // ----- Dropdowns Dependentes -----
-    const dataHierarchy = <?php echo json_encode($jsDataHierarchy, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE); ?>;
-    const secaoSelect = document.getElementById('secao_id');
-    const categoriaSelect = document.getElementById('categoria_id');
-    const subcategoriaSelect = document.getElementById('subcategoria_id');
-
-    // Valores pré-selecionados (se vieram do PHP via $form_data)
-    const selectedSecaoId = "<?= $form_data['secao_id'] ?? '' ?>";
-    const selectedCategoriaId = "<?= $form_data['categoria_id'] ?? '' ?>";
-    const selectedSubcategoriaId = "<?= $form_data['subcategoria_id'] ?? '' ?>";
-
-    // --- DEBUG INICIAL --- (Descomente se necessário)
-    // console.log('Script create.php carregado.');
-    // console.log('Dados Hierarquia:', dataHierarchy);
-    // console.log('IDs Pré-selecionados:', { secao: selectedSecaoId, categoria: selectedCategoriaId, subcategoria: selectedSubcategoriaId });
-    // console.log('Elementos Select:', { secao: secaoSelect, categoria: categoriaSelect, subcategoria: subcategoriaSelect });
-
-    // Função para limpar e resetar um select
-    function resetSelect(selectElement, placeholderText) {
-        if (!selectElement) return; // Sai se o elemento não existe
-        selectElement.innerHTML = `<option value="">${placeholderText}</option>`;
-        selectElement.disabled = true;
-        $(selectElement).removeClass('is-invalid'); // Remove classe de erro Bootstrap
+    // Inicializa a máscara para campos monetários
+    $('.money').maskMoney({
+        prefix: 'R$ ',
+        allowNegative: false,
+        thousands: '.',
+        decimal: ',',
+        affixesStay: false
+    });
+    
+    // Inicializa o plugin para o input de arquivo personalizado
+    if (typeof bsCustomFileInput !== 'undefined') {
+        bsCustomFileInput.init();
     }
+});
+</script>
 
-    // Função para popular CATEGORIAS
-    function popularCategorias() {
-        const secaoId = secaoSelect ? secaoSelect.value : null;
-        // console.log('-> popularCategorias chamada com Seção ID:', secaoId); // DEBUG
+<!-- Lógica JavaScript para os dropdowns dependentes -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const dataHierarchy = <?php echo $dataHierarchy; ?>;
 
-        // Reseta selects filhos
-        resetSelect(categoriaSelect, '-- Selecione Seção --');
-        resetSelect(subcategoriaSelect, '-- Selecione Categoria --');
+    const secaoSelect = document.getElementById("secao_id");
+    const categoriaSelect = document.getElementById("categoria_id");
+    const subcategoriaSelect = document.getElementById("subcategoria_id");
 
-        if (secaoId && dataHierarchy.categorias && dataHierarchy.categorias.length > 0) {
-            const categoriasFiltradas = dataHierarchy.categorias.filter(cat => cat.secao_id == secaoId);
-            // console.log('   Categorias encontradas para esta seção:', categoriasFiltradas); // DEBUG
+    secaoSelect.addEventListener("change", function () {
+        const secaoId = this.value;
 
-            if (categoriasFiltradas.length > 0) {
-                 // Adiciona placeholder correto antes das opções
-                 categoriaSelect.innerHTML = '<option value="">-- Selecione Categoria --</option>';
-                 let categoriaFoiSelecionada = false;
-                categoriasFiltradas.forEach(cat => {
-                    const option = new Option(cat.nome, cat.id);
-                    if (cat.id == selectedCategoriaId) {
-                        option.selected = true;
-                        categoriaFoiSelecionada = true; // Marca que uma pré-seleção ocorreu
-                         // console.log(`   Pré-selecionando Categoria: ${cat.id} (${cat.nome})`); // DEBUG
-                    }
-                    categoriaSelect.appendChild(option);
-                });
-                categoriaSelect.disabled = false; // Habilita
+        categoriaSelect.innerHTML = '<option value="">-- Selecione Categoria --</option>';
+        categoriaSelect.disabled = true;
 
-                // Se uma categoria foi pré-selecionada, chama para popular subcategorias
-                if (categoriaFoiSelecionada) {
-                    // console.log('   Disparando popularSubcategorias devido à pré-seleção.'); // DEBUG
-                    popularSubcategorias();
-                }
-            } else {
-                 resetSelect(categoriaSelect, '-- Nenhuma Categoria --'); // Nenhuma encontrada
-            }
-        } else {
-            // Mantém resetado se secaoId for nulo ou não houver categorias nos dados
-             resetSelect(categoriaSelect, '-- Selecione Seção --');
+        subcategoriaSelect.innerHTML = '<option value="">-- Selecione Subcategoria --</option>';
+        subcategoriaSelect.disabled = true;
+
+        if (secaoId) {
+            const categorias = dataHierarchy.categorias.filter(cat => cat.secao_id == secaoId);
+            categorias.forEach(cat => {
+                const option = document.createElement("option");
+                option.value = cat.id;
+                option.textContent = cat.nome;
+                categoriaSelect.appendChild(option);
+            });
+            categoriaSelect.disabled = false;
         }
-    }
+    });
 
-    // Função para popular SUBCATEGORIAS
-    function popularSubcategorias() {
-        const categoriaId = categoriaSelect ? categoriaSelect.value : null;
-         // console.log('-> popularSubcategorias chamada com Categoria ID:', categoriaId); // DEBUG
+    categoriaSelect.addEventListener("change", function () {
+        const categoriaId = this.value;
 
-        // Reseta select filho
-        resetSelect(subcategoriaSelect, '-- Selecione Categoria --');
+        subcategoriaSelect.innerHTML = '<option value="">-- Selecione Subcategoria --</option>';
+        subcategoriaSelect.disabled = true;
 
-        if (categoriaId && dataHierarchy.subcategorias && dataHierarchy.subcategorias.length > 0) {
-            const subcategoriasFiltradas = dataHierarchy.subcategorias.filter(sub => sub.categoria_id == categoriaId);
-             // console.log('   Subcategorias encontradas para esta categoria:', subcategoriasFiltradas); // DEBUG
-
-            if (subcategoriasFiltradas.length > 0) {
-                 // Adiciona placeholder correto
-                 subcategoriaSelect.innerHTML = '<option value="">-- Selecione Subcategoria --</option>';
-                subcategoriasFiltradas.forEach(sub => {
-                    const option = new Option(sub.nome, sub.id);
-                    if (sub.id == selectedSubcategoriaId) {
-                        option.selected = true;
-                         // console.log(`   Pré-selecionando Subcategoria: ${sub.id} (${sub.nome})`); // DEBUG
-                    }
-                    subcategoriaSelect.appendChild(option);
-                });
-                subcategoriaSelect.disabled = false; // Habilita
-            } else {
-                 resetSelect(subcategoriaSelect, '-- Nenhuma Subcategoria --'); // Nenhuma encontrada
-            }
-        } else {
-             // Mantém resetado se categoriaId for nulo ou não houver subcategorias nos dados
-             resetSelect(subcategoriaSelect, '-- Selecione Categoria --');
+        if (categoriaId) {
+            const subcategorias = dataHierarchy.subcategorias.filter(sub => sub.categoria_id == categoriaId);
+            subcategorias.forEach(sub => {
+                const option = document.createElement("option");
+                option.value = sub.id;
+                option.textContent = sub.nome;
+                subcategoriaSelect.appendChild(option);
+            });
+            subcategoriaSelect.disabled = false;
         }
-    }
-
-    // Adicionar Event Listeners (verifica se os elementos existem)
-    if (secaoSelect) {
-        secaoSelect.addEventListener('change', popularCategorias);
-    } else {
-         console.error('Elemento #secao_id não encontrado no DOM.'); // Erro crítico
-    }
-
-    if (categoriaSelect) {
-        categoriaSelect.addEventListener('change', popularSubcategorias);
-    } else {
-         console.error('Elemento #categoria_id não encontrado no DOM.'); // Erro crítico
-    }
-
-    // Inicialização na Carga da Página
-    // Só chama popularCategorias se uma seção estiver pré-selecionada E o elemento existir
-    if (selectedSecaoId && secaoSelect && secaoSelect.value == selectedSecaoId) {
-         // console.log('Iniciando: Seção pré-selecionada. Populando categorias...'); // DEBUG
-        popularCategorias();
-    } else {
-        // Garante estado inicial correto se nenhuma seção estiver selecionada
-        resetSelect(categoriaSelect, '-- Selecione Seção --');
-        resetSelect(subcategoriaSelect, '-- Selecione Categoria --');
-    }
-
-}); // Fim do $(document).ready()
+    });
+});
 </script>

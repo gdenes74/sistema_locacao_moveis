@@ -3,6 +3,8 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../models/Produto.php';
+require_once __DIR__ . '/../../models/Secao.php';
+require_once __DIR__ . '/../../models/Categoria.php';
 require_once __DIR__ . '/../../models/Subcategoria.php';
 
 // Verificar login/acesso (descomentar/implementar se necessário)
@@ -17,7 +19,9 @@ $produto_data = null; // Para armazenar os dados do produto a ser editado
 $database = new Database();
 $db = $database->getConnection();
 $produto = new Produto($db);
-$subcategoria = new Subcategoria($db);
+$secaoModel = new Secao($db);
+$categoriaModel = new Categoria($db);
+$subcategoriaModel = new Subcategoria($db);
 
 // --- 1. Obter ID do Produto da URL ---
 if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
@@ -27,8 +31,7 @@ if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
 $produto_id = (int)$_GET['id'];
 
 // --- 2. Buscar Dados do Produto Específico ---
-// Precisamos criar o método lerPorId() no modelo Produto.php
-$produto_data = $produto->lerPorId($produto_id); // <<<<<<<<<<<<<< VAMOS CRIAR ESTE MÉTODO
+$produto_data = $produto->lerPorId($produto_id);
 
 // --- 3. Verificar se o Produto Foi Encontrado ---
 if (!$produto_data) {
@@ -36,16 +39,23 @@ if (!$produto_data) {
     redirect('views/produtos/index.php');
 }
 
-// --- 4. Buscar Subcategorias para o Select ---
-$stmtSubcategorias = $subcategoria->listar();
-$subcategorias = [];
-if ($stmtSubcategorias && $stmtSubcategorias->rowCount() > 0) {
-    $subcategorias = $stmtSubcategorias->fetchAll(PDO::FETCH_ASSOC);
+// --- 4. Buscar Seções, Categorias e Subcategorias para os Selects ---
+try {
+    $secoes = $secaoModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $categorias = $categoriaModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $subcategorias = $subcategoriaModel->listar()->fetchAll(PDO::FETCH_ASSOC);
+    $dataHierarchy = json_encode([
+        'secoes' => $secoes,
+        'categorias' => $categorias,
+        'subcategorias' => $subcategorias,
+    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+} catch (Exception $e) {
+    $error = 'Erro ao carregar dados: ' . $e->getMessage();
+    error_log("Erro ao carregar hierarquia: " . $e->getMessage());
 }
 
-// --- LÓGICA DE PROCESSAMENTO DO FORMULÁRIO (UPDATE) - VIRÁ AQUI DEPOIS ---
+// --- LÓGICA DE PROCESSAMENTO DO FORMULÁRIO (UPDATE) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
     // 1. Validar ID vindo do POST (segurança extra)
     if (!isset($_POST['produto_id']) || !filter_var($_POST['produto_id'], FILTER_VALIDATE_INT) || (int)$_POST['produto_id'] !== $produto_id) {
         $_SESSION['error'] = "Erro de submissão: ID do produto inconsistente.";
@@ -53,8 +63,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 2. Atribuir dados do POST ao objeto Produto
-    $produto->atribuir($_POST);
     $produto->id = $produto_id; // Garante que o ID correto está no objeto
+    $produto->subcategoria_id = isset($_POST['subcategoria_id']) ? (int)$_POST['subcategoria_id'] : 0;
+    
+    // Tratamento especial para o código - se estiver vazio, define como NULL
+    $codigo = isset($_POST['codigo']) ? trim($_POST['codigo']) : '';
+    $produto->codigo = !empty($codigo) ? $codigo : null;
+    
+    $produto->nome_produto = isset($_POST['nome_produto']) ? trim($_POST['nome_produto']) : '';
+    $produto->descricao_detalhada = isset($_POST['descricao_detalhada']) ? trim($_POST['descricao_detalhada']) : null;
+    $produto->dimensoes = isset($_POST['dimensoes']) ? trim($_POST['dimensoes']) : null;
+    $produto->cor = isset($_POST['cor']) ? trim($_POST['cor']) : null;
+    $produto->material = isset($_POST['material']) ? trim($_POST['material']) : null;
+    $produto->quantidade_total = isset($_POST['quantidade_total']) ? (int)$_POST['quantidade_total'] : 0;
+    
+    // Tratamento especial para os campos de preço
+    if (isset($_POST['preco_locacao'])) {
+        $produto->preco_locacao = $_POST['preco_locacao'];
+    }
+    if (isset($_POST['preco_venda'])) {
+        $produto->preco_venda = $_POST['preco_venda'];
+    }
+    if (isset($_POST['preco_custo'])) {
+        $produto->preco_custo = $_POST['preco_custo'];
+    }
+    
+    // Checkboxes
+    $produto->disponivel_venda = isset($_POST['disponivel_venda']) ? 1 : 0;
+    $produto->disponivel_locacao = isset($_POST['disponivel_locacao']) ? 1 : 0;
+    
+    $produto->observacoes = isset($_POST['observacoes']) ? trim($_POST['observacoes']) : null;
 
     // ----- TRATAMENTO DO UPLOAD DA NOVA FOTO -----
     $novaFotoPath = $_POST['foto_atual_path']; // Começa com o caminho da foto atual
@@ -65,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verifica se um NOVO arquivo foi enviado
     if (isset($_FILES['nova_foto']) && $_FILES['nova_foto']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['nova_foto'];
-        $uploadDir = __DIR__ . '/../../assets/uploads/produtos/'; // Caminho FÍSICO no servidor
+        $uploadDir = __DIR__ . '/../../uploads/produtos/'; // Caminho FÍSICO no servidor
         $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         $maxFileSize = 2 * 1024 * 1024; // 2MB
 
@@ -94,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Tentar mover o arquivo
             if (move_uploaded_file($file['tmp_name'], $caminhoCompletoFisico)) {
                 // Sucesso no upload! Atualiza o path que será salvo no banco
-                $novaFotoPath = 'assets/uploads/produtos/' . $novoNomeArquivo;
+                $novaFotoPath = 'uploads/produtos/' . $novoNomeArquivo;
 
                 // Tenta apagar a foto antiga (se existir e for diferente do placeholder)
                 if (!empty($fotoAntigaPath) && $fotoAntigaPath !== 'assets/img/product_placeholder.png') {
@@ -122,12 +160,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $produto->foto_path = $novaFotoPath;
 
         // Tentar atualizar o produto no banco de dados
-        if ($produto->atualizar()) {
-            $_SESSION['message'] = "Produto '" . htmlspecialchars($produto->nome_produto) . "' atualizado com sucesso!";
-            // Redireciona para a lista de produtos
-            redirect('views/produtos/index.php');
-        } else {
-            $error = "Erro ao atualizar o produto. Verifique os logs ou tente novamente.";
+        try {
+            if ($produto->atualizar()) {
+                $_SESSION['message'] = "Produto '" . htmlspecialchars($produto->nome_produto) . "' atualizado com sucesso!";
+                // Redireciona para a lista de produtos
+                redirect('views/produtos/index.php');
+            } else {
+                $error = "Erro ao atualizar o produto. Verifique os logs ou tente novamente.";
+            }
+        } catch (Exception $e) {
+            $error = "Exceção ao atualizar o produto: " . $e->getMessage();
         }
     }
 }
@@ -192,38 +234,66 @@ $placeholderImgUrl = (defined('BASE_URL') ? BASE_URL : '/') . 'assets/img/produc
                         <?php endif; ?>
                         <?php include_once __DIR__ . '/../includes/alert_messages.php'; // Para mensagens da sessão ?>
 
-                        <!-- Linha 1: Nome, Código, Subcategoria -->
+                        <!-- Dropdowns dependentes -->
+                        <div class="form-group row">
+                            <div class="col-md-4">
+                                <label for="secao_id">Seção *</label>
+                                <select id="secao_id" name="secao_id" class="form-control" required>
+                                    <option value="">-- Selecione a Seção --</option>
+                                    <?php foreach ($secoes as $secao): ?>
+                                        <option value="<?php echo htmlspecialchars($secao['id']); ?>" <?php echo (isset($produto_data['secao_id']) && $produto_data['secao_id'] == $secao['id']) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($secao['nome']); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="categoria_id">Categoria *</label>
+                                <select id="categoria_id" name="categoria_id" class="form-control" required <?php echo empty($produto_data['secao_id']) ? 'disabled' : ''; ?>>
+                                    <option value="">-- Selecione Categoria --</option>
+                                    <?php if (!empty($produto_data['secao_id'])): ?>
+                                        <?php foreach ($categorias as $categoria): ?>
+                                            <?php if ($categoria['secao_id'] == $produto_data['secao_id']): ?>
+                                                <option value="<?php echo htmlspecialchars($categoria['id']); ?>" <?php echo (isset($produto_data['categoria_id']) && $produto_data['categoria_id'] == $categoria['id']) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($categoria['nome']); ?>
+                                                </option>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label for="subcategoria_id">Subcategoria *</label>
+                                <select id="subcategoria_id" name="subcategoria_id" class="form-control" required <?php echo empty($produto_data['categoria_id']) ? 'disabled' : ''; ?>>
+                                    <option value="">-- Selecione Subcategoria --</option>
+                                    <?php if (!empty($produto_data['categoria_id'])): ?>
+                                        <?php foreach ($subcategorias as $subcategoria): ?>
+                                            <?php if ($subcategoria['categoria_id'] == $produto_data['categoria_id']): ?>
+                                                <option value="<?php echo htmlspecialchars($subcategoria['id']); ?>" <?php echo (isset($produto_data['subcategoria_id']) && $produto_data['subcategoria_id'] == $subcategoria['id']) ? 'selected' : ''; ?>>
+                                                    <?php echo htmlspecialchars($subcategoria['nome']); ?>
+                                                </option>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Linha 1: Nome, Código -->
                          <div class="row">
-                            <div class="col-md-5">
+                            <div class="col-md-8">
                                 <div class="form-group">
                                     <label for="nome_produto">Nome do Produto <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control" id="nome_produto" name="nome_produto" required value="<?php echo htmlspecialchars($produto_data['nome_produto'] ?? ''); ?>">
                                 </div>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <div class="form-group">
                                     <label for="codigo">Código <span class="text-info">(Opcional, Único)</span></label>
                                     <input type="text" class="form-control" id="codigo" name="codigo" value="<?php echo htmlspecialchars($produto_data['codigo'] ?? ''); ?>">
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="form-group">
-                                    <label for="subcategoria_id">Subcategoria <span class="text-danger">*</span></label>
-                                    <select class="form-control" id="subcategoria_id" name="subcategoria_id" required>
-                                        <option value="">-- Selecione --</option>
-                                        <?php if (!empty($subcategorias)): ?>
-                                            <?php foreach ($subcategorias as $sub): ?>
-                                                <option value="<?php echo $sub['id']; ?>" <?php echo (isset($produto_data['subcategoria_id']) && $produto_data['subcategoria_id'] == $sub['id']) ? 'selected' : ''; ?>>
-                                                    <?php echo htmlspecialchars($sub['nome']); ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        <?php else: ?>
-                                            <option value="" disabled>Nenhuma subcategoria cadastrada</option>
-                                        <?php endif; ?>
-                                    </select>
-                                    <?php if (empty($subcategorias)): ?>
-                                        <small class="form-text text-danger">Cadastre subcategorias primeiro.</small>
-                                    <?php endif; ?>
+                                    <small class="form-text text-muted">Deixe em branco para não usar código.</small>
                                 </div>
                             </div>
                         </div>
@@ -333,3 +403,73 @@ $placeholderImgUrl = (defined('BASE_URL') ? BASE_URL : '/') . 'assets/img/produc
 // Incluir o rodapé da página (que já tem os scripts JS)
 include_once __DIR__ . '/../includes/footer.php';
 ?>
+
+<!-- Inicialização do plugin de máscara monetária -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-maskmoney/3.0.2/jquery.maskMoney.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Inicializa a máscara para campos monetários
+    $('.money').maskMoney({
+        prefix: 'R$ ',
+        allowNegative: false,
+        thousands: '.',
+        decimal: ',',
+        affixesStay: false
+    });
+    
+    // Inicializa o plugin para o input de arquivo personalizado
+    if (typeof bsCustomFileInput !== 'undefined') {
+        bsCustomFileInput.init();
+    }
+});
+</script>
+
+<!-- Lógica JavaScript para os dropdowns dependentes -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const dataHierarchy = <?php echo $dataHierarchy; ?>;
+
+    const secaoSelect = document.getElementById("secao_id");
+    const categoriaSelect = document.getElementById("categoria_id");
+    const subcategoriaSelect = document.getElementById("subcategoria_id");
+
+    secaoSelect.addEventListener("change", function () {
+        const secaoId = this.value;
+
+        categoriaSelect.innerHTML = '<option value="">-- Selecione Categoria --</option>';
+        categoriaSelect.disabled = true;
+
+        subcategoriaSelect.innerHTML = '<option value="">-- Selecione Subcategoria --</option>';
+        subcategoriaSelect.disabled = true;
+
+        if (secaoId) {
+            const categorias = dataHierarchy.categorias.filter(cat => cat.secao_id == secaoId);
+            categorias.forEach(cat => {
+                const option = document.createElement("option");
+                option.value = cat.id;
+                option.textContent = cat.nome;
+                categoriaSelect.appendChild(option);
+            });
+            categoriaSelect.disabled = false;
+        }
+    });
+
+    categoriaSelect.addEventListener("change", function () {
+        const categoriaId = this.value;
+
+        subcategoriaSelect.innerHTML = '<option value="">-- Selecione Subcategoria --</option>';
+        subcategoriaSelect.disabled = true;
+
+        if (categoriaId) {
+            const subcategorias = dataHierarchy.subcategorias.filter(sub => sub.categoria_id == categoriaId);
+            subcategorias.forEach(sub => {
+                const option = document.createElement("option");
+                option.value = sub.id;
+                option.textContent = sub.nome;
+                subcategoriaSelect.appendChild(option);
+            });
+            subcategoriaSelect.disabled = false;
+        }
+    });
+});
+</script>
