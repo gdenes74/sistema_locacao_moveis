@@ -1,0 +1,3 @@
+# Arquivos de configuração com dados sensíveis
+config/config.php
+config/database.php
