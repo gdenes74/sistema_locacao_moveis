@@ -90,14 +90,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Processar upload de foto
     if (isset($_FILES['foto']) && $_FILES['foto']['error'] == UPLOAD_ERR_OK) {
-        $upload_dir = __DIR__ . '/../../uploads/produtos/';
+        $upload_dir = __DIR__ . '/../../assets/uploads/produtos/';
         if (!is_dir($upload_dir)) {
             mkdir($upload_dir, 0755, true);
         }
         $foto_name = uniqid('foto_') . '_' . basename($_FILES['foto']['name']);
         $foto_path = $upload_dir . $foto_name;
         if (move_uploaded_file($_FILES['foto']['tmp_name'], $foto_path)) {
-            $produto->foto_path = 'uploads/produtos/' . $foto_name;
+            $produto->foto_path = 'assets/uploads/produtos/' . $foto_name;
         } else {
             $error = "Erro ao fazer upload da foto.";
         }

@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verifica se um NOVO arquivo foi enviado
     if (isset($_FILES['nova_foto']) && $_FILES['nova_foto']['error'] === UPLOAD_ERR_OK) {
         $file = $_FILES['nova_foto'];
-        $uploadDir = __DIR__ . '/../../uploads/produtos/'; // Caminho FÍSICO no servidor
+        $uploadDir = __DIR__ . '/../../assets/uploads/produtos/'; // Caminho FÍSICO no servidor
         $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         $maxFileSize = 2 * 1024 * 1024; // 2MB
 
@@ -132,7 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Tentar mover o arquivo
             if (move_uploaded_file($file['tmp_name'], $caminhoCompletoFisico)) {
                 // Sucesso no upload! Atualiza o path que será salvo no banco
-                $novaFotoPath = 'uploads/produtos/' . $novoNomeArquivo;
+                $novaFotoPath = 'assets/uploads/produtos/' . $novoNomeArquivo;
 
                 // Tenta apagar a foto antiga (se existir e for diferente do placeholder)
                 if (!empty($fotoAntigaPath) && $fotoAntigaPath !== 'assets/img/product_placeholder.png') {
