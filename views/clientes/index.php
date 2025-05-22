@@ -33,7 +33,7 @@ try {
             $errorMessage = "Nenhum cliente encontrado com os critérios informados.";
         }
     } else {
-        $stmt = $clienteModel->getAll();
+        $stmt = $clienteModel->listarTodos();
         $clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
         if (empty($clientes)) {
             $errorMessage = "Nenhum cliente encontrado no banco de dados.";
@@ -79,12 +79,14 @@ foreach ($clientes as $cliente) {
     <section class="content">
         <div class="container-fluid">
             <?php if ($successMessage): ?>
-                <div class="alert alert-success">
+                <div class="alert alert-success alert-dismissible fade show">
+                    <button type="button" class="close" data-dismiss="alert">&times;</button>
                     <?= htmlspecialchars($successMessage, ENT_QUOTES, 'UTF-8') ?>
                 </div>
             <?php endif; ?>
             <?php if ($errorMessage): ?>
-                <div class="alert alert-danger">
+                <div class="alert alert-danger alert-dismissible fade show">
+                    <button type="button" class="close" data-dismiss="alert">&times;</button>
                     <?= htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') ?>
                 </div>
             <?php endif; ?>
@@ -123,7 +125,7 @@ foreach ($clientes as $cliente) {
                                 <th>Endereço</th>
                                 <th>Obs:</th>
                                 <th>Data Cadastro</th>
-                                <th></th> <!-- Coluna para os botões -->
+                                <th>Ações</th> <!-- Coluna para os botões -->
                             </tr>
                         </thead>
                         <tbody>
@@ -174,29 +176,11 @@ foreach ($clientes as $cliente) {
                                             <a href="edit.php?id=<?= $cliente['id'] ?>" class="btn btn-warning btn-sm" title="Editar">
                                                 <i class="fas fa-edit"></i>
                                             </a>
-                                            <button class="btn btn-danger btn-sm" data-toggle="modal" data-target="#modalExcluir<?= $cliente['id'] ?>" title="Excluir">
+                                            <!-- Substituindo o botão modal por um link direto com confirmação JavaScript -->
+                                            <a href="delete.php?id=<?= $cliente['id'] ?>" class="btn btn-danger btn-sm" title="Excluir"
+                                               onclick="return confirm('Tem certeza que deseja excluir o cliente \'<?= htmlspecialchars($cliente['nome']) ?>\'? Esta ação não pode ser desfeita.');">
                                                 <i class="fas fa-trash"></i>
-                                            </button>
-                                            <!-- Modal de Exclusão -->
-                                            <div class="modal fade" id="modalExcluir<?= $cliente['id'] ?>" tabindex="-1">
-                                                <div class="modal-dialog modal-dialog-centered">
-                                                    <div class="modal-content">
-                                                        <div class="modal-header">
-                                                            <h5 class="modal-title">Confirmar Exclusão</h5>
-                                                            <button type="button" class="close" data-dismiss="modal">
-                                                                <span>&times;</span>
-                                                            </button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            Deseja realmente excluir o cliente <strong><?= htmlspecialchars($cliente['nome']) ?></strong>?
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
-                                                            <a href="delete.php?id=<?= $cliente['id'] ?>" class="btn btn-danger">Excluir</a>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                            </a>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

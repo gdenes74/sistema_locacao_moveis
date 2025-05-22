@@ -25,7 +25,7 @@ class Cliente {
     // --- MÉTODOS CRUD ---
 
     // Ler todos os clientes (para a lista principal - não inclui todos os detalhes para performance)
-    public function getAll() {
+    public function listarTodos() {
         // Se precisar do CPF/CNPJ na lista, adicione c.cpf_cnpj aqui
         $query = "SELECT c.id, c.nome, c.telefone, c.email, c.cpf_cnpj, c.endereco, c.cidade, c.observacoes, c.data_cadastro
                   FROM " . $this->table_name . " c

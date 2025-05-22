@@ -46,6 +46,11 @@ require_once '../includes/header.php';
             <a href="edit.php?id=<?= $cliente_id ?>" class="btn btn-warning btn-sm">
                 <i class="fas fa-edit"></i> Editar
             </a>
+            <!-- Novo botão de exclusão -->
+            <a href="delete.php?id=<?= $cliente_id ?>" class="btn btn-danger btn-sm" 
+               onclick="return confirm('Tem certeza que deseja excluir o cliente \'<?= htmlspecialchars($cliente->nome) ?>\'? Esta ação não pode ser desfeita.');">
+                <i class="fas fa-trash"></i> Excluir
+            </a>
         </div>
     </div>
     <hr>
@@ -121,6 +126,14 @@ require_once '../includes/header.php';
 
         <div class="card-footer text-end">
             <a href="index.php" class="btn btn-secondary">Voltar</a>
+            <a href="edit.php?id=<?= $cliente_id ?>" class="btn btn-warning">
+                <i class="fas fa-edit"></i> Editar
+            </a>
+            <!-- Novo botão de exclusão no footer -->
+            <a href="delete.php?id=<?= $cliente_id ?>" class="btn btn-danger" 
+               onclick="return confirm('Tem certeza que deseja excluir o cliente \'<?= htmlspecialchars($cliente->nome) ?>\'? Esta ação não pode ser desfeita.');">
+                <i class="fas fa-trash"></i> Excluir
+            </a>
         </div>
     </div>
     <!-- /.card -->
