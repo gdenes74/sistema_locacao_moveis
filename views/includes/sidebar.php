@@ -15,13 +15,12 @@ if (session_status() === PHP_SESSION_NONE) {
             <li><a href="<?php echo BASE_URL; ?>views/dashboard/dashboard.php">Dashboard</a></li>
             <li><a href="<?php echo BASE_URL; ?>views/clientes/index.php">Clientes</a></li>
             <li><a href="<?php echo BASE_URL; ?>views/produtos/index.php">Produtos</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/consultas/listar.php">Consultas</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/orcamentos/listar.php">Orçamentos</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/pedidos/listar.php">Pedidos</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/lavanderia/listar.php">Lavanderia</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/manutencao/listar.php">Manutenção</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/relatorios/listar.php">Relatórios</a></li>
-            <li><a href="<?php echo BASE_URL; ?>views/alertas/listar.php">Alertas</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/orcamentos/index.php">Orçamentos</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/pedidos/index.php">Pedidos</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/lavanderia/index.php">Lavanderia</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/manutencao/index.php">Manutenção</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/relatorios/index.php">Relatórios</a></li>
+            <li><a href="<?php echo BASE_URL; ?>views/alertas/index.php">Alertas</a></li>
 
             <!-- Adicionando Seções, Categorias e Subcategorias conforme solicitado -->
             <li><a href="<?php echo BASE_URL; ?>views/secoes/index.php">Seções</a></li>

@@ -3,64 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <!-- Define o título da página. -->
     <title><?php echo htmlspecialchars($page_title ?? 'Sistema Toalhas'); ?></title>
 
-    <!-- Bootstrap CSS (v4.6.2) - Apenas UM link é necessário -->
+    <!-- Bootstrap CSS (v4.6.2) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 
-    <!-- Font Awesome CSS (para ícones) -->
+    <!-- Font Awesome CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 
-    <!-- Estilos CSS básicos (mantidos como você tinha) + Estilos personalizados para o dashboard -->
+    <!-- jQuery UI CSS -->
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+
+    <!-- Select2 CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+
+    <!-- Custom Styles -->
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #f8f9fa;
             padding-top: 20px;
-            padding-bottom: 60px; /* Aumentei um pouco para garantir espaço para o rodapé */
+            padding-bottom: 60px;
         }
-        .main-content-container { /* Renomeei a classe para evitar conflito com '.container' do Bootstrap */
+        .main-content-container {
             background-color: #ffffff;
             padding: 25px;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.05);
             margin-top: 20px;
-            min-height: 70vh; /* Garante uma altura mínima */
+            min-height: 70vh;
         }
         .table thead th {
-            background-color: #e9ecef; /* Mudei para um cinza mais claro (thead-light) */
+            background-color: #e9ecef;
             color: #495057;
             border-color: #dee2e6;
         }
         .card-title {
-            font-size: 1.1rem; /* Ajuste leve no tamanho do título do card */
+            font-size: 1.1rem;
         }
-        /* Estilos personalizados para os cards do dashboard */
         .bg-light-blue {
-            background-color: #e3f2fd; /* Azul claro */
+            background-color: #e3f2fd;
         }
         .bg-light-green {
-            background-color: #e8f5e9; /* Verde claro */
+            background-color: #e8f5e9;
         }
         .bg-light-yellow {
-            background-color: #fffde7; /* Amarelo claro */
+            background-color: #fffde7;
         }
         .card-custom {
-            border-radius: 0.75rem; /* Arredondar os cantos */
-            padding: 1.5rem; /* Adicionar espaçamento interno */
+            border-radius: 0.75rem;
+            padding: 1.5rem;
         }
-        /* Adicione mais estilos personalizados aqui, se necessário */
     </style>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- jQuery UI -->
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+    <!-- Select2 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.full.min.js"></script>
+    <!-- Inputmask -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.7/jquery.inputmask.min.js"></script>
 </head>
 <body>
-    <!-- Barra de Navegação (Navbar) - Se você usar, coloque aqui -->
-    <?php // include_once __DIR__ . '/navbar.php'; // Exemplo se você separar a navbar ?>
-    <!-- Ou cole o código HTML da navbar aqui -->
-
-    <!-- Abre o container principal onde o conteúdo da página será carregado -->
-    <!-- Este container será fechado no footer.php -->
     <div class="container main-content-container">
-        <!-- O conteúdo específico da página (ex: views/produtos/index.php) começa aqui -->
-        <!-- Ele será inserido entre a inclusão do header.php e do footer.php nos seus arquivos de view -->
+        <!-- O conteúdo da página começa aqui -->

@@ -34,7 +34,7 @@ if (!$orcamentoModel->getById($id)) {
 $itens = $orcamentoModel->getItens($id);
 
 // Carregar dados para autocomplete de clientes
-$stmtClientes = $clienteModel->getAll();
+$stmtClientes = $clienteModel->listarTodos();
 $autocompleteData = [];
 while ($row = $stmtClientes->fetch(PDO::FETCH_ASSOC)) {
     $autocompleteData[] = [
