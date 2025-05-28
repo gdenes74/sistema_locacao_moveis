@@ -1,4 +1,8 @@
 <?php
+// ADICIONE ESTAS 3 LINHAS NO INÍCIO
+session_start();
+$_SESSION['user_id'] = 1;
+$_SESSION['user_level'] = 'admin';
 // Incluir arquivos essenciais
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/database.php';

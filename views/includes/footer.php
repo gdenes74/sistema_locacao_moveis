@@ -1,275 +1,177 @@
 <?php
-// Arquivo: views/includes/footer.php
-
-// BASE_URL deve estar definida (config.php)
+// views/includes/footer.php
 if (!defined('BASE_URL')) {
-    die('Erro Crítico: BASE_URL não está definida no footer.php. Verifique se config/config.php foi incluído corretamente.');
+    if (file_exists(__DIR__ . '/../../config/config.php')) {
+        require_once __DIR__ . '/../../config/config.php';
+    } else {
+        die('Erro Crítico: BASE_URL não está definida no footer.php.');
+    }
 }
 ?>
+                </div> <!-- Fecha o col-md-9 ou col-md-12 aberto no header.php -->
+        </div> <!-- Fecha o .row aberto no header.php -->
+    </div> <!-- Fecha o .main-container (ou .container-fluid) aberto no header.php -->
 
-    <!-- Control Sidebar (Opcional, para configurações de tema do AdminLTE) -->
-    <aside class="control-sidebar control-sidebar-dark">
-        <!-- Control sidebar content vai aqui -->
-        <div class="p-3">
-            <!--<h5>Configurações de Tema</h5>
-            <p>Alguma opção de configuração aqui.</p>-->
-        </div>
-    </aside>
-    <!-- /.control-sidebar -->
-
-    <!-- Main Footer (Rodapé principal visível na página) -->
-    <footer class="main-footer">
-        <strong>Copyright &copy; <?php echo date('Y'); ?> <a href="<?php echo BASE_URL; ?>"><?php echo defined('APP_NAME') ? APP_NAME : 'Seu Sistema'; ?></a>.</strong>
-        Todos os direitos reservados.
-        <div class="float-right d-none d-sm-inline-block">
-            <b>Versão</b> <?php echo defined('APP_VERSION') ? APP_VERSION : '1.0.0'; ?>
-        </div>
+    <footer class="text-center mt-5 mb-3">
+        <p>&copy; <?php echo date('Y'); ?> <?php echo defined('APP_NAME') ? htmlspecialchars(APP_NAME) : 'Sistema Toalhas'; ?>. Todos os direitos reservados. Versão <?php echo defined('APP_VERSION') ? htmlspecialchars(APP_VERSION) : '1.0.0'; ?></p>
     </footer>
 
-</div>
-<!-- ./wrapper (Esta div foi aberta no header.php) -->
+    <!-- SCRIPTS JS ESSENCIAIS via CDN -->
 
-<!-- SCRIPTS JS ESSENCIAIS -->
+    <!-- jQuery via CDN (Se não estiver já no header, mas é melhor no head ou antes de scripts que o usam) -->
+    <!-- <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script> --> 
+    <!-- O seu header.php já inclui o jQuery 3.6.0, então não precisa de novo -->
 
-<!-- jQuery -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/jquery/jquery.min.js"></script>
 
-<!-- jQuery UI 1.11.4 -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/jquery-ui/jquery-ui.min.js"></script>
-<script>
-  // Resolve conflito entre tooltip do jQuery UI e tooltip do Bootstrap
-  $.widget.bridge('uibutton', $.ui.button)
-</script>
+    <!-- Bootstrap Bundle JS (inclui Popper.js) via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- jQuery UI JS via CDN (Se realmente precisar) -->
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 
-<!-- Bootstrap 4 JS -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <!-- Select2 JS via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.full.min.js"></script>
+    <!-- Se usar o tema Select2 para Bootstrap 4, não precisa de JS adicional geralmente -->
 
-<!-- Select2 JS (Para selects melhorados) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/select2/js/select2.full.min.js"></script>
+    <!-- Inputmask JS via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/jquery.inputmask.min.js"></script> <!-- Versão atualizada -->
 
-<!-- InputMask (Para máscaras de entrada) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/inputmask/jquery.inputmask.min.js"></script>
+    <!-- Moment.js via CDN (Necessário para alguns pickers de data/hora) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/locale/pt-br.min.js"></script> <!-- Tradução -->
 
-<!-- Moment.js (Necessário para Tempusdominus e Daterangepicker) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/moment/moment.min.js"></script>
-<script src="<?php echo BASE_URL; ?>/assets/plugins/moment/locale/pt-br.js"></script>
+    <!-- Tempusdominus Bootstrap 4 JS via CDN (Se usar o datetimepicker do Bootstrap 4) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/js/tempusdominus-bootstrap-4.min.js"></script>
 
-<!-- Tempusdominus Bootstrap 4 (Para Date/Time Picker) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/tempusdominus-bootstrap-4/js/tempusdominus-bootstrap-4.min.js"></script>
+    <!-- Toastr JS (Para notificações) via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 
-<!-- Daterange picker -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/daterangepicker/daterangepicker.js"></script>
+    <!-- SweetAlert2 JS (Para alertas) via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 
-<!-- overlayScrollbars -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js"></script>
 
-<!-- AdminLTE App JS -->
-<script src="<?php echo BASE_URL; ?>/assets/dist/js/adminlte.js"></script>
-
-<!-- SweetAlert2 (Para alertas bonitos) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/sweetalert2/sweetalert2.min.js"></script>
-
-<!-- Toastr (Para notificações) -->
-<script src="<?php echo BASE_URL; ?>/assets/plugins/toastr/toastr.min.js"></script>
-
-<!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS -->
-<script>
-$(function () {
-    // Inicializar Select2
-    $('.select2').select2({
-        theme: 'bootstrap4',
-        language: 'pt-BR',
-        placeholder: 'Selecione uma opção',
-        allowClear: true
-    });
-
-    // Inicializar Select2 com busca AJAX para clientes
-    $('#cliente_id').select2({
-        theme: 'bootstrap4',
-        language: 'pt-BR',
-        placeholder: 'Digite para buscar um cliente...',
-        allowClear: true,
-        minimumInputLength: 2,
-        ajax: {
-            url: '<?php echo BASE_URL; ?>/ajax/buscar_clientes.php',
-            dataType: 'json',
-            delay: 250,
-            data: function (params) {
-                return {
-                    q: params.term,
-                    page: params.page
-                };
-            },
-            processResults: function (data, params) {
-                params.page = params.page || 1;
-                return {
-                    results: data.items,
-                    pagination: {
-                        more: (params.page * 30) < data.total_count
-                    }
-                };
-            },
-            cache: true
+    <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS (Como os que você tinha) -->
+    <script>
+    $(function () { // Equivalente a $(document).ready()
+        // Inicializar Select2
+        if (typeof $.fn.select2 === 'function') {
+            $('.select2').select2({
+                theme: 'bootstrap4', // Para usar com o tema do Bootstrap 4
+                language: 'pt-BR',
+                placeholder: 'Selecione uma opção',
+                allowClear: true,
+                width: '100%' // Garante que o select2 ocupe a largura disponível
+            });
+        } else {
+            console.warn('Select2 não está carregado.');
         }
-    });
 
-    // Configurar máscaras de entrada
-    if (typeof $.fn.inputmask !== 'undefined') {
-        // Máscara para telefone
-        $('.telefone').inputmask('(99) 9999[9]-9999', {
-            removeMaskOnSubmit: true
-        });
-        
-        // Máscara para CPF
-        $('.cpf').inputmask('999.999.999-99', {
-            removeMaskOnSubmit: true
-        });
-        
-        // Máscara para CNPJ
-        $('.cnpj').inputmask('99.999.999/9999-99', {
-            removeMaskOnSubmit: true
-        });
-        
-        // Máscara para CEP
-        $('.cep').inputmask('99999-999', {
-            removeMaskOnSubmit: true
-        });
-        
-        // Máscara para valores monetários
-        $('.money').inputmask('currency', {
-            prefix: 'R$ ',
-            rightAlign: false,
-            radixPoint: ',',
-            groupSeparator: '.',
-            digits: 2,
-            autoGroup: true,
-            removeMaskOnSubmit: true
-        });
-    }
-
-    // Configurar Datepicker do jQuery UI
-    if (typeof $.datepicker !== 'undefined') {
-        $.datepicker.regional['pt-BR'] = {
-            closeText: 'Fechar',
-            prevText: '&#x3C;Anterior',
-            nextText: 'Próximo&#x3E;',
-            currentText: 'Hoje',
-            monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
-            monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],
-            dayNames: ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'],
-            dayNamesShort: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
-            dayNamesMin: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
-            weekHeader: 'Sm',
-            dateFormat: 'dd/mm/yy',
-            firstDay: 0,
-            isRTL: false,
-            showMonthAfterYear: false,
-            yearSuffix: ''
-        };
-        $.datepicker.setDefaults($.datepicker.regional['pt-BR']);
-
-        $('.datepicker').datepicker({
-            dateFormat: 'dd/mm/yy',
-            changeMonth: true,
-            changeYear: true,
-            showButtonPanel: true
-        });
-    }
-
-    // Configurar Tempusdominus
-    $('[data-toggle="datetimepicker"]').datetimepicker({
-        locale: 'pt-br',
-        format: 'L',
-        icons: {
-            time: 'far fa-clock',
-            date: 'far fa-calendar-alt',
-            up: 'fas fa-arrow-up',
-            down: 'fas fa-arrow-down',
-            previous: 'fas fa-chevron-left',
-            next: 'fas fa-chevron-right',
-            today: 'far fa-calendar-check',
-            clear: 'fas fa-trash',
-            close: 'fas fa-times'
+        // Configurar máscaras de entrada com Inputmask
+        if (typeof $.fn.inputmask !== 'undefined') {
+            $('.telefone').inputmask('(99) 9999[9]-9999');
+            $('.cpf').inputmask('999.999.999-99');
+            $('.cnpj').inputmask('99.999.999/9999-99');
+            $('.cep').inputmask('99999-999');
+            $('.date').inputmask('dd/mm/yyyy', { alias: 'datetime', inputFormat: 'dd/mm/yyyy', placeholder: '__/__/____' });
+            $('.money').inputmask('currency', {
+                prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
+                autoGroup: true, rightAlign: false, unmaskAsNumber: true
+            });
+        } else {
+            console.warn('Inputmask não está carregado.');
         }
-    });
 
-    // Inicializar tooltips
-    $('[data-toggle="tooltip"]').tooltip();
+        // Configurar Datepicker (jQuery UI Datepicker)
+        // Se você for usar o Tempus Dominus, esta parte pode não ser necessária
+        // ou pode ser para campos de data mais simples sem hora.
+        if (typeof $.datepicker !== 'undefined') {
+            $.datepicker.setDefaults($.datepicker.regional['pt-BR']); // Definido no seu footer original
+             try { // Adicionado try-catch para o regional
+                $.datepicker.regional['pt-BR'] = { /* ... suas configs regionais ... */ };
+                $.datepicker.setDefaults($.datepicker.regional['pt-BR']);
+            } catch(e) { console.warn("Erro ao configurar regional do jQuery UI Datepicker", e); }
 
-    // Configurar Toastr
-    toastr.options = {
-        "closeButton": true,
-        "debug": false,
-        "newestOnTop": true,
-        "progressBar": true,
-        "positionClass": "toast-top-right",
-        "preventDuplicates": false,
-        "onclick": null,
-        "showDuration": "300",
-        "hideDuration": "1000",
-        "timeOut": "5000",
-        "extendedTimeOut": "1000",
-        "showEasing": "swing",
-        "hideEasing": "linear",
-        "showMethod": "fadeIn",
-        "hideMethod": "fadeOut"
-    };
-
-    // Função global para mostrar mensagens
-    window.mostrarMensagem = function(tipo, mensagem) {
-        switch(tipo) {
-            case 'success':
-                toastr.success(mensagem);
-                break;
-            case 'error':
-                toastr.error(mensagem);
-                break;
-            case 'warning':
-                toastr.warning(mensagem);
-                break;
-            case 'info':
-                toastr.info(mensagem);
-                break;
+            $('.datepicker').datepicker({ // Para campos com a classe 'datepicker'
+                dateFormat: 'dd/mm/yy',
+                changeMonth: true,
+                changeYear: true
+            });
         }
-    };
 
-    // Função para confirmar exclusão
-    window.confirmarExclusao = function(url, mensagem) {
-        Swal.fire({
-            title: 'Tem certeza?',
-            text: mensagem || "Você não poderá reverter esta ação!",
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Sim, excluir!',
-            cancelButtonText: 'Cancelar'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = url;
+        // Configurar Tempus Dominus (se seus inputs usarem `data-toggle="datetimepicker"`)
+        if (typeof $.fn.datetimepicker === 'function') {
+            // Para campos de data
+            $('.datetimepicker-input-date').datetimepicker({
+                locale: 'pt-br',
+                format: 'L', // Formato de data localizado (ex: 01/10/2023)
+                icons: { /* ... ícones ... */ }
+            });
+            // Para campos de data e hora
+            $('.datetimepicker-input-datetime').datetimepicker({
+                locale: 'pt-br',
+                format: 'L LTS', // Formato de data e hora localizado (ex: 01/10/2023 14:30:00)
+                icons: { /* ... ícones ... */ }
+            });
+        }
+
+
+        // Inicializar tooltips do Bootstrap
+        if (typeof $.fn.tooltip === 'function') {
+            $('[data-toggle="tooltip"]').tooltip();
+        }
+
+        // Configurar Toastr
+        if (typeof toastr !== 'undefined') {
+            toastr.options = {
+                "closeButton": true, "progressBar": true, "positionClass": "toast-top-right",
+                "timeOut": "5000", /* ... outras opções ... */
+            };
+        }
+
+        // Função global para mostrar mensagens (adaptada para Toastr ou alert)
+        window.mostrarMensagem = function(tipo, mensagem, titulo = '') {
+            if (typeof toastr !== 'undefined') {
+                switch(tipo) {
+                    case 'success': toastr.success(mensagem, titulo); break;
+                    case 'error': toastr.error(mensagem, titulo); break;
+                    case 'warning': toastr.warning(mensagem, titulo); break;
+                    default: toastr.info(mensagem, titulo); break;
+                }
+            } else {
+                alert((titulo ? titulo + ": " : "") + mensagem); // Fallback
             }
-        });
-        return false;
-    };
+        };
+        
+        // Mostrar mensagens da sessão (se houver)
+        <?php if (isset($_SESSION['mensagem_sucesso'])): ?>
+            window.mostrarMensagem('success', '<?php echo addslashes($_SESSION['mensagem_sucesso']); ?>');
+            <?php unset($_SESSION['mensagem_sucesso']); ?>
+        <?php endif; ?>
+        <?php if (isset($_SESSION['mensagem_erro'])): ?>
+            window.mostrarMensagem('error', '<?php echo addslashes($_SESSION['mensagem_erro']); ?>');
+            <?php unset($_SESSION['mensagem_erro']); ?>
+        <?php endif; ?>
+        // Adicione para 'aviso' e 'info' se usar
 
-});
-</script>
+    });
+    </script>
 
-<!-- Scripts específicos da página -->
-<?php
-if (isset($extra_js) && is_array($extra_js)) {
-    foreach ($extra_js as $js_file) {
-        echo '<script src="' . htmlspecialchars($js_file) . '"></script>' . "\n";
+    <!-- Scripts específicos da página (definidos pela view) -->
+    <?php
+    if (isset($extra_js) && is_array($extra_js)) {
+        foreach ($extra_js as $js_file) {
+            echo '<script src="' . htmlspecialchars($js_file) . '"></script>' . "\n";
+        }
     }
-}
-?>
-
-<!-- Script customizado inline (se houver) -->
-<?php if (isset($custom_js)): ?>
-<script>
-<?php echo $custom_js; ?>
-</script>
-<?php endif; ?>
+    ?>
+    <!-- Script customizado inline (definido pela view) -->
+    <?php if (isset($custom_js) && !empty(trim($custom_js))): ?>
+    <script>
+    //<![CDATA[
+    <?php echo $custom_js; ?>
+    //]]>
+    </script>
+    <?php endif; ?>
 
 </body>
 </html>
