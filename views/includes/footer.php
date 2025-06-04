@@ -8,45 +8,63 @@ if (!defined('BASE_URL')) {
     }
 }
 ?>
-                </div> <!-- Fecha o col-md-9 ou col-md-12 aberto no header.php -->
-        </div> <!-- Fecha o .row aberto no header.php -->
-    </div> <!-- Fecha o .main-container (ou .container-fluid) aberto no header.php -->
+            </div> <!-- Fecha o .content-wrapper aberto no header.php -->
 
-    <footer class="text-center mt-5 mb-3">
-        <p>&copy; <?php echo date('Y'); ?> <?php echo defined('APP_NAME') ? htmlspecialchars(APP_NAME) : 'Sistema Toalhas'; ?>. Todos os direitos reservados. Versão <?php echo defined('APP_VERSION') ? htmlspecialchars(APP_VERSION) : '1.0.0'; ?></p>
+    <footer class="main-footer text-center">
+        <strong>Copyright &copy; <?php echo date('Y'); ?> <a href="#"><?php echo defined('APP_NAME') ? htmlspecialchars(APP_NAME) : 'Sistema Toalhas'; ?></a>.</strong>
+        Todos os direitos reservados.
+        <div class="float-right d-none d-sm-inline-block">
+            <b>Versão</b> <?php echo defined('APP_VERSION') ? htmlspecialchars(APP_VERSION) : '1.0.0'; ?>
+        </div>
     </footer>
 
-    <!-- SCRIPTS JS ESSENCIAIS via CDN -->
+    <aside class="control-sidebar control-sidebar-dark"></aside>
+</div> <!-- Fecha o .wrapper aberto no header.php -->
 
-    <!-- jQuery via CDN (Seu header.php já inclui o jQuery 3.6.0) -->
+    <!-- SCRIPTS JS ESSENCIAIS -->
 
-    <!-- Bootstrap Bundle JS (inclui Popper.js) via CDN -->
+    <!-- 1. jQuery (SEMPRE PRIMEIRO) -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Se você estiver usando o jQuery local do AdminLTE, o caminho seria algo como: -->
+    <!-- <script src="<?= BASE_URL ?>/assets/plugins/jquery/jquery.min.js"></script> -->
+
+    <!-- 2. Bootstrap Bundle JS (inclui Popper.js - depende do jQuery) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- jQuery UI JS via CDN -->
-    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+    <!-- 3. AdminLTE App JS (depende do jQuery e Bootstrap) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/3.2.0/js/adminlte.min.js"></script>
+    <!-- Se local: <script src="<?= BASE_URL ?>/assets/dist/js/adminlte.min.js"></script> -->
 
-    <!-- Select2 JS via CDN -->
+
+    <!-- 4. OUTROS PLUGINS (todos dependem do jQuery) -->
+
+    <!-- Select2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.full.min.js"></script>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/i18n/pt-BR.js"></script> -->
 
-    <!-- Inputmask JS via CDN -->
+    <!-- Inputmask JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/jquery.inputmask.min.js"></script>
 
-    <!-- Moment.js via CDN (Necessário para alguns pickers de data/hora) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/locale/pt-br.min.js"></script>
+    <!-- Bootstrap Datepicker JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/locales/bootstrap-datepicker.pt-BR.min.js"></script>
 
-    <!-- Tempusdominus Bootstrap 4 JS via CDN (Se usar o datetimepicker do Bootstrap 4) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/js/tempusdominus-bootstrap-4.min.js"></script>
-
-    <!-- Toastr JS (Para notificações) via CDN -->
+    <!-- Toastr JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 
-    <!-- SweetAlert2 JS (Para alertas) via CDN -->
+    <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 
+    <!-- jQuery UI JS (COMENTADO - REMOVER SE NÃO USAR PARA OUTROS COMPONENTES) -->
+    <!-- <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script> -->
 
-    <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS -->
+    <!-- Moment.js e Tempusdominus (COMENTADOS - REMOVER SE NÃO USAR PARA OUTROS CAMPOS) -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script> -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/locale/pt-br.min.js"></script> -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/js/tempusdominus-bootstrap-4.min.js"></script> -->
+
+
+    <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS (AGORA COM JQUERY GARANTIDO) -->
     <script>
     $(function () { // Equivalente a $(document).ready()
         // Inicializar Select2
@@ -58,8 +76,16 @@ if (!defined('BASE_URL')) {
                 allowClear: true,
                 width: '100%'
             });
+            $(document).on('select2:open', () => {
+                // Para modais, foca no campo de busca do select2
+                if ($('.modal.show').length > 0) {
+                    setTimeout(function() { // Pequeno delay para garantir que o campo exista
+                        document.querySelector('.select2-container--open .select2-search__field').focus();
+                    }, 100);
+                }
+            });
         } else {
-            console.warn('Select2 não está carregado.');
+            console.warn('Select2 não está carregado ou $.fn.select2 não é uma função.');
         }
 
         // Configurar máscaras de entrada com Inputmask
@@ -68,85 +94,14 @@ if (!defined('BASE_URL')) {
             $('.cpf').inputmask('999.999.999-99');
             $('.cnpj').inputmask('99.999.999/9999-99');
             $('.cep').inputmask('99999-999');
-            // A máscara para .date pode ser removida daqui se o datepicker cuidar disso,
-            // ou mantida se você tiver campos .date que não são datepickers.
-            $('.date').inputmask('dd/mm/yyyy', { alias: 'datetime', inputFormat: 'dd/mm/yyyy', placeholder: '__/__/____' });
             $('.money').inputmask('currency', {
                 prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
-                autoGroup: true, rightAlign: false, unmaskAsNumber: true // unmaskAsNumber: true pode ser útil para obter o valor numérico
+                autoGroup: true, rightAlign: false,
+                clearMaskOnLostFocus: false
             });
         } else {
             console.warn('Inputmask não está carregado.');
         }
-
-        // Configurar Datepicker (jQuery UI Datepicker)
-        // ***********************************************************************************
-        // ESTA SEÇÃO FOI COMENTADA PARA PERMITIR QUE AS PÁGINAS INDIVIDUAIS
-        // (COMO create.php e edit.php) CONTROLEM A INICIALIZAÇÃO DO DATEPICKER
-        // COM SUAS OPÇÕES ESPECÍFICAS (EX: onSelect para dia da semana).
-        // ***********************************************************************************
-        /*
-        if (typeof $.datepicker !== 'undefined') {
-            try {
-                // Definições regionais para pt-BR (exemplo)
-                $.datepicker.regional['pt-BR'] = {
-                    closeText: 'Fechar',
-                    prevText: '&#x3C;Anterior',
-                    nextText: 'Próximo&#x3E;',
-                    currentText: 'Hoje',
-                    monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
-                    monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun',
-                    'Jul','Ago','Set','Out','Nov','Dez'],
-                    dayNames: ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'],
-                    dayNamesShort: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
-                    dayNamesMin: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
-                    weekHeader: 'Sm',
-                    dateFormat: 'dd/mm/yy',
-                    firstDay: 0,
-                    isRTL: false,
-                    showMonthAfterYear: false,
-                    yearSuffix: ''
-                };
-                $.datepicker.setDefaults($.datepicker.regional['pt-BR']);
-            } catch(e) {
-                console.warn("Erro ao configurar regional do jQuery UI Datepicker no footer:", e);
-            }
-
-            // Inicialização genérica que foi comentada:
-            // $('.datepicker').datepicker({
-            //     dateFormat: 'dd/mm/yy',
-            //     changeMonth: true,
-            //     changeYear: true
-            //     // Se precisar de showOn: 'button' globalmente, adicione aqui
-            //     // e remova das inicializações específicas da página.
-            // });
-        } else {
-            console.warn('jQuery UI Datepicker ($.datepicker) não está carregado.');
-        }
-        */
-        // ***********************************************************************************
-        // FIM DA SEÇÃO COMENTADA DO DATEPICKER
-        // ***********************************************************************************
-
-
-        // Configurar Tempus Dominus (se seus inputs usarem `data-toggle="datetimepicker"`)
-        if (typeof $.fn.datetimepicker === 'function') {
-            // Para campos de data
-            $('.datetimepicker-input-date').datetimepicker({
-                locale: 'pt-br',
-                format: 'L',
-                // Adicione seus ícones aqui se estiver usando FontAwesome ou similar
-                // icons: { time: 'far fa-clock', date: 'far fa-calendar', ... }
-            });
-            // Para campos de data e hora
-            $('.datetimepicker-input-datetime').datetimepicker({
-                locale: 'pt-br',
-                format: 'L LTS',
-                // Adicione seus ícones aqui
-            });
-        }
-
 
         // Inicializar tooltips do Bootstrap
         if (typeof $.fn.tooltip === 'function') {
@@ -156,25 +111,13 @@ if (!defined('BASE_URL')) {
         // Configurar Toastr
         if (typeof toastr !== 'undefined') {
             toastr.options = {
-                "closeButton": true,
-                "debug": false,
-                "newestOnTop": true,
-                "progressBar": true,
-                "positionClass": "toast-top-right",
-                "preventDuplicates": false,
-                "onclick": null,
-                "showDuration": "300",
-                "hideDuration": "1000",
-                "timeOut": "5000",
-                "extendedTimeOut": "1000",
-                "showEasing": "swing",
-                "hideEasing": "linear",
-                "showMethod": "fadeIn",
-                "hideMethod": "fadeOut"
+                "closeButton": true, "debug": false, "newestOnTop": true, "progressBar": true,
+                "positionClass": "toast-top-right", "preventDuplicates": false, "onclick": null,
+                "showDuration": "300", "hideDuration": "1000", "timeOut": "5000", "extendedTimeOut": "1000",
+                "showEasing": "swing", "hideEasing": "linear", "showMethod": "fadeIn", "hideMethod": "fadeOut"
             };
         }
 
-        // Função global para mostrar mensagens (adaptada para Toastr ou alert)
         window.mostrarMensagem = function(tipo, mensagem, titulo = '') {
             if (typeof toastr !== 'undefined') {
                 switch(tipo) {
@@ -184,45 +127,44 @@ if (!defined('BASE_URL')) {
                     default: toastr.info(mensagem, titulo); break;
                 }
             } else {
-                alert((titulo ? titulo + ": " : "") + mensagem); // Fallback
+                alert((titulo ? titulo + ": " : "") + mensagem);
             }
         };
 
-        // Mostrar mensagens da sessão (se houver)
-        <?php if (isset($_SESSION['mensagem_sucesso'])): ?>
-            window.mostrarMensagem('success', '<?php echo addslashes(str_replace("\n", "\\n", $_SESSION['mensagem_sucesso'])); ?>');
-            <?php unset($_SESSION['mensagem_sucesso']); ?>
+        <?php if (isset($_SESSION['success_message'])): ?>
+            window.mostrarMensagem('success', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['success_message'])); ?>');
+            <?php unset($_SESSION['success_message']); ?>
         <?php endif; ?>
-        <?php if (isset($_SESSION['mensagem_erro'])): ?>
-            window.mostrarMensagem('error', '<?php echo addslashes(str_replace("\n", "\\n", $_SESSION['mensagem_erro'])); ?>');
-            <?php unset($_SESSION['mensagem_erro']); ?>
+        <?php if (isset($_SESSION['error_message'])): ?>
+            window.mostrarMensagem('error', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['error_message'])); ?>');
+            <?php unset($_SESSION['error_message']); ?>
         <?php endif; ?>
-        <?php if (isset($_SESSION['mensagem_aviso'])): // Adicionando para consistência ?>
-            window.mostrarMensagem('warning', '<?php echo addslashes(str_replace("\n", "\\n", $_SESSION['mensagem_aviso'])); ?>');
+        <?php if (isset($_SESSION['warning_message'])): ?>
+            window.mostrarMensagem('warning', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['warning_message'])); ?>');
+            <?php unset($_SESSION['warning_message']); ?>
+        <?php endif; ?>
+        <?php if (isset($_SESSION['mensagem_aviso'])): ?>
+            window.mostrarMensagem('warning', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['mensagem_aviso'])); ?>');
             <?php unset($_SESSION['mensagem_aviso']); ?>
         <?php endif; ?>
-        <?php if (isset($_SESSION['mensagem_info'])): // Adicionando para consistência ?>
-            window.mostrarMensagem('info', '<?php echo addslashes(str_replace("\n", "\\n", $_SESSION['mensagem_info'])); ?>');
+        <?php if (isset($_SESSION['mensagem_info'])): ?>
+            window.mostrarMensagem('info', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['mensagem_info'])); ?>');
             <?php unset($_SESSION['mensagem_info']); ?>
         <?php endif; ?>
-
     });
     </script>
 
-    <!-- Scripts específicos da página (definidos pela view como $extra_js) -->
     <?php
     if (isset($extra_js) && is_array($extra_js)) {
         foreach ($extra_js as $js_file) {
-            // Certifique-se de que $js_file é um caminho seguro e validado
             echo '<script src="' . htmlspecialchars($js_file, ENT_QUOTES, 'UTF-8') . '"></script>' . "\n";
         }
     }
     ?>
-    <!-- Script customizado inline (definido pela view como $custom_js) -->
     <?php if (isset($custom_js) && !empty(trim($custom_js))): ?>
     <script>
     //<![CDATA[
-    <?php echo $custom_js; // O $custom_js que vem da página será executado aqui ?>
+    <?php echo $custom_js; ?>
     //]]>
     </script>
     <?php endif; ?>
