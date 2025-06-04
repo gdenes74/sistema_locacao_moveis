@@ -58,9 +58,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Configurar título da página
 $page_title = "Adicionar Nova Subcategoria";
 
-// Incluir cabeçalho e sidebar
+// Incluir cabeçalho 
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 ?>
 
 <!-- Content Wrapper -->

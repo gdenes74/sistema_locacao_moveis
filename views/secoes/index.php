@@ -33,8 +33,7 @@ $num = $stmt->rowCount(); // Contar quantas seções foram encontradas
 
 // Incluir o cabeçalho da página (HTML, CSS, etc.)
 include_once __DIR__ . '/../includes/header.php'; 
-// Incluir a barra lateral (Menu)
-include_once __DIR__ . '/../includes/sidebar.php'; 
+
 ?>
 
 <!-- Content Wrapper. Contém o conteúdo da página -->

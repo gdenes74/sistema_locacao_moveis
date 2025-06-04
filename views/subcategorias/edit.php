@@ -80,7 +80,7 @@ $page_title = "Editar Subcategoria";
 
 // Includes de layout
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 ?>
 
 <!-- Content Wrapper -->

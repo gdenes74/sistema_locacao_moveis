@@ -125,7 +125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Inclui o cabeçalho
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 ?>
 
 <!-- Conteúdo principal -->

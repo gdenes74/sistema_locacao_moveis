@@ -58,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirmar_exclusao'])
     include_once __DIR__ . '/../includes/header.php';
     ?>
     <div class="content-wrapper">
-        <?php include_once __DIR__ . '/../includes/sidebar.php'; ?>
+       
         <section class="content-header">
             <div class="container-fluid">
                 <div class="row">

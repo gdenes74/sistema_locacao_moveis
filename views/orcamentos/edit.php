@@ -89,7 +89,7 @@ $itens = $orcamentoModel->getItens($id);
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
 <div class="content-wrapper">
-    <?php include_once __DIR__ . '/../includes/sidebar.php'; ?>
+    
     
     <section class="content-header">
         <div class="container-fluid">

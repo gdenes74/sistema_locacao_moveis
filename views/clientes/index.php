@@ -58,8 +58,7 @@ foreach ($clientes as $cliente) {
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
 <div class="content-wrapper">
-    <!-- Incluindo o menu lateral (sidebar) -->
-    <?php include_once __DIR__ . '/../includes/sidebar.php'; ?>
+    
     
     <section class="content-header">
         <div class="container-fluid">

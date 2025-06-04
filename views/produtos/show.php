@@ -37,7 +37,7 @@ if (!$produto_data) {
 
 // --- Incluir Cabeçalho e Barra Lateral (APÓS verificar se o produto existe) ---
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 
 // --- Preparar dados para exibição segura ---
 $nome_produto_titulo = htmlspecialchars($produto_data['nome_produto'] ?? 'Detalhes do Produto', ENT_QUOTES, 'UTF-8');

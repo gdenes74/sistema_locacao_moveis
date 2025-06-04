@@ -58,7 +58,7 @@ $page_title = "Adicionar Nova Categoria";
 
 // Incluir cabeçalho e sidebar
 include_once __DIR__ . '/../includes/header.php'; 
-include_once __DIR__ . '/../includes/sidebar.php'; 
+ 
 ?>
 
 <!-- Content Wrapper -->

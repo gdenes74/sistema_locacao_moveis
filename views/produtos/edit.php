@@ -178,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Incluir o cabeçalho e a barra lateral
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 
 // Define o caminho do placeholder
 $placeholderImgUrl = (defined('BASE_URL') ? BASE_URL : '/') . 'assets/img/product_placeholder.png';

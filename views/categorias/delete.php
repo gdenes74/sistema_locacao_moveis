@@ -60,7 +60,7 @@ $page_title = "Confirmar Exclusão da Categoria";
 
 // Includes
 include_once __DIR__ . '/../includes/header.php'; 
-include_once __DIR__ . '/../includes/sidebar.php'; 
+ 
 ?>
 
 <!-- Content Wrapper -->

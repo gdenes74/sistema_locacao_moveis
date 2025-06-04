@@ -91,7 +91,7 @@ $itens = $orcamentoModel->getItens($id); // Assume que getItens retorna um array
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
 <div class="content-wrapper">
-    <?php include_once __DIR__ . '/../includes/sidebar.php'; ?>
+    
 
     <section class="content-header no-print">
         <div class="container-fluid">

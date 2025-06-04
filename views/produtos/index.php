@@ -115,7 +115,7 @@ if ($stmtProdutos) {
 
 // Incluir cabeçalho e barra lateral (Lógica Original Mantida)
 include_once __DIR__ . '/../includes/header.php';
-include_once __DIR__ . '/../includes/sidebar.php';
+
 
 // URL da imagem placeholder (Lógica Original Mantida - Usando build_url se existir)
 $placeholderImgUrl = function_exists('build_url')
