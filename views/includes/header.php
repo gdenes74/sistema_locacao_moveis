@@ -12,30 +12,23 @@ if (!defined('BASE_URL')) {
     }
 }
 
-// Lógica para verificar se o usuário está logado
-// if (!isset($_SESSION['usuario_id']) && basename($_SERVER['PHP_SELF']) !== 'login.php') {
-//    header('Location: ' . BASE_URL . '/views/auth/login.php');
-//    exit();
-// }
-
+// ... (resto do seu código PHP inicial, lógica de usuário, page_group, etc. - SEM ALTERAÇÕES AQUI) ...
 $current_page = basename($_SERVER['PHP_SELF']);
-$page_group = ''; // Para determinar o grupo de menu ativo
+$page_group = ''; 
 
-// Determinar o grupo de menu ativo (exemplo simplificado)
-// <!-- MODIFICADO: Lógica de $page_group atualizada -->
 if (strpos($_SERVER['REQUEST_URI'], '/views/dashboard/') !== false) {
     $page_group = 'dashboard';
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/orcamentos/') !== false) {
     $page_group = 'orcamentos';
-} elseif (strpos($_SERVER['REQUEST_URI'], '/views/pedidos/') !== false) { // <-- ADICIONADO
+} elseif (strpos($_SERVER['REQUEST_URI'], '/views/pedidos/') !== false) { 
     $page_group = 'pedidos';
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/clientes/') !== false) {
     $page_group = 'clientes';
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/produtos/') !== false ||
-          strpos($_SERVER['REQUEST_URI'], '/views/secoes/') !== false ||      // <-- ADICIONADO (agrupado em produtos)
-          strpos($_SERVER['REQUEST_URI'], '/views/categorias/') !== false ||  // (agrupado em produtos)
-          strpos($_SERVER['REQUEST_URI'], '/views/subcategorias/') !== false) { // <-- ADICIONADO (agrupado em produtos)
-    $page_group = 'produtos'; // Seções, Categorias e Subcategorias ativam o menu 'Produtos/Itens'
+          strpos($_SERVER['REQUEST_URI'], '/views/secoes/') !== false ||      
+          strpos($_SERVER['REQUEST_URI'], '/views/categorias/') !== false ||  
+          strpos($_SERVER['REQUEST_URI'], '/views/subcategorias/') !== false) { 
+    $page_group = 'produtos'; 
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/usuarios/') !== false) {
     $page_group = 'usuarios';
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/configuracoes/') !== false) {
@@ -46,7 +39,6 @@ if (strpos($_SERVER['REQUEST_URI'], '/views/dashboard/') !== false) {
 $appName = defined('APP_NAME') ? APP_NAME : 'Sistema Toalhas';
 $appVersion = defined('APP_VERSION') ? APP_VERSION : '1.0.0';
 
-// Título da página dinâmico (pode ser sobrescrito pela view específica)
 $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | ' . htmlspecialchars($appName) : htmlspecialchars($appName);
 
 ?>
@@ -57,6 +49,12 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= $resolved_page_title ?></title>
 
+    <!-- ================================================================== -->
+    <!-- ÍCONE DA ABA DO NAVEGADOR (FAVICON) - CORREÇÃO IMPORTANTE AQUI     -->
+    <!-- Certifique-se que 'logo_toalhas_icon.png' existe em 'assets/img/' -->
+    <link rel="icon" href="<?= BASE_URL ?>/assets/img/logo_toalhas_icon.png" type="image/png">
+    <!-- ================================================================== -->
+
     <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
     <!-- Font Awesome -->
@@ -66,22 +64,22 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
 
     <!-- Select2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@x.x.x/dist/select2-bootstrap4.min.css"> <!-- Para tema Bootstrap 4 do Select2 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ttskch/select2-bootstrap4-theme@x.x.x/dist/select2-bootstrap4.min.css">
 
-    <!-- Tempusdominus Bootstrap 4 CSS (Pode remover se não for usar para datetimepicker em outros campos) -->
+    <!-- Tempusdominus Bootstrap 4 CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/css/tempusdominus-bootstrap-4.min.css">
 
-    <!-- Bootstrap Datepicker CSS (PARA OS CAMPOS .datepicker) -->
+    <!-- Bootstrap Datepicker CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.standalone.min.css">
 
-    <!-- Toastr CSS (Para notificações) -->
+    <!-- Toastr CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
 
-    <!-- SweetAlert2 CSS (Para alertas) -->
+    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
 
-    <!-- Estilos customizados globais (se houver) -->
-    <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/custom_global.css">
+    <!-- Estilos customizados globais (se houver) - VOCÊ DISSE QUE REMOVEU/COMENTOU ESTE -->
+    <!-- <link rel="stylesheet" href="<?= BASE_URL ?>/assets/css/custom_global.css"> -->
 
     <!-- Estilos específicos da página (definidos pela view como $extra_css) -->
     <?php
@@ -92,39 +90,20 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
     }
     ?>
     <style>
-        /* Ajustes para Select2 e Datepicker dentro de modais se necessário */
-        .select2-container--open {
-            z-index: 9999999 !important; /* Acima do modal */
-        }
-        .datepicker {
-            z-index: 999999 !important;
-        }
-        body.modal-open .datepicker {
-            z-index: 1051 !important;
-        }
-         .table-responsive {
-            overflow-x: auto;
-        }
-        .form-control-sm {
-            height: calc(1.8125rem + 2px);
-            padding: .25rem .5rem;
-            font-size: .875rem;
-            line-height: 1.5;
-            border-radius: .2rem;
-        }
-        .input-group-append .input-group-text {
-            padding: .375rem .5rem;
-        }
-        .table th, .table td {
-            vertical-align: middle !important;
-        }
+        /* ... (Seus estilos inline - SEM ALTERAÇÕES AQUI) ... */
+        .select2-container--open { z-index: 9999999 !important; }
+        .datepicker { z-index: 999999 !important; }
+        body.modal-open .datepicker { z-index: 1051 !important; }
+        .table-responsive { overflow-x: auto; }
+        .form-control-sm { height: calc(1.8125rem + 2px); padding: .25rem .5rem; font-size: .875rem; line-height: 1.5; border-radius: .2rem; }
+        .input-group-append .input-group-text { padding: .375rem .5rem; }
+        .table th, .table td { vertical-align: middle !important; }
     </style>
 </head>
-<!-- MODIFICADO: Adicionado sidebar-collapse para iniciar recolhida -->
 <body class="hold-transition sidebar-mini layout-fixed sidebar-collapse">
 <div class="wrapper">
 
-    <!-- Preloader (Opcional, mas comum no AdminLTE) -->
+    <!-- Preloader (Você disse que este já está OK) -->
     <div class="preloader flex-column justify-content-center align-items-center" style="background-color: rgba(255,255,255,0.8);">
         <img class="animation__shake" src="<?= BASE_URL ?>/assets/img/logo_toalhas_loader.png" alt="<?= htmlspecialchars($appName) ?> Logo" height="80" width="80">
         <p class="mt-2">Carregando...</p>
@@ -132,7 +111,7 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
 
     <!-- Navbar -->
     <nav class="main-header navbar navbar-expand navbar-white navbar-light">
-        <!-- Left navbar links -->
+        <!-- ... (Seu código da Navbar - SEM ALTERAÇÕES AQUI) ... -->
         <ul class="navbar-nav">
             <li class="nav-item">
                 <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
@@ -141,8 +120,6 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                 <a href="<?= BASE_URL ?>/views/dashboard/index.php" class="nav-link">Início</a>
             </li>
         </ul>
-
-        <!-- Right navbar links -->
         <ul class="navbar-nav ml-auto">
             <li class="nav-item dropdown">
                 <a class="nav-link" data-toggle="dropdown" href="#">
@@ -187,7 +164,11 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
     <aside class="main-sidebar sidebar-dark-primary elevation-4">
         <!-- Brand Logo -->
         <a href="<?= BASE_URL ?>/views/dashboard/index.php" class="brand-link">
+            <!-- ================================================================== -->
+            <!-- A TAG <link rel="icon"> FOI REMOVIDA DAQUI -->
+            <!-- A imagem do logo na sidebar. Certifique-se que 'logo_toalhas_icon.png' existe em 'assets/img/' -->
             <img src="<?= BASE_URL ?>/assets/img/logo_toalhas_icon.png" alt="<?= htmlspecialchars($appName) ?> Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
+            <!-- ================================================================== -->
             <span class="brand-text font-weight-light"><?= htmlspecialchars($appName) ?></span>
         </a>
 
@@ -216,8 +197,8 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
             </div>
 
             <!-- Sidebar Menu -->
-            <!-- MODIFICADO: Menu atualizado com novos itens e lógica de 'active' -->
             <nav class="mt-2">
+                <!-- ... (Seu código do Sidebar Menu - SEM ALTERAÇÕES AQUI) ... -->
                 <ul class="nav nav-pills nav-sidebar flex-column nav-child-indent nav-legacy" data-widget="treeview" role="menu" data-accordion="false">
                     <li class="nav-item">
                         <a href="<?= BASE_URL ?>/views/dashboard/index.php" class="nav-link <?= ($page_group == 'dashboard') ? 'active' : '' ?>">
@@ -243,8 +224,6 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                             </li>
                         </ul>
                     </li>
-
-                    <!-- ADICIONADO: Menu Pedidos -->
                     <li class="nav-item <?= ($page_group == 'pedidos') ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= ($page_group == 'pedidos') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-shopping-cart"></i>
@@ -263,7 +242,6 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                             </li>
                         </ul>
                     </li>
-
                     <li class="nav-item <?= ($page_group == 'clientes') ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= ($page_group == 'clientes') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-users"></i>
@@ -282,7 +260,7 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                             </li>
                         </ul>
                     </li>
-                     <li class="nav-item <?= ($page_group == 'produtos') ? 'menu-open' : '' ?>"> <!-- Este menu pai será ativado por Seções, Categorias, Subcategorias -->
+                     <li class="nav-item <?= ($page_group == 'produtos') ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= ($page_group == 'produtos') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-boxes"></i>
                             <p>Produtos/Itens<i class="right fas fa-angle-left"></i></p>
@@ -298,14 +276,12 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                                     <i class="far fa-circle nav-icon"></i><p>Novo Produto</p>
                                 </a>
                             </li>
-                             <!-- ADICIONADO/REORGANIZADO: Seções, Categorias, Subcategorias -->
                             <li class="nav-item">
                                 <a href="<?= BASE_URL ?>/views/secoes/index.php" class="nav-link <?= (strpos($_SERVER['REQUEST_URI'], '/views/secoes/index.php') !== false) ? 'active' : '' ?>">
                                     <i class="far fa-circle nav-icon"></i><p>Seções</p>
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <!-- O seu código original tinha categorias.php, aqui uso index.php para consistência. Ajuste se necessário. -->
                                 <a href="<?= BASE_URL ?>/views/categorias/index.php" class="nav-link <?= (strpos($_SERVER['REQUEST_URI'], '/views/categorias/index.php') !== false || strpos($_SERVER['REQUEST_URI'], '/views/categorias.php') !== false) ? 'active' : '' ?>">
                                     <i class="far fa-circle nav-icon"></i><p>Categorias</p>
                                 </a>

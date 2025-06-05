@@ -43,6 +43,37 @@ class Subcategoria {
         return $stmt;
     }
 
+    // Buscar subcategorias APENAS PELO NOME DA SUBCATEGORIA, mas trazendo dados relacionados
+    public function buscarPorTermo($termoPesquisa) {
+        $query = "SELECT 
+                    sc.id, sc.categoria_id, sc.nome, sc.descricao, sc.data_cadastro,
+                    c.nome as categoria_nome, 
+                    c.secao_id,
+                    s.nome as secao_nome
+                  FROM 
+                    " . $this->table_name . " sc 
+                  LEFT JOIN 
+                    categorias c ON sc.categoria_id = c.id 
+                  LEFT JOIN
+                    secoes s ON c.secao_id = s.id
+                  WHERE 
+                    sc.nome LIKE :termo_subcategoria  -- <<--- ALTERAÇÃO AQUI: Busca apenas no nome da subcategoria
+                  ORDER BY 
+                    s.nome ASC, c.nome ASC, sc.nome ASC";
+
+        $stmt = $this->conn->prepare($query);
+
+        // Sanitizar o termo de pesquisa
+        $termoPesquisaSanitizado = "%" . htmlspecialchars(strip_tags($termoPesquisa)) . "%";
+
+        // Vincular o parâmetro do nome da subcategoria
+        $stmt->bindParam(":termo_subcategoria", $termoPesquisaSanitizado);
+        // Não precisamos mais vincular :termo_categoria e :termo_secao para a busca
+
+        $stmt->execute();
+        return $stmt;
+    }
+
     // Buscar uma subcategoria pelo ID, incluindo dados relacionados
     public function buscarPorId() {
         $query = "SELECT 

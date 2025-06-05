@@ -16,8 +16,8 @@ include_once __DIR__ . '/../includes/header.php';
                 <div class="card-body text-center">
                     <h4 class="card-title text-primary"><i class="fas fa-box"></i> Produtos</h4>
                     <p class="card-text text-secondary">Gerencie os produtos cadastrados no sistema.</p>
-                    <a href="<?php echo BASE_URL; ?>views/produtos/index.php" class="btn btn-outline-primary btn-sm"><i class="fas fa-list"></i> Listar Produtos</a>
-                    <a href="<?php echo BASE_URL; ?>views/produtos/create.php" class="btn btn-outline-primary btn-sm"><i class="fas fa-plus"></i> Cadastrar Produto</a>
+                    <a href="<?php echo BASE_URL; ?>/views/produtos/index.php" class="btn btn-outline-primary btn-sm"><i class="fas fa-list"></i> Listar Produtos</a>
+                    <a href="<?php echo BASE_URL; ?>/views/produtos/create.php" class="btn btn-outline-primary btn-sm"><i class="fas fa-plus"></i> Cadastrar Produto</a>
                 </div>
             </div>
         </div>
@@ -28,8 +28,9 @@ include_once __DIR__ . '/../includes/header.php';
                 <div class="card-body text-center">
                     <h4 class="card-title text-success"><i class="fas fa-users"></i> Clientes</h4>
                     <p class="card-text text-secondary">Gerencie os clientes cadastrados.</p>
-                    <a href="<?php echo BASE_URL; ?>views/clientes/index.php" class="btn btn-outline-success btn-sm"><i class="fas fa-list"></i> Listar Clientes</a>
-                    <a href="<?php echo BASE_URL; ?>views/clientes/create.php" class="btn btn-outline-success btn-sm"><i class="fas fa-plus"></i> Cadastrar Cliente</a>
+                    <a href="<?php echo BASE_URL; ?>/views/clientes/index.php" class="btn btn-outline-success btn-sm"><i class="fas fa-list"></i> Listar Clientes</a>
+                    
+                    <a href="<?php echo BASE_URL; ?>/views/clientes/create.php" class="btn btn-outline-success btn-sm"><i class="fas fa-plus"></i> Cadastrar Cliente</a>
                 </div>
             </div>
         </div>

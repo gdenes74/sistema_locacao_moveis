@@ -16,8 +16,8 @@ class Secao {
 
     // Listar todas as seções
     public function listar() {
-        $query = "SELECT id, nome, descricao, data_cadastro 
-                  FROM " . $this->table_name . " 
+        $query = "SELECT id, nome, descricao, data_cadastro
+                  FROM " . $this->table_name . "
                   ORDER BY nome ASC"; // Ordenar por nome para melhor visualização
 
         $stmt = $this->conn->prepare($query);
@@ -25,11 +25,32 @@ class Secao {
         return $stmt; // Retorna o statement PDO para ser iterado na view
     }
 
+    // --- NOVO MÉTODO PARA BUSCAR SEÇÕES POR NOME ---
+    public function buscarPorNome($termoPesquisa) {
+        $query = "SELECT id, nome, descricao, data_cadastro
+                  FROM " . $this->table_name . "
+                  WHERE nome LIKE :termo
+                  ORDER BY nome ASC";
+
+        $stmt = $this->conn->prepare($query);
+
+        // Sanitizar o termo de pesquisa
+        $termoPesquisaSanitizado = "%" . htmlspecialchars(strip_tags($termoPesquisa)) . "%";
+
+        // Vincular o parâmetro
+        $stmt->bindParam(":termo", $termoPesquisaSanitizado);
+
+        $stmt->execute();
+        return $stmt; // Retorna o statement PDO para ser iterado na view
+    }
+    // --- FIM DO NOVO MÉTODO ---
+
+
     // Buscar uma seção pelo ID
     public function buscarPorId() {
-        $query = "SELECT id, nome, descricao, data_cadastro 
-                  FROM " . $this->table_name . " 
-                  WHERE id = :id 
+        $query = "SELECT id, nome, descricao, data_cadastro
+                  FROM " . $this->table_name . "
+                  WHERE id = :id
                   LIMIT 0,1";
 
         $stmt = $this->conn->prepare($query);
@@ -58,7 +79,7 @@ class Secao {
     // Criar nova seção
     public function criar() {
         // Query de inserção
-        $query = "INSERT INTO " . $this->table_name . " (nome, descricao) 
+        $query = "INSERT INTO " . $this->table_name . " (nome, descricao)
                   VALUES (:nome, :descricao)";
                   // data_cadastro pode ser DEFAULT CURRENT_TIMESTAMP no BD
 
@@ -79,14 +100,14 @@ class Secao {
         }
 
         // Imprimir erro se falhar (útil para debug)
-        // printf("Erro: %s.\n", $stmt->errorInfo()[2]); 
+        // printf("Erro: %s.\n", $stmt->errorInfo()[2]);
         return false;
     }
 
     // Atualizar seção existente
     public function atualizar() {
-        $query = "UPDATE " . $this->table_name . " 
-                  SET nome = :nome, descricao = :descricao 
+        $query = "UPDATE " . $this->table_name . "
+                  SET nome = :nome, descricao = :descricao
                   WHERE id = :id";
 
         $stmt = $this->conn->prepare($query);
@@ -104,10 +125,10 @@ class Secao {
         // Executar a query
         if($stmt->execute()) {
             // Verificar se alguma linha foi realmente afetada
-            // return $stmt->rowCount() > 0; 
+            // return $stmt->rowCount() > 0;
             return true; // Retorna true mesmo se os dados forem os mesmos
         }
-        
+
         return false;
     }
 
@@ -118,7 +139,7 @@ class Secao {
             // Não permitir exclusão se houver categorias
             // Poderíamos definir uma mensagem de erro aqui para exibir na view
             // $_SESSION['error_message'] = "Não é possível excluir esta seção pois existem categorias vinculadas a ela.";
-            return false; 
+            return false;
         }
 
         // 2. Se não houver categorias, prosseguir com a exclusão
@@ -143,13 +164,13 @@ class Secao {
     // Método auxiliar para verificar categorias vinculadas
     private function temCategoriasVinculadas() {
         $query = "SELECT COUNT(*) as total FROM categorias WHERE secao_id = :id";
-        
+
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $this->id);
         $stmt->execute();
-        
+
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+
         return $row['total'] > 0; // Retorna true se houver 1 ou mais categorias
     }
 }
