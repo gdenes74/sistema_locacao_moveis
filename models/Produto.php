@@ -82,20 +82,29 @@ class Produto {
         $bindParams = [];
 
         // Filtro por nome (LIKE em múltiplos termos)
-        if (!empty($filtros['pesquisar'])) {
-            $termos = explode(" ", trim($filtros['pesquisar']));
-            $termoConditions = [];
-            foreach ($termos as $i => $termo) {
-                if (!empty($termo)) {
-                    $placeholder = ":termo{$i}";
-                    $termoConditions[] = "p.nome_produto LIKE {$placeholder}";
-                    $bindParams[$placeholder] = "%{$termo}%";
-                }
-            }
-            if (!empty($termoConditions)) {
-                $whereConditions[] = "(" . implode(" AND ", $termoConditions) . ")";
-            }
+        // ... dentro do método listarTodos() ...
+if (!empty($filtros['pesquisar'])) {
+    $termos = explode(" ", trim($filtros['pesquisar']));
+    $itemConditions = []; // Renomeado para clareza, para cada item (nome OU código)
+    foreach ($termos as $i => $termo) {
+        if (!empty($termo)) {
+            $placeholderNome = ":termoNome{$i}";
+            $placeholderCodigo = ":termoCodigo{$i}";
+            
+            // Condição para buscar o termo no NOME OU no CÓDIGO
+            $itemConditions[] = "(p.nome_produto LIKE {$placeholderNome} OR p.codigo LIKE {$placeholderCodigo})";
+            
+            $bindParams[$placeholderNome] = "%{$termo}%";
+            $bindParams[$placeholderCodigo] = "%{$termo}%";
         }
+    }
+    if (!empty($itemConditions)) {
+        // Se houver múltiplos termos na pesquisa (ex: "toalha azul"), eles devem TODOS estar presentes (AND)
+        // mas cada termo pode ser encontrado OU no nome OU no código.
+        $whereConditions[] = "(" . implode(" AND ", $itemConditions) . ")";
+    }
+}
+// ... resto do método listarTodos() ...
 
         // Filtro por ID da Categoria
         if (!empty($filtros['categoria_id'])) {

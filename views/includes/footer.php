@@ -40,7 +40,8 @@ if (!defined('BASE_URL')) {
 
     <!-- Select2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.full.min.js"></script>
-    <!-- <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/i18n/pt-BR.js"></script> -->
+    <!-- MELHORIA: Descomentado para habilitar tradução completa do Select2 para pt-BR -->
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/i18n/pt-BR.js"></script>
 
     <!-- Inputmask JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/jquery.inputmask.min.js"></script>
@@ -55,23 +56,32 @@ if (!defined('BASE_URL')) {
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 
-    <!-- jQuery UI JS (COMENTADO - REMOVER SE NÃO USAR PARA OUTROS COMPONENTES) -->
+    <!-- jQuery UI JS (REMOVER SE NÃO USAR PARA OUTROS COMPONENTES - ex: sortable, draggable) -->
     <!-- <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script> -->
 
-    <!-- Moment.js e Tempusdominus (COMENTADOS - REMOVER SE NÃO USAR PARA OUTROS CAMPOS) -->
+    <!-- Moment.js e Tempusdominus (Necessários se usar o Date/Time Picker do Tempusdominus) -->
+    <!-- Se você estiver usando APENAS o Bootstrap Datepicker (como parece ser o caso), pode remover Moment.js e Tempusdominus -->
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script> -->
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/locale/pt-br.min.js"></script> -->
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/tempusdominus-bootstrap-4/5.39.0/js/tempusdominus-bootstrap-4.min.js"></script> -->
 
 
-    <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS (AGORA COM JQUERY GARANTIDO) -->
+    <!-- DEFINIÇÃO DE CONSTANTES GLOBAIS PARA JAVASCRIPT -->
+    <script>
+        const BASE_URL = "<?= rtrim(BASE_URL, '/') ?>"; // Garante que não haja barra no final
+        // Você pode mudar o placeholder se tiver um específico para produtos,
+        // por exemplo, se tiver uma imagem genérica 'sem_imagem.png' em assets/img/
+        const DEFAULT_PLACEHOLDER_IMAGE = BASE_URL + "/assets/img/avatar_placeholder.png"; // Usando avatar_placeholder.png como exemplo
+    </script>
+
+    <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS (AGORA COM JQUERY E CONSTANTES GLOBAIS GARANTIDOS) -->
     <script>
     $(function () { // Equivalente a $(document).ready()
         // Inicializar Select2
         if (typeof $.fn.select2 === 'function') {
             $('.select2').select2({
                 theme: 'bootstrap4',
-                language: 'pt-BR',
+                language: 'pt-BR', // Requer o arquivo i18n/pt-BR.js carregado
                 placeholder: 'Selecione uma opção',
                 allowClear: true,
                 width: '100%'
@@ -80,7 +90,10 @@ if (!defined('BASE_URL')) {
                 // Para modais, foca no campo de busca do select2
                 if ($('.modal.show').length > 0) {
                     setTimeout(function() { // Pequeno delay para garantir que o campo exista
-                        document.querySelector('.select2-container--open .select2-search__field').focus();
+                        let searchField = document.querySelector('.select2-container--open .select2-search__field');
+                        if (searchField) {
+                            searchField.focus();
+                        }
                     }, 100);
                 }
             });
@@ -97,7 +110,8 @@ if (!defined('BASE_URL')) {
             $('.money').inputmask('currency', {
                 prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
                 autoGroup: true, rightAlign: false,
-                clearMaskOnLostFocus: false
+                clearMaskOnLostFocus: false,
+                numericInput: false // Garante que a digitação seja da esquerda para a direita
             });
         } else {
             console.warn('Inputmask não está carregado.');
@@ -113,7 +127,7 @@ if (!defined('BASE_URL')) {
             toastr.options = {
                 "closeButton": true, "debug": false, "newestOnTop": true, "progressBar": true,
                 "positionClass": "toast-top-right", "preventDuplicates": false, "onclick": null,
-                "showDuration": "300", "hideDuration": "1000", "timeOut": "5000", "extendedTimeOut": "1000",
+                "showDuration": "800", "hideDuration": "1000", "timeOut": "5000", "extendedTimeOut": "1000",
                 "showEasing": "swing", "hideEasing": "linear", "showMethod": "fadeIn", "hideMethod": "fadeOut"
             };
         }
@@ -131,24 +145,25 @@ if (!defined('BASE_URL')) {
             }
         };
 
+        // MELHORIA: Usando json_encode para injetar mensagens de sessão de forma mais segura.
         <?php if (isset($_SESSION['success_message'])): ?>
-            window.mostrarMensagem('success', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['success_message'])); ?>');
+            window.mostrarMensagem('success', <?php echo json_encode($_SESSION['success_message']); ?>);
             <?php unset($_SESSION['success_message']); ?>
         <?php endif; ?>
         <?php if (isset($_SESSION['error_message'])): ?>
-            window.mostrarMensagem('error', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['error_message'])); ?>');
+            window.mostrarMensagem('error', <?php echo json_encode($_SESSION['error_message']); ?>);
             <?php unset($_SESSION['error_message']); ?>
         <?php endif; ?>
         <?php if (isset($_SESSION['warning_message'])): ?>
-            window.mostrarMensagem('warning', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['warning_message'])); ?>');
+            window.mostrarMensagem('warning', <?php echo json_encode($_SESSION['warning_message']); ?>);
             <?php unset($_SESSION['warning_message']); ?>
         <?php endif; ?>
-        <?php if (isset($_SESSION['mensagem_aviso'])): ?>
-            window.mostrarMensagem('warning', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['mensagem_aviso'])); ?>');
+        <?php if (isset($_SESSION['mensagem_aviso'])): // Mantendo este nome de sessão se for usado em outro lugar ?>
+            window.mostrarMensagem('warning', <?php echo json_encode($_SESSION['mensagem_aviso']); ?>);
             <?php unset($_SESSION['mensagem_aviso']); ?>
         <?php endif; ?>
-        <?php if (isset($_SESSION['mensagem_info'])): ?>
-            window.mostrarMensagem('info', '<?php echo addslashes(str_replace(["\r", "\n"], "\\n", $_SESSION['mensagem_info'])); ?>');
+        <?php if (isset($_SESSION['mensagem_info'])): // Mantendo este nome de sessão se for usado em outro lugar ?>
+            window.mostrarMensagem('info', <?php echo json_encode($_SESSION['mensagem_info']); ?>);
             <?php unset($_SESSION['mensagem_info']); ?>
         <?php endif; ?>
     });
@@ -168,6 +183,12 @@ if (!defined('BASE_URL')) {
     //]]>
     </script>
     <?php endif; ?>
+
+<!-- ================================================================== -->
+<!-- O SCRIPT CUSTOMIZADO DO PRELOADER FOI REMOVIDO DAQUI.             -->
+<!-- O AdminLTE AGORA CUIDARÁ DO TEMPO DO PRELOADER ATRAVÉS DO        -->
+<!-- ATRIBUTO data-lte-preloader-delay NA TAG <body> NO header.php.   -->
+<!-- ================================================================== -->
 
 </body>
 </html>
