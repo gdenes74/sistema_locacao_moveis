@@ -24,7 +24,7 @@ class NumeracaoSequencial {
         try {
             // Iniciar uma transação para garantir que a leitura e a gravação
             // do contador sequencial sejam atômicas.
-            $this->db->beginTransaction();
+           //REMOVIDO $this->db->beginTransaction();
 
             // 1. Tentar selecionar o próximo número disponível para o tipo especificado.
             // A cláusula `FOR UPDATE` BLOQUEIA a linha selecionada na tabela `sequencias`,
@@ -48,8 +48,11 @@ class NumeracaoSequencial {
                 $insert_type_query = "INSERT INTO sequencias (tipo, proximo_numero_disponivel) VALUES (:tipo, 1)";
                 $insert_type_stmt = $this->db->prepare($insert_type_query);
                 $insert_type_stmt->bindParam(':tipo', $tipo, PDO::PARAM_STR);
-                $insert_type_stmt->execute();
-                // A variável $proximoNumero já está como 1 por padrão definida acima.
+                if(!$insert_type_stmt->execute()) {//Verifica se o insert foi bem sucedido
+                throw new PDOException("Falha ao inserir novo tipo de sequência:".$tipo);
+             }
+
+                // $proximoNumero já é 1
             }
             
             // 2. Atualizar o `proximo_numero_disponivel` para o PRÓXIMO valor na tabela `sequencias`.
@@ -58,33 +61,29 @@ class NumeracaoSequencial {
             $update_query = "UPDATE sequencias SET proximo_numero_disponivel = proximo_numero_disponivel + 1 WHERE tipo = :tipo";
             $update_stmt = $this->db->prepare($update_query);
             $update_stmt->bindParam(':tipo', $tipo, PDO::PARAM_STR);
-            $update_stmt->execute();
+             if (!$update_stmt->execute()) { // Verifica se o update foi bem sucedido
+                 throw new PDOException("Falha ao atualizar o próximo número para a sequência: " . $tipo);
+            }
             
             // Confirmar a transação. Se todas as operações foram bem-sucedidas,
             // as alterações no banco de dados são salvas permanentemente.
-            $this->db->commit();
+            //removido $this->db->commit();
             
             // Retorna o número que foi reservado nesta transação para ser usado.
             return $proximoNumero;
             
         } catch (PDOException $e) {
-            // Se uma exceção de banco de dados (PDOException) ocorrer,
-            // reverter a transação para liberar bloqueios e garantir que o número
-            // não seja consumido se a operação completa falhar.
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            error_log("Erro PDO ao gerar número sequencial: " . $e->getMessage()); // Para logs de servidor
-            throw new Exception("Erro ao gerar número sequencial (DB): " . $e->getMessage()); // Para exibição ou tratamento
-        } catch (Exception $e) {
-            // Captura outras exceções gerais (não PDO) e reverte a transação.
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            error_log("Erro geral ao gerar número sequencial: " . $e->getMessage()); // Para logs de servidor
-            throw new Exception("Erro ao gerar número sequencial: " . $e->getMessage()); // Para exibição ou tratamento
+            // REMOVIDO: if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            // Apenas loga e relança a exceção. O rollback será feito pelo chamador.
+            error_log("Erro PDO ao gerar número sequencial ({$tipo}): " . $e->getMessage());
+            throw new Exception("Erro ao gerar número sequencial (DB): " . $e->getMessage());
+        } catch (Exception $e) { // Captura outras exceções que não sejam PDOException
+            // REMOVIDO: if ($this->db->inTransaction()) { $this->db->rollBack(); }
+            error_log("Erro geral ao gerar número sequencial ({$tipo}): " . $e->getMessage());
+            throw new Exception("Erro geral ao gerar número sequencial: " . $e->getMessage());
         }
     }
+    
     
     /**
      * Formata o número de um orçamento com prefixo e ano.

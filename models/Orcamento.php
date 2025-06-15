@@ -20,7 +20,7 @@ class Orcamento {
     public $hora_devolucao;
     public $turno_entrega;
     public $turno_devolucao;
-    public $tipo;
+    public $tipo; // Este é o tipo do orçamento (locacao, venda, misto)
     public $status;
     public $valor_total_locacao;
     public $subtotal_locacao;
@@ -58,7 +58,7 @@ class Orcamento {
     public function listarTodos($filtros = [], $orderBy = 'o.id DESC') {
         $query = "SELECT
                     o.id, o.numero, o.codigo, o.cliente_id, o.data_orcamento, o.data_validade,
-                    o.data_entrega, o.hora_entrega, 
+                    o.data_entrega, o.hora_entrega,
                     o.data_evento, o.hora_evento, o.local_evento, o.data_devolucao_prevista, o.hora_devolucao,
                     o.turno_entrega, o.turno_devolucao,
                     o.tipo, o.status, o.valor_total_locacao, o.subtotal_locacao,
@@ -101,9 +101,12 @@ class Orcamento {
             if (in_array($orderBy, $allowedOrderBy)) {
                 $query .= " ORDER BY " . $orderBy;
             } else {
-                $query .= " ORDER BY o.id DESC";
+                $query .= " ORDER BY o.id DESC"; // Fallback para ordenação padrão segura
             }
+        } else {
+             $query .= " ORDER BY o.id DESC"; // Default order
         }
+
 
         try {
             $stmt = $this->conn->prepare($query);
@@ -124,7 +127,7 @@ class Orcamento {
                     c.cpf_cnpj AS cliente_cpf_cnpj,
                     c.endereco AS cliente_endereco,
                     c.cidade AS cliente_cidade,
-                    c.observacoes AS cliente_observacoes 
+                    c.observacoes AS cliente_observacoes
                 FROM
                     {$this->table} o
                 LEFT JOIN
@@ -141,18 +144,19 @@ class Orcamento {
                 $row = $stmt->fetch(PDO::FETCH_ASSOC);
                 foreach ($row as $key => $value) {
                     if (property_exists($this, $key)) {
-                        $this->$key = $value;
-                        // Conversões de tipo
+                        // Conversões de tipo específicas
                         if (in_array($key, ['id', 'cliente_id', 'usuario_id', 'numero'])) {
-                            $this->$key = (int)$value;
+                            $this->$key = ($value !== null) ? (int)$value : null;
                         } elseif (in_array($key, ['valor_total_locacao', 'subtotal_locacao', 'valor_total_venda', 'subtotal_venda', 'desconto', 'taxa_domingo_feriado', 'taxa_madrugada', 'taxa_horario_especial', 'taxa_hora_marcada', 'frete_terreo', 'valor_final'])) {
-                            $this->$key = (float)$value;
+                            $this->$key = ($value !== null) ? (float)$value : null;
                         } elseif ($key === 'ajuste_manual') {
                             $this->$key = (bool)$value;
+                        } else {
+                            $this->$key = $value;
                         }
                     }
                 }
-                return $row; // Retorna o array para uso direto se necessário, mas as propriedades do objeto são preenchidas.
+                return $row; // Retorna o array para uso direto se necessário
             }
             return false;
         } catch (PDOException $e) {
@@ -166,13 +170,11 @@ class Orcamento {
             error_log("Erro: Propriedade 'numero' não definida em Orcamento::create(). Este valor deve ser gerado antes.");
             return false;
         }
-        $this->codigo = "ORC-" . date('Y') . "-" . str_pad($this->numero, 5, '0', STR_PAD_LEFT); // Exemplo de formatação do código
+        $this->codigo = "ORC-" . date('Y') . "-" . str_pad($this->numero, 5, '0', STR_PAD_LEFT);
 
         try {
-            $this->conn->beginTransaction();
-
             $queryOrcamento = "INSERT INTO {$this->table}
-                        (numero, codigo, cliente_id, data_orcamento, data_validade, 
+                        (numero, codigo, cliente_id, data_orcamento, data_validade,
                          data_entrega, hora_entrega, data_evento, hora_evento, local_evento,
                          data_devolucao_prevista, hora_devolucao, turno_entrega, turno_devolucao,
                          tipo, status, valor_total_locacao, subtotal_locacao, valor_total_venda,
@@ -190,24 +192,20 @@ class Orcamento {
 
             $stmtOrcamento = $this->conn->prepare($queryOrcamento);
 
-            // Sanitize e prepare os dados do objeto ANTES de fazer bind
+            // Sanitize e prepare os dados do objeto
             $this->data_orcamento = !empty($this->data_orcamento) ? $this->data_orcamento : date('Y-m-d');
-            $this->data_validade = !empty($this->data_validade) ? $this->data_validade : date('Y-m-d', strtotime('+7 days')); // Exemplo de validade padrão
-            
+            $this->data_validade = !empty($this->data_validade) ? $this->data_validade : date('Y-m-d', strtotime('+7 days'));
             $this->data_entrega = !empty($this->data_entrega) ? $this->data_entrega : null;
             $this->hora_entrega = !empty($this->hora_entrega) ? $this->hora_entrega : null;
             $this->data_evento = !empty($this->data_evento) ? $this->data_evento : null;
             $this->hora_evento = !empty($this->hora_evento) ? $this->hora_evento : null;
             $this->data_devolucao_prevista = !empty($this->data_devolucao_prevista) ? $this->data_devolucao_prevista : null;
             $this->hora_devolucao = !empty($this->hora_devolucao) ? $this->hora_devolucao : null;
-
             $this->local_evento = !empty($this->local_evento) ? trim($this->local_evento) : null;
             $this->turno_entrega = $this->turno_entrega ?? 'Manhã/Tarde (Horário Comercial)';
             $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
-            $this->tipo = $this->tipo ?? 'locacao';
+            $this->tipo = $this->tipo ?? 'locacao'; // Tipo do orçamento
             $this->status = $this->status ?? 'pendente';
-
-            // Valores numéricos que devem ser 0.00 se não preenchidos
             $this->valor_total_locacao = (float)($this->valor_total_locacao ?? 0.00);
             $this->subtotal_locacao = (float)($this->subtotal_locacao ?? 0.00);
             $this->valor_total_venda = (float)($this->valor_total_venda ?? 0.00);
@@ -218,17 +216,14 @@ class Orcamento {
             $this->taxa_horario_especial = (float)($this->taxa_horario_especial ?? 0.00);
             $this->taxa_hora_marcada = (float)($this->taxa_hora_marcada ?? 0.00);
             $this->frete_terreo = (float)($this->frete_terreo ?? 0.00);
-            $this->valor_final = (float)($this->valor_final ?? 0.00); // Será recalculado
-
+            $this->valor_final = (float)($this->valor_final ?? 0.00);
             $this->frete_elevador = !empty($this->frete_elevador) ? trim($this->frete_elevador) : null;
             $this->frete_escadas = !empty($this->frete_escadas) ? trim($this->frete_escadas) : null;
-            
             $this->ajuste_manual = (bool)($this->ajuste_manual ?? false);
             $this->motivo_ajuste = !empty($this->motivo_ajuste) ? trim($this->motivo_ajuste) : null;
             $this->observacoes = !empty($this->observacoes) ? trim($this->observacoes) : null;
             $this->condicoes_pagamento = !empty($this->condicoes_pagamento) ? trim($this->condicoes_pagamento) : null;
             $this->usuario_id = $this->usuario_id ?? (isset($_SESSION['usuario_id']) ? (int)$_SESSION['usuario_id'] : 1);
-
 
             // Bind dos parâmetros
             $stmtOrcamento->bindParam(':numero', $this->numero, PDO::PARAM_INT);
@@ -259,7 +254,7 @@ class Orcamento {
             $stmtOrcamento->bindParam(':frete_elevador', $this->frete_elevador);
             $stmtOrcamento->bindParam(':frete_escadas', $this->frete_escadas);
             $stmtOrcamento->bindParam(':frete_terreo', $this->frete_terreo);
-            $stmtOrcamento->bindParam(':valor_final', $this->valor_final); // Será recalculado após salvar itens
+            $stmtOrcamento->bindParam(':valor_final', $this->valor_final);
             $stmtOrcamento->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
             $stmtOrcamento->bindParam(':motivo_ajuste', $this->motivo_ajuste);
             $stmtOrcamento->bindParam(':observacoes', $this->observacoes);
@@ -267,54 +262,39 @@ class Orcamento {
             $stmtOrcamento->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
 
             if (!$stmtOrcamento->execute()) {
-                $this->conn->rollBack();
                 error_log("Erro ao inserir orçamento principal: " . print_r($stmtOrcamento->errorInfo(), true));
                 return false;
             }
             $this->id = $this->conn->lastInsertId();
-
-            $this->conn->commit(); // Commita o orçamento principal
-            return $this->id; // Retorna o ID para salvar os itens
+            return $this->id;
 
         } catch (PDOException $e) {
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
             error_log("Exceção PDO em Orcamento::create: " . $e->getMessage());
             return false;
         }
     }
 
     public function update() {
-        // Similar ao create, mas com UPDATE e WHERE id = :id
-        // Certifique-se de que todas as colunas que podem ser atualizadas estão aqui.
         $query = "UPDATE {$this->table} SET
                     cliente_id = :cliente_id, data_orcamento = :data_orcamento, data_validade = :data_validade,
                     data_entrega = :data_entrega, hora_entrega = :hora_entrega, data_evento = :data_evento,
                     hora_evento = :hora_evento, local_evento = :local_evento, data_devolucao_prevista = :data_devolucao_prevista,
                     hora_devolucao = :hora_devolucao, turno_entrega = :turno_entrega, turno_devolucao = :turno_devolucao,
-                    tipo = :tipo, status = :status, 
-                    /* valores financeiros são atualizados por recalcularValores, mas podem ser setados aqui se necessário antes do recálculo */
+                    tipo = :tipo, status = :status,
                     desconto = :desconto, taxa_domingo_feriado = :taxa_domingo_feriado,
                     taxa_madrugada = :taxa_madrugada, taxa_horario_especial = :taxa_horario_especial,
                     taxa_hora_marcada = :taxa_hora_marcada, frete_elevador = :frete_elevador,
-                    frete_escadas = :frete_escadas, frete_terreo = :frete_terreo, 
+                    frete_escadas = :frete_escadas, frete_terreo = :frete_terreo,
                     ajuste_manual = :ajuste_manual, motivo_ajuste = :motivo_ajuste, observacoes = :observacoes,
                     condicoes_pagamento = :condicoes_pagamento, usuario_id = :usuario_id
-                    /* NÃO ATUALIZE numero ou codigo aqui, a menos que seja uma regra de negócio específica */
                 WHERE id = :id";
 
         try {
             $stmt = $this->conn->prepare($query);
 
-            // Sanitize e prepare os dados do objeto
-            $this->data_orcamento = !empty($this->data_orcamento) ? $this->data_orcamento : date('Y-m-d');
-            $this->data_validade = !empty($this->data_validade) ? $this->data_validade : date('Y-m-d', strtotime('+7 days'));
-            $this->data_entrega = !empty($this->data_entrega) ? $this->data_entrega : null;
-            $this->hora_entrega = !empty($this->hora_entrega) ? $this->hora_entrega : null;
-            // ... (sanitização para outros campos como no create)
+            $this->cliente_id = (int)$this->cliente_id;
+            // ... (outras sanitizações como no create) ...
 
-            // Bind dos parâmetros (similar ao create, mas com :id)
             $stmt->bindParam(':id', $this->id, PDO::PARAM_INT);
             $stmt->bindParam(':cliente_id', $this->cliente_id, PDO::PARAM_INT);
             $stmt->bindParam(':data_orcamento', $this->data_orcamento);
@@ -343,14 +323,13 @@ class Orcamento {
             $stmt->bindParam(':observacoes', $this->observacoes);
             $stmt->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
             $stmt->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
-            
+
             if ($stmt->execute()) {
-                return true; // Retorna true se a atualização do cabeçalho for bem-sucedida
+                return true;
             } else {
                 error_log("Erro ao atualizar orçamento principal (ID: {$this->id}): " . print_r($stmt->errorInfo(), true));
                 return false;
             }
-
         } catch (PDOException $e) {
             error_log("Exceção PDO em Orcamento::update (ID: {$this->id}): " . $e->getMessage());
             return false;
@@ -358,7 +337,6 @@ class Orcamento {
     }
 
     public function delete($id) {
-        // ON DELETE CASCADE na FK de itens_orcamento cuidará dos itens.
         $query = "DELETE FROM {$this->table} WHERE id = :id";
         try {
             $stmt = $this->conn->prepare($query);
@@ -370,6 +348,7 @@ class Orcamento {
         }
     }
 
+    // FUNÇÃO MODIFICADA: salvarItens
     public function salvarItens($orcamento_id, $itens) {
         $inTransaction = $this->conn->inTransaction();
         if (!$inTransaction) {
@@ -377,57 +356,74 @@ class Orcamento {
         }
 
         try {
-            // Deletar itens existentes para este orçamento antes de inserir os novos (estratégia de substituição)
             $this->deletarTodosItens($orcamento_id);
 
-            // --- MODIFICADO: Query para incluir nome_produto_manual ---
             $query = "INSERT INTO {$this->table_itens}
-                        (orcamento_id, produto_id, nome_produto_manual, quantidade, tipo, preco_unitario, desconto, preco_final, ajuste_manual, motivo_ajuste, observacoes)
+                        (orcamento_id, produto_id, nome_produto_manual, quantidade, tipo,
+                         preco_unitario, desconto, preco_final, observacoes,
+                         tipo_linha, ordem)
                       VALUES
-                        (:orcamento_id, :produto_id, :nome_produto_manual, :quantidade, :tipo, :preco_unitario, :desconto, :preco_final, :ajuste_manual, :motivo_ajuste, :observacoes)";
+                        (:orcamento_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
+                         :preco_unitario, :desconto, :preco_final, :observacoes,
+                         :tipo_linha, :ordem)";
 
             $stmt = $this->conn->prepare($query);
 
-            foreach ($itens as $item) {
-                // Sanitizar e preparar dados do item
-                $produto_id_item = isset($item['produto_id']) && !empty($item['produto_id']) ? (int)$item['produto_id'] : null;
-                $nome_produto_manual_item = isset($item['nome_produto_manual']) && !empty(trim($item['nome_produto_manual'])) ? trim($item['nome_produto_manual']) : null;
-                
-                // Se produto_id existe, nome_produto_manual deve ser null para evitar confusão,
-                // a menos que a regra seja permitir ambos. Por ora, prioriza produto_id.
-                if ($produto_id_item !== null) {
-                    $nome_produto_manual_item = null;
+            foreach ($itens as $item_do_formulario) {
+                $tipo_linha_atual = isset($item_do_formulario['tipo_linha']) ? trim($item_do_formulario['tipo_linha']) : 'PRODUTO';
+                $ordem_atual = isset($item_do_formulario['ordem']) ? (int)$item_do_formulario['ordem'] : 0;
+
+                $db_produto_id = null;
+                $db_nome_produto_manual = null;
+                $db_quantidade = 0;
+                $db_tipo_locacao_venda = null; // Agora pode ser null
+                $db_preco_unitario = 0.00;
+                $db_desconto = 0.00;
+                $db_preco_final = 0.00;
+                $db_observacoes = isset($item_do_formulario['observacoes']) ? trim($item_do_formulario['observacoes']) : null;
+
+                if ($tipo_linha_atual === 'CABECALHO_SECAO') {
+                    $db_nome_produto_manual = isset($item_do_formulario['nome_produto_manual']) ? trim($item_do_formulario['nome_produto_manual']) : 'Título de Seção';
+                    // Para CABECALHO_SECAO, $db_tipo_locacao_venda será null se $item_do_formulario['tipo'] for null (vindo do create.php)
+                    $db_tipo_locacao_venda = $item_do_formulario['tipo'] ?? null;
+                } else { // 'PRODUTO'
+                    $db_produto_id = isset($item_do_formulario['produto_id']) && !empty($item_do_formulario['produto_id']) ? (int)$item_do_formulario['produto_id'] : null;
+                    
+                    if ($db_produto_id === null) { 
+                        $db_nome_produto_manual = isset($item_do_formulario['nome_produto_manual']) ? trim($item_do_formulario['nome_produto_manual']) : null;
+                    }
+
+                    $db_quantidade = isset($item_do_formulario['quantidade']) ? (int)$item_do_formulario['quantidade'] : 1;
+                    if ($db_quantidade <= 0) $db_quantidade = 1;
+
+                    $db_tipo_locacao_venda = $item_do_formulario['tipo'] ?? 'locacao'; // Para produtos, default para locacao se não vier nada
+                    $db_preco_unitario = (float)($item_do_formulario['preco_unitario'] ?? 0.00);
+                    $db_desconto = (float)($item_do_formulario['desconto'] ?? 0.00);
+                    $db_preco_final = ($db_quantidade * $db_preco_unitario) - $db_desconto;
                 }
 
-                $quantidade_item = isset($item['quantidade']) ? (int)$item['quantidade'] : 1;
-                if ($quantidade_item <= 0) $quantidade_item = 1;
-
-                $tipo_item = $item['tipo'] ?? 'locacao';
-                $preco_unitario_item = (float)($item['preco_unitario'] ?? 0.00);
-                $desconto_item_val = (float)($item['desconto'] ?? 0.00);
-                $preco_final_item = (float)($item['preco_final'] ?? 0.00); // Idealmente, recalcular aqui também
-                
-                $ajuste_manual_item = isset($item['ajuste_manual']) ? (bool)$item['ajuste_manual'] : false;
-                $motivo_ajuste_item = isset($item['motivo_ajuste']) ? trim($item['motivo_ajuste']) : null;
-                $observacoes_item = isset($item['observacoes']) ? trim($item['observacoes']) : null;
-
-
                 $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
-                $stmt->bindParam(':produto_id', $produto_id_item, $produto_id_item === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-                // --- MODIFICADO: Bind para nome_produto_manual ---
-                $stmt->bindParam(':nome_produto_manual', $nome_produto_manual_item, $nome_produto_manual_item === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindParam(':produto_id', $db_produto_id, $db_produto_id === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+                $stmt->bindParam(':nome_produto_manual', $db_nome_produto_manual, $db_nome_produto_manual === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindParam(':quantidade', $db_quantidade, PDO::PARAM_INT);
                 
-                $stmt->bindParam(':quantidade', $quantidade_item, PDO::PARAM_INT);
-                $stmt->bindParam(':tipo', $tipo_item);
-                $stmt->bindParam(':preco_unitario', $preco_unitario_item);
-                $stmt->bindParam(':desconto', $desconto_item_val);
-                $stmt->bindParam(':preco_final', $preco_final_item);
-                $stmt->bindParam(':ajuste_manual', $ajuste_manual_item, PDO::PARAM_BOOL);
-                $stmt->bindParam(':motivo_ajuste', $motivo_ajuste_item);
-                $stmt->bindParam(':observacoes', $observacoes_item); // Observação específica do item
+                // MODIFICAÇÃO NO BIND PARAM PARA :tipo
+                if ($db_tipo_locacao_venda === null) {
+                    $stmt->bindParam(':tipo', $db_tipo_locacao_venda, PDO::PARAM_NULL);
+                } else {
+                    $stmt->bindParam(':tipo', $db_tipo_locacao_venda, PDO::PARAM_STR);
+                }
+                
+                $stmt->bindParam(':preco_unitario', $db_preco_unitario);
+                $stmt->bindParam(':desconto', $db_desconto);
+                $stmt->bindParam(':preco_final', $db_preco_final);
+                $stmt->bindParam(':observacoes', $db_observacoes, $db_observacoes === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindParam(':tipo_linha', $tipo_linha_atual, PDO::PARAM_STR);
+                $stmt->bindParam(':ordem', $ordem_atual, PDO::PARAM_INT);
 
                 if (!$stmt->execute()) {
-                    error_log("Erro ao inserir item de orçamento (Orcamento ID: {$orcamento_id}): " . print_r($stmt->errorInfo(), true) . " Item Data: " . print_r($item, true));
+                    $errorInfo = $stmt->errorInfo();
+                    error_log("Erro ao inserir item de orçamento (Orcamento ID: {$orcamento_id}): SQLSTATE[{$errorInfo[0]}] - {$errorInfo[2]}. Item Data: " . print_r($item_do_formulario, true));
                     if (!$inTransaction) $this->conn->rollBack();
                     return false;
                 }
@@ -437,7 +433,9 @@ class Orcamento {
             return true;
         } catch (PDOException $e) {
             error_log("Exceção PDO em Orcamento::salvarItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
-            if (!$inTransaction) $this->conn->rollBack();
+            if ($this->conn->inTransaction() && !$inTransaction) {
+                $this->conn->rollBack();
+            }
             return false;
         }
     }
@@ -447,7 +445,7 @@ class Orcamento {
         try {
             $stmt = $this->conn->prepare($query);
             $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
-            return $stmt->execute(); // Retorna true ou false
+            return $stmt->execute();
         } catch (PDOException $e) {
             error_log("Erro em Orcamento::deletarTodosItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
             return false;
@@ -455,29 +453,19 @@ class Orcamento {
     }
 
     public function getItens($orcamento_id) {
-        // --- MODIFICADO: Query para buscar nome_produto_manual se existir ---
-        // A query original já buscava io.*, então se nome_produto_manual existir na tabela, será retornado.
-        // Apenas adicionamos explicitamente p.nome_produto para o caso de produto_id não ser nulo.
-        $query = "SELECT 
-                    io.*, 
-                    p.nome_produto AS nome_produto_catalogo,  -- Nome do produto do catálogo
+        $query = "SELECT
+                    io.*,
+                    p.nome_produto AS nome_produto_catalogo,
                     p.codigo AS codigo_produto
                   FROM {$this->table_itens} io
                   LEFT JOIN produtos p ON io.produto_id = p.id
                   WHERE io.orcamento_id = :orcamento_id
-                  ORDER BY io.id ASC";
+                  ORDER BY io.ordem ASC, io.id ASC";
         try {
             $stmt = $this->conn->prepare($query);
             $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
             $stmt->execute();
-            $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Adicionar lógica para usar nome_produto_manual se nome_produto_catalogo for nulo
-            // Isso é mais para a camada de visualização, mas pode ser útil aqui.
-            // No entanto, a visualização (show.php) é o melhor lugar para decidir qual nome exibir.
-            // Por agora, retornamos os dados como estão do banco.
-
-            return $itens;
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
             error_log("Erro em Orcamento::getItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
             return false;
@@ -491,7 +479,7 @@ class Orcamento {
         try {
             $stmt = $this->conn->prepare($query);
             $stmt->execute();
-            return $stmt->rowCount(); // Retorna o número de orçamentos atualizados
+            return $stmt->rowCount();
         } catch (PDOException $e) {
             error_log("Erro em Orcamento::verificarEAtualizarExpirados: " . $e->getMessage());
             return 0;
@@ -512,10 +500,12 @@ class Orcamento {
     }
 
     public function recalcularValores($orcamento_id) {
-        $dadosOrcamentoAtual = $this->getById($orcamento_id);
-        if (!$dadosOrcamentoAtual) {
-            error_log("Erro em Orcamento::recalcularValores: Não foi possível carregar o orçamento ID {$orcamento_id} para recálculo.");
-            return false;
+        if (empty($this->id) || $this->id != $orcamento_id) {
+            $dadosOrcamentoAtual = $this->getById($orcamento_id);
+            if (!$dadosOrcamentoAtual) {
+                error_log("Erro em Orcamento::recalcularValores: Não foi possível carregar o orçamento ID {$orcamento_id} para recálculo.");
+                return false;
+            }
         }
 
         $itens = $this->getItens($orcamento_id);
@@ -524,33 +514,30 @@ class Orcamento {
 
         if ($itens !== false && !empty($itens)) {
             foreach ($itens as $item) {
-                $precoFinalItem = (float)($item['preco_final'] ?? 0.00);
-                if (isset($item['tipo']) && $item['tipo'] === 'venda') {
-                    $subtotal_venda_calc += $precoFinalItem;
-                } else {
-                    $subtotal_locacao_calc += $precoFinalItem;
+                if (isset($item['tipo_linha']) && $item['tipo_linha'] === 'PRODUTO') {
+                    $precoFinalItem = (float)($item['preco_final'] ?? 0.00);
+                    if (isset($item['tipo']) && $item['tipo'] === 'venda') {
+                        $subtotal_venda_calc += $precoFinalItem;
+                    } else { 
+                        $subtotal_locacao_calc += $precoFinalItem;
+                    }
                 }
             }
         }
 
-        // As propriedades do objeto $this já foram preenchidas por getById()
-        // com os valores das taxas, descontos, fretes que vieram do formulário ou do banco.
         $this->subtotal_locacao = $subtotal_locacao_calc;
-        $this->valor_total_locacao = $subtotal_locacao_calc; // Simplificação, pode ter outra lógica
+        $this->valor_total_locacao = $subtotal_locacao_calc;
         $this->subtotal_venda = $subtotal_venda_calc;
-        $this->valor_total_venda = $subtotal_venda_calc;   // Simplificação
+        $this->valor_total_venda = $subtotal_venda_calc;
 
         $total_taxas = (float)($this->taxa_domingo_feriado ?? 0) +
                        (float)($this->taxa_madrugada ?? 0) +
                        (float)($this->taxa_horario_especial ?? 0) +
                        (float)($this->taxa_hora_marcada ?? 0);
         $total_frete = (float)($this->frete_terreo ?? 0);
-        // Adicionar frete_elevador e frete_escadas se forem numéricos e desejado
-        // Ex: $total_frete += is_numeric($this->frete_elevador) ? (float)$this->frete_elevador : 0;
 
         $this->valor_final = ($this->subtotal_locacao + $this->subtotal_venda + $total_taxas + $total_frete) - (float)($this->desconto ?? 0);
 
-        // Query para atualizar apenas os valores calculados e as taxas/fretes que podem ter sido editados no form
         $query = "UPDATE {$this->table} SET
                   subtotal_locacao = :subtotal_locacao, valor_total_locacao = :valor_total_locacao,
                   subtotal_venda = :subtotal_venda, valor_total_venda = :valor_total_venda,
@@ -568,14 +555,14 @@ class Orcamento {
             $stmt->bindParam(':valor_total_venda', $this->valor_total_venda);
             $stmt->bindParam(':valor_final', $this->valor_final);
             
-            $stmt->bindParam(':desconto', $this->desconto); // Usa o valor de $this (que veio do form/getById)
+            $stmt->bindParam(':desconto', $this->desconto);
             $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
             $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
             $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
             $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
             $stmt->bindParam(':frete_terreo', $this->frete_terreo);
-            $stmt->bindParam(':frete_elevador', $this->frete_elevador); 
-            $stmt->bindParam(':frete_escadas', $this->frete_escadas);   
+            $stmt->bindParam(':frete_elevador', $this->frete_elevador);
+            $stmt->bindParam(':frete_escadas', $this->frete_escadas);
 
             $stmt->bindParam(':id', $orcamento_id, PDO::PARAM_INT);
             return $stmt->execute();
