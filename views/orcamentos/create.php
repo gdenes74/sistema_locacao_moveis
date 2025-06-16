@@ -800,6 +800,7 @@ include_once __DIR__ . '/../includes/header.php';
 // O JavaScript que você já tinha, com as modificações para adicionar tipo_linha e ordem
 // e a nova função para adicionar títulos de seção.
 // CERTIFIQUE-SE DE REMOVER LISTENERS DUPLICADOS SE HOUVER.
+// a nova função para adicionar títulos de seção, e agora com a miniatura na tabela.
 $custom_js = <<<'JS'
 $(document).ready(function() {
     var itemIndex = 0; // Índice para ordem e unicidade de linhas
@@ -828,7 +829,7 @@ $(document).ready(function() {
         }
 
         $.ajax({
-            url: 'create.php?ajax=buscar_produtos', // Mantém o endpoint
+            url: 'create.php?ajax=buscar_produtos', 
             type: 'GET',
             dataType: 'json',
             data: { termo: termoBusca, categoria_id: categoriaSelecionada },
@@ -848,13 +849,16 @@ $(document).ready(function() {
                         } else {
                             fotoHtml = `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
                         }
-
+                        
+                        let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
+                        
                         $('#sugestoes_produtos').append(
                             `<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2"
                                data-id="${produto.id}"
                                data-nome="${produto.nome_produto || 'Sem nome'}"
                                data-codigo="${produto.codigo || ''}"
-                               data-preco="${preco}">
+                               data-preco="${preco}"
+                               data-foto-completa="${fotoPathParaDataAttribute}">
                                 ${fotoHtml}
                                 <div class="flex-grow-1">
                                     <strong>${produto.nome_produto || 'Sem nome'}</strong>
@@ -894,21 +898,31 @@ $(document).ready(function() {
             $('#modalFotoProduto').modal('show');
         }
     });
+
      $('#modalFotoProduto').on('hidden.bs.modal', function () {
         $('#busca_produto').focus(); // Devolve o foco
+        // Se o campo de busca ainda tiver texto ou categoria selecionada, recarrega as sugestões
+        if ($('#busca_produto').val().trim().length > 0 || $('#busca_categoria_produto').val() !== '') {
+            carregarSugestoesProdutos();
+        }
     });
 
     // Clicar em uma sugestão para adicionar à tabela
     $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
         e.preventDefault();
+        var $itemClicado = $(this);
+
         var produtoSelecionado = {
-            id: $(this).data('id'),
-            nome_produto: $(this).data('nome'),
-            codigo: $(this).data('codigo'),
-            preco_locacao: $(this).data('preco')
-            // Adicionar outros campos se necessário (tipo, etc.)
+            id: $itemClicado.data('id'),
+            nome_produto: $itemClicado.data('nome'),
+            codigo: $itemClicado.data('codigo'),
+            preco_locacao: $itemClicado.data('preco'),
+            foto_path_completo: $itemClicado.data('foto-completa') 
         };
-        adicionarLinhaItemTabela(produtoSelecionado, 'PRODUTO'); // Chama a função unificada
+        
+        // console.log('Produto Selecionado para adicionar:', produtoSelecionado); // Para depuração
+        
+        adicionarLinhaItemTabela(produtoSelecionado, 'PRODUTO');
         $('#busca_produto').val('').focus();
         $('#sugestoes_produtos').empty().hide();
     });
@@ -922,29 +936,43 @@ $(document).ready(function() {
     // --- Função UNIFICADA para adicionar linha à tabela (Produto ou Título) ---
     function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
         itemIndex++;
-        var tipoLinha = tipoLinhaParam; // 'PRODUTO' ou 'CABECALHO_SECAO'
+        var tipoLinha = tipoLinhaParam; 
         var htmlLinha = '';
 
         var nomeDisplay = dadosItem ? dadosItem.nome_produto : '';
         var produtoIdInput = dadosItem ? dadosItem.id : '';
         var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
-        var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao'; // Para produtos, pode vir do data-tipo
-        
-        var nomeInputName = "nome_produto_display[]"; // Campo visível para nome/título
+        var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao'; 
+        var nomeInputName = "nome_produto_display[]"; 
 
         if (tipoLinha === 'PRODUTO') {
             var quantidadeDefault = 1;
             var descontoDefault = 0;
             var subtotalDefault = (quantidadeDefault * precoUnitarioDefault) - descontoDefault;
 
+            var imagemHtml = ''; 
+            if (dadosItem && dadosItem.foto_path_completo) {
+                imagemHtml = `
+                    <img src="${dadosItem.foto_path_completo}" 
+                         alt="Miniatura" 
+                         style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
+                `;
+            }
+
             htmlLinha = `
                 <tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}">
-                    <td>
-                        <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" ${dadosItem && dadosItem.id ? 'readonly' : ''}>
+                    <td> 
+                        ${imagemHtml}
+                        <input type="text" name="${nomeInputName}" 
+                               class="form-control form-control-sm nome_produto_display" 
+                               value="${nomeDisplay}" 
+                               placeholder="Nome do Produto/Serviço" 
+                               style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" 
+                               ${dadosItem && dadosItem.id ? 'readonly' : ''}>
                         <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
                         <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
                         <input type="hidden" name="ordem[]" value="${itemIndex}">
-                        <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"> <!-- tipo locacao/venda do item -->
+                        <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
                         <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
                         <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item">
                     </td>
@@ -959,24 +987,23 @@ $(document).ready(function() {
                 </tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `
-                <tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}">
-                    <td colspan="5"> <!-- colspan ajustado -->
-                        <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required>
+                <tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}"
+                style="background-color: #f8f9fa;">  <!-- Estilo para a linha (fundo) -->
+                    <td colspan="5"> 
+                        <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..."style="font-weight: bold; border: none; background-color: transparent; box-shadow: none; padding-left: 5px; color: #333; width:100%;" required>
                         <input type="hidden" name="produto_id[]" value="">
                         <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
                         <input type="hidden" name="ordem[]" value="${itemIndex}">
                         <input type="hidden" name="quantidade[]" value="0">
-                        <input type="hidden" name="tipo_item[]" value=""> <!-- tipo locacao/venda não se aplica -->
+                        <input type="hidden" name="tipo_item[]" value="">
                         <input type="hidden" name="valor_unitario[]" value="0.00">
                         <input type="hidden" name="desconto_item[]" value="0.00">
-                        <!-- Observacao para titulo de seção pode ou não ser útil, manter o campo para consistência do array no POST -->
                         <input type="hidden" name="observacoes_item[]" value="">
                     </td>
                     <td>
                         <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button>
                     </td>
                 </tr>`;
-             // Aplicar um estilo visual diferente para a linha de título, se desejado (via CSS na classe item-titulo-secao)
         }
 
         if (htmlLinha) {
@@ -984,9 +1011,9 @@ $(document).ready(function() {
             if (tipoLinha === 'CABECALHO_SECAO') {
                  $('#tabela_itens_orcamento tbody tr:last-child .nome_titulo_secao').focus();
             }
-             // Reaplicar máscaras de dinheiro se você usar alguma (ex: jQuery Mask Plugin)
-            // $('.money-input').mask('#.##0,00', {reverse: true});
-            calcularTotaisOrcamento(); // Recalcula sempre que uma linha é adicionada
+            // Idealmente, reaplicar máscaras de dinheiro após adicionar a linha, se você estiver usando um plugin para isso.
+            // Ex: $('.money-input:last').mask(...); ou uma função que reaplique em todos os .money-input.
+            calcularTotaisOrcamento(); 
         }
     }
 
@@ -997,9 +1024,8 @@ $(document).ready(function() {
 
     // Botão para adicionar Item Manualmente
     $('#btn_adicionar_item_manual').click(function() {
-        adicionarLinhaItemTabela(null, 'PRODUTO'); // Chama com null para produto manual
+        adicionarLinhaItemTabela(null, 'PRODUTO'); 
     });
-
 
     // Remover item da tabela
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
@@ -1016,7 +1042,6 @@ $(document).ready(function() {
         }
     });
     
-    // Impedir Enter em campos de observação de submeter o form
     $('#tabela_itens_orcamento').on('keydown', '.observacoes_item_input', function(event) {
         if (event.key === 'Enter' || event.keyCode === 13) {
             event.preventDefault();
@@ -1024,11 +1049,9 @@ $(document).ready(function() {
         }
     });
 
-
-    // Cálculo de subtotal da linha e totais gerais
     function calcularSubtotalItem($row) {
         if ($row.data('tipo-linha') === 'CABECALHO_SECAO') {
-            return 0; // Títulos de seção não têm valor
+            return 0; 
         }
         var quantidade = parseFloat($row.find('.quantidade_item').val()) || 0;
         var valorUnitario = unformatCurrency($row.find('.valor_unitario_item').val());
@@ -1041,7 +1064,6 @@ $(document).ready(function() {
     function calcularTotaisOrcamento() {
         var subtotalGeralItens = 0;
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
-            // Só soma se não for um título de seção. A função calcularSubtotalItem já faz isso.
             subtotalGeralItens += calcularSubtotalItem($(this));
         });
         $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
@@ -1052,22 +1074,17 @@ $(document).ready(function() {
         var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
         var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
         var freteTerreo = unformatCurrency($('#frete_terreo').val());
-        // Considerar outros fretes se forem numéricos
 
         var valorFinalCalculado = subtotalGeralItens - descontoTotalOrc + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo;
         $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
-        // Atualizar um campo hidden com o valor numérico para o POST se necessário,
-        // mas o backend recalculará de qualquer forma.
     }
 
-    // Listeners para recalcular totais quando os valores mudam
     $('#tabela_itens_orcamento').on('change keyup blur', '.quantidade_item, .valor_unitario_item, .desconto_item', function() {
         var $row = $(this).closest('tr');
-        calcularSubtotalItem($row); // Recalcula subtotal da linha
-        calcularTotaisOrcamento(); // Recalcula totais gerais
+        calcularSubtotalItem($row); 
+        calcularTotaisOrcamento(); 
     });
     $('#desconto_total, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo').on('change keyup blur', calcularTotaisOrcamento);
-
 
     // --- SEU CÓDIGO JS ORIGINAL PARA CLIENTES, DATAS, ETC. ---
     if (typeof $.fn.select2 === 'function') {
@@ -1125,7 +1142,7 @@ $(document).ready(function() {
             autoclose: true,
             todayHighlight: true,
             orientation: "bottom auto"
-        }).on('show', function(e){ // Z-index fix para datepicker em modal
+        }).on('show', function(e){ 
              if ($('.modal.show').length > 0) {
                 $(this).data('datepicker').picker.css('z-index', parseInt($('.modal.show').css('z-index')) + 10);
             }
@@ -1168,7 +1185,7 @@ $(document).ready(function() {
                 if (!isNaN(dataObj.valueOf())) {
                     var diaSemana = diasDaSemana[dataObj.getDay()];
                     displayEl.text(diaSemana).addClass('font-weight-bold');
-                    if (dataObj.getDay() === 0 || dataObj.getDay() === 6) { // Domingo ou Sábado
+                    if (dataObj.getDay() === 0 || dataObj.getDay() === 6) { 
                         displayEl.addClass('text-danger');
                     } else {
                         displayEl.addClass('text-success');
@@ -1183,7 +1200,6 @@ $(document).ready(function() {
     $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
     $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
 
-
     $('#btnUsarEnderecoCliente').on('click', function() {
         var clienteSelecionadoData = $('#cliente_id').select2('data');
         if (clienteSelecionadoData && clienteSelecionadoData.length > 0 && clienteSelecionadoData[0].full_data) {
@@ -1195,28 +1211,22 @@ $(document).ready(function() {
         }
     });
 
-    // Switch para ajuste manual de valor
     $('#ajuste_manual').on('change', function() {
         if ($(this).is(':checked')) {
             $('#campo_motivo_ajuste').slideDown();
-            // Aqui você poderia habilitar a edição direta do campo valor_final_display se desejado
-            // $('#valor_final_display').prop('readonly', false);
         } else {
             $('#campo_motivo_ajuste').slideUp();
             $('#motivo_ajuste').val('');
-            // $('#valor_final_display').prop('readonly', true);
-            calcularTotaisOrcamento(); // Recalcula se desmarcar
+            calcularTotaisOrcamento(); 
         }
     });
     
-    // Impedir Enter em inputs de submeter o formulário (exceto textareas e botões de submit)
     $('#formNovoOrcamento').on('keydown', 'input:not(textarea, [type="submit"], [type="button"])', function(event) {
         if (event.key === 'Enter' || event.keyCode === 13) {
-            if ($(this).hasClass('observacoes_item_input')) { // Já tratado especificamente
+            if ($(this).hasClass('observacoes_item_input')) { 
                 return;
             }
             event.preventDefault();
-            // Tenta focar no próximo input visível e não desabilitado
             var $inputs = $(this).closest('form').find(':input:visible:not(:disabled):not([readonly])');
             var $next = $inputs.eq($inputs.index(this) + 1);
             if ($next.length) {
@@ -1226,31 +1236,27 @@ $(document).ready(function() {
         }
     });
 
+    // Inicializar máscaras (se usar jQuery Mask Plugin)
+    // $('.money').mask('#.##0,00', {reverse: true});
+    // $('.telefone').mask('(00) 00000-0000');
+    // $('.cep').mask('00000-000');
 
-    // Inicializar máscaras (SE VOCÊ USA jQuery Mask Plugin)
-    // Ex: $('.money').mask('#.##0,00', {reverse: true});
-    // Ex: $('.telefone').mask('(00) 00000-0000');
-    // Ex: $('.cep').mask('00000-000');
-
-    // --- LÓGICA PARA MODAL DE NOVO CLIENTE (SEU CÓDIGO ORIGINAL) ---
     $('#btnSalvarClienteModal').on('click', function() {
         var formData = $('#formNovoClienteModal').serialize();
         $('#modalClienteFeedback').html('<div class="text-info">Salvando...</div>');
         $.ajax({
-            url: '<?= BASE_URL ?>/views/clientes/ajax_create.php', // Endpoint para salvar cliente
+            url: '<?= BASE_URL ?>/views/clientes/ajax_create.php', 
             type: 'POST',
             data: formData,
             dataType: 'json',
             success: function(response) {
                 if (response.success && response.cliente) {
                     $('#modalClienteFeedback').html('<div class="alert alert-success">Cliente salvo! Selecione-o na lista.</div>');
-                    // Adiciona o novo cliente ao Select2 e o seleciona
                     var newOption = new Option(response.cliente.text, response.cliente.id, true, true);
                     $('#cliente_id').append(newOption).trigger('change');
-                    // Dispara o evento select para preencher as informações do cliente
                      $('#cliente_id').trigger({
                         type: 'select2:select',
-                        params: { data: { full_data: response.cliente.full_data_for_select2 } } // Ajuste a estrutura se necessário
+                        params: { data: { full_data: response.cliente.full_data_for_select2 } } 
                     });
                     setTimeout(function() {
                         $('#modalNovoCliente').modal('hide');
@@ -1272,8 +1278,6 @@ $(document).ready(function() {
         $('#formNovoClienteModal')[0].reset();
     });
 
-
-    // Chamada inicial para calcular totais (caso haja valores default)
     calcularTotaisOrcamento();
 
 }); // Fim do $(document).ready
