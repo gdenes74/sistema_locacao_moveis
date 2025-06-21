@@ -31,9 +31,11 @@ $textoPadraoCondicoes = "50% na aprovação para reserva em PIX ou Depósito.\nS
 // Valores padrão para taxas (para exibição inicial no formulário)
 $valorPadraoTaxaDomingo = 250.00;
 $valorPadraoTaxaMadrugada = 800.00;
-$valorPadraoTaxaHorarioEspecial = 150.00;
-$valorPadraoTaxaHoraMarcada = 100.00;
-$valorPadraoFreteTerreo = 0.00;
+$valorPadraoTaxaHorarioEspecial = 500.00;
+$valorPadraoTaxaHoraMarcada = 200.00;
+$valorPadraoFreteTerreo = 180.00;
+$valorPadraoFreteElevador = 100.00;
+$valorPadraoFreteEscadas = 200.00;
 
 
 // --- Bloco AJAX para buscar clientes (SEU CÓDIGO ORIGINAL) ---
@@ -75,7 +77,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $termo = isset($_GET['termo']) ? trim($_GET['termo']) : '';
-        $categoria_principal_id = isset($_GET['categoria_id']) ? (int)$_GET['categoria_id'] : 0;
+        $categoria_principal_id = isset($_GET['categoria_id']) ? (int) $_GET['categoria_id'] : 0;
 
         if (empty($termo) && $categoria_principal_id === 0) {
             echo json_encode([]);
@@ -128,7 +130,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
         foreach ($produtos_ajax as &$produto_item) {
             if (!empty($produto_item['foto_path']) && $produto_item['foto_path'] !== "null" && trim($produto_item['foto_path']) !== "") {
                 $foto_path_limpo = ltrim($produto_item['foto_path'], '/');
-                 // Se build_url não estiver disponível globalmente, construímos aqui
+                // Se build_url não estiver disponível globalmente, construímos aqui
                 $produto_item['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
 
             } else {
@@ -150,7 +152,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
     }
 }
 
-// --- Lógica de submissão do formulário (POST) ---
+// --- CÓDIGO PHP- PROCESSAMENTO FORMULÁRIO (submissão do formulário) (POST) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // INÍCIO DA TRANSAÇÃO
     try {
@@ -165,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if (empty($_POST['cliente_id'])) {
             throw new Exception("Cliente é obrigatório.");
         }
-        $orcamentoModel->cliente_id = (int)$_POST['cliente_id'];
+        $orcamentoModel->cliente_id = (int) $_POST['cliente_id'];
 
         // Datas e Horas
         $data_orcamento_input = $_POST['data_orcamento'] ?? date('d/m/Y');
@@ -175,7 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if (isset($_POST['data_validade_calculada_hidden']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['data_validade_calculada_hidden'])) {
             $orcamentoModel->data_validade = $_POST['data_validade_calculada_hidden'];
         } else {
-            $validade_dias = isset($_POST['validade_dias']) ? (int)$_POST['validade_dias'] : 7;
+            $validade_dias = isset($_POST['validade_dias']) ? (int) $_POST['validade_dias'] : 7;
             $data_validade_dt_calc = clone $data_orcamento_dt;
             $data_validade_dt_calc->modify("+{$validade_dias} days");
             $orcamentoModel->data_validade = $data_validade_dt_calc->format('Y-m-d');
@@ -202,11 +204,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         // Função para converter moeda de string para float
         $fnConverterMoeda = function ($valorStr) {
-            if (empty($valorStr)) return 0.0;
+            if (empty($valorStr))
+                return 0.0;
             $valor = str_replace('R$', '', $valorStr);
             $valor = str_replace('.', '', $valor); // Remove pontos de milhar
             $valor = str_replace(',', '.', $valor); // Substitui vírgula decimal por ponto
-            return (float)$valor;
+            return (float) $valor;
         };
 
         // Valores financeiros do cabeçalho
@@ -216,13 +219,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamentoModel->taxa_horario_especial = $fnConverterMoeda($_POST['taxa_horario_especial'] ?? '0,00');
         $orcamentoModel->taxa_hora_marcada = $fnConverterMoeda($_POST['taxa_hora_marcada'] ?? '0,00');
         $orcamentoModel->frete_terreo = $fnConverterMoeda($_POST['frete_terreo'] ?? '0,00');
-        $orcamentoModel->frete_elevador = $_POST['frete_elevador'] ?? ''; // Mantém como string
-        $orcamentoModel->frete_escadas = $_POST['frete_escadas'] ?? '';   // Mantém como string
-
-        $orcamentoModel->ajuste_manual = isset($_POST['ajuste_manual']) ? 1 : 0;
-        $orcamentoModel->motivo_ajuste = $_POST['motivo_ajuste'] ?? null;
-        $orcamentoModel->observacoes = $_POST['observacoes'] ?? null;
-        $orcamentoModel->condicoes_pagamento = $_POST['condicoes_pagamento'] ?? null;
+        $orcamentoModel->frete_elevador = $fnConverterMoeda($_POST['frete_elevador'] ?? '0,00');
+        $orcamentoModel->frete_escadas = $fnConverterMoeda($_POST['frete_escadas'] ?? '0,00');
+        $orcamentoModel->ajuste_manual = isset($_POST['ajuste_manual_valor_final']) ? 1 : 0;
+        $orcamentoModel->motivo_ajuste = trim($_POST['motivo_ajuste_ajuste_final'])?
+        trim($_POST['motivo_ajuste_final']):null;
+         $orcamentoModel->observacoes = !empty($_POST['observacoes_gerais']) ? trim($_POST['observacoes_gerais']) : null;
+        $orcamentoModel->condicoes_pagamento = !empty($_POST['condicoes_pagamento']) ? trim($_POST['condicoes_pagamento']) : null;
         $orcamentoModel->usuario_id = $_SESSION['usuario_id'] ?? 1; // Fallback para usuário 1 se não houver sessão
 
         // Chama create() do Model para salvar o cabeçalho do orçamento
@@ -242,7 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 $tipo_linha_atual = trim($tipo_linha_post);
                 // Usar o $index diretamente para ordem é uma boa prática se o JS garante a sequência
-                $ordem_atual = isset($_POST['ordem'][$index]) ? (int)$_POST['ordem'][$index] : ($index + 1);
+                $ordem_atual = isset($_POST['ordem'][$index]) ? (int) $_POST['ordem'][$index] : ($index + 1);
 
 
                 // Valores default para cada item
@@ -254,6 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     'preco_unitario' => 0.00,
                     'desconto' => 0.00,
                     'preco_final' => 0.00,
+                    'tipo'=>null,
                     'observacoes' => isset($_POST['observacoes_item'][$index]) ? trim($_POST['observacoes_item'][$index]) : null,
                     'tipo_linha' => $tipo_linha_atual,
                     'ordem' => $ordem_atual
@@ -263,22 +267,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if ($tipo_linha_atual === 'CABECALHO_SECAO') {
                     $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Título não informado';
                     // produto_id, quantidade, tipo (loc/vend), preco_unitario, desconto, preco_final permanecem nos seus defaults (null ou 0)
-                     $item_data['tipo'] = null; // MODIFICAÇÃO: Envia NULL para o tipo do cabeçalho
+                    $item_data['tipo'] = null; // MODIFICAÇÃO: Envia NULL para o tipo do cabeçalho
                 } else if ($tipo_linha_atual === 'PRODUTO') {
-                    $item_data['produto_id'] = isset($_POST['produto_id'][$index]) && !empty($_POST['produto_id'][$index]) ? (int)$_POST['produto_id'][$index] : null;
-                    
+                    $item_data['produto_id'] = isset($_POST['produto_id'][$index]) && !empty($_POST['produto_id'][$index]) ? (int) $_POST['produto_id'][$index] : null;
+
                     if ($item_data['produto_id'] === null) { // Produto manual
                         $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : null;
                     }
                     // Se tem produto_id, nome_produto_manual permanece null (será pego do catálogo)
 
-                    $item_data['quantidade'] = isset($_POST['quantidade'][$index]) ? (int)$_POST['quantidade'][$index] : 1;
-                    if ($item_data['quantidade'] <= 0) $item_data['quantidade'] = 1;
+                    $item_data['quantidade'] = isset($_POST['quantidade'][$index]) ? (int) $_POST['quantidade'][$index] : 1;
+                    if ($item_data['quantidade'] <= 0)
+                        $item_data['quantidade'] = 1;
 
                     $item_data['tipo'] = $_POST['tipo_item'][$index] ?? 'locacao'; // tipo_item[] do form
                     $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
                     $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
-                    $item_data['preco_final'] = ($item_data['quantidade'] * $item_data['preco_unitario']) - $item_data['desconto'];
+                    $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
                 } else {
                     // Tipo de linha desconhecido, pode ser um erro ou uma linha vazia indesejada.
                     // Decida se quer pular, logar ou tratar como erro. Por ora, vamos pular.
@@ -593,7 +598,8 @@ include_once __DIR__ . '/../includes/header.php';
                             <table class="table table-bordered table-hover" id="tabela_itens_orcamento">
                                 <thead class="thead-light">
                                     <tr>
-                                        <th style="width: 35%;">Produto/Serviço/Seção <span class="text-danger">*</span></th>
+                                        <th style="width: 35%;">Produto/Serviço/Seção <span class="text-danger">*</span>
+                                        </th>
                                         <th style="width: 10%;">Qtd. <span class="text-danger">*</span></th>
                                         <th style="width: 15%;">Vlr. Unit. (R$)</th>
                                         <th style="width: 15%;">Desc. Item (R$)</th>
@@ -614,7 +620,7 @@ include_once __DIR__ . '/../includes/header.php';
                             </table>
                         </div>
                         <div class="mt-2">
-                             <button type="button" class="btn btn-info btn-sm mr-2" id="btn_adicionar_titulo_secao">
+                            <button type="button" class="btn btn-info btn-sm mr-2" id="btn_adicionar_titulo_secao">
                                 <i class="fas fa-heading"></i> Adicionar Título de Seção
                             </button>
                             <button type="button" class="btn btn-success btn-sm" id="btn_adicionar_item_manual">
@@ -631,92 +637,295 @@ include_once __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="card-body">
                         <div class="row">
+                            <!-- COLUNA DA ESQUERDA (Observações, Condições, Ajuste Manual) - SEM ALTERAÇÕES SIGNIFICATIVAS AQUI -->
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="observacoes">Observações Gerais</label>
-                                    <textarea class="form-control" id="observacoes" name="observacoes" rows="3"
-                                        placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($textoPadraoObservacoes) ?></textarea>
+                                    <label for="observacoes_gerais">Observações Gerais</label>
+                                    <!-- Mudei o id para observacoes_gerais para evitar conflito se "observacoes" for usado em itens -->
+                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais"
+                                        rows="3"
+                                        placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($textoPadraoObservacoes ?? '') ?></textarea>
                                 </div>
                                 <div class="form-group">
                                     <label for="condicoes_pagamento">Condições de Pagamento</label>
-                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento" rows="3"
-                                        placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($textoPadraoCondicoes) ?></textarea>
+                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento"
+                                        rows="3"
+                                        placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($textoPadraoCondicoes ?? '') ?></textarea>
                                 </div>
                                 <div class="form-group">
                                     <div class="custom-control custom-switch">
-                                        <input type="checkbox" class="custom-control-input" id="ajuste_manual"
-                                            name="ajuste_manual">
-                                        <label class="custom-control-label" for="ajuste_manual">Ajustar Valor Final
+                                        <input type="checkbox" class="custom-control-input"
+                                            id="ajuste_manual_valor_final" name="ajuste_manual_valor_final">
+                                        <!-- Nome mais específico -->
+                                        <label class="custom-control-label" for="ajuste_manual_valor_final">Ajustar
+                                            Valor Final
                                             Manualmente?</label>
                                     </div>
                                 </div>
                                 <div class="form-group" id="campo_motivo_ajuste" style="display: none;">
-                                    <label for="motivo_ajuste">Motivo do Ajuste Manual</label>
-                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste"
-                                        placeholder="Ex: Desconto especial concedido">
+                                    <label for="motivo_ajuste_valor_final">Motivo do Ajuste Manual</label>
+                                    <!-- Nome mais específico -->
+                                    <input type="text" class="form-control" id="motivo_ajuste_valor_final"
+                                        name="motivo_ajuste_valor_final" placeholder="Ex: Desconto especial concedido">
                                 </div>
                             </div>
+
+                            <!-- COLUNA DA DIREITA (Descontos, Taxas, Fretes, Valor Final) - AQUI VÃO AS MUDANÇAS -->
                             <div class="col-md-6">
-                                <div class="form-group row">
-                                    <label for="desconto_total" class="col-sm-6 col-form-label">Desconto Total (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="desconto_total" name="desconto_total" value="0,00"></div>
-                                </div>
+
                                 <hr>
                                 <h5 class="text-muted">Taxas Adicionais</h5>
-                                <div class="form-group row">
-                                    <label for="taxa_domingo_feriado" class="col-sm-6 col-form-label">Taxa Dom./Feriado (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="taxa_domingo_feriado" name="taxa_domingo_feriado"
-                                            value="<?= number_format($valorPadraoTaxaDomingo, 2, ',', '.') ?>"></div>
-                                </div>
-                                <div class="form-group row">
-                                    <label for="taxa_madrugada" class="col-sm-6 col-form-label">Taxa Madrugada (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="taxa_madrugada" name="taxa_madrugada"
-                                            value="<?= number_format($valorPadraoTaxaMadrugada, 2, ',', '.') ?>">
+
+                                <!-- TAXA DOMINGO/FERIADO (MODELO PERFEITO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="taxa_domingo_feriado">
+                                    </div>
+                                    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
+                                        Taxa Dom./Feriado <small
+                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="taxa_domingo_feriado" name="taxa_domingo_feriado"
+                                                placeholder="a confirmar" value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="taxa_domingo_feriado"
+                                                    data-target-checkbox="aplicar_taxa_domingo"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="form-group row">
-                                    <label for="taxa_horario_especial" class="col-sm-6 col-form-label">Taxa Hor. Especial (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="taxa_horario_especial" name="taxa_horario_especial"
-                                            value="<?= number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.') ?>"></div>
+
+                                <!-- TAXA MADRUGADA (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="taxa_madrugada">
+                                    </div>
+                                    <label for="aplicar_taxa_madrugada" class="col-sm-5 col-form-label pr-1">
+                                        Taxa Madrugada <small
+                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="taxa_madrugada" name="taxa_madrugada" placeholder="a confirmar"
+                                                value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="taxa_madrugada"
+                                                    data-target-checkbox="aplicar_taxa_madrugada"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="form-group row">
-                                    <label for="taxa_hora_marcada" class="col-sm-6 col-form-label">Taxa Hora Marcada (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="taxa_hora_marcada" name="taxa_hora_marcada"
-                                            value="<?= number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.') ?>"></div>
+
+                                <!-- TAXA HORÁRIO ESPECIAL (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_taxa_horario_especial"
+                                            id="aplicar_taxa_horario_especial"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="taxa_horario_especial">
+                                    </div>
+                                    <label for="aplicar_taxa_horario_especial" class="col-sm-5 col-form-label pr-1">
+                                        Taxa Hor. Especial <small
+                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="taxa_horario_especial" name="taxa_horario_especial"
+                                                placeholder="a confirmar" value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="taxa_horario_especial"
+                                                    data-target-checkbox="aplicar_taxa_horario_especial"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
+
+                                <!-- TAXA HORA MARCADA (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_taxa_hora_marcada"
+                                            id="aplicar_taxa_hora_marcada" class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="taxa_hora_marcada">
+                                    </div>
+                                    <label for="aplicar_taxa_hora_marcada" class="col-sm-5 col-form-label pr-1">
+                                        Taxa Hora Marcada <small
+                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="taxa_hora_marcada" name="taxa_hora_marcada"
+                                                placeholder="a confirmar" value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="taxa_hora_marcada"
+                                                    data-target-checkbox="aplicar_taxa_hora_marcada"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <hr>
                                 <h5 class="text-muted">Frete</h5>
-                                <div class="form-group row">
-                                    <label for="frete_terreo" class="col-sm-6 col-form-label">Frete Térreo (R$):</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control money text-right"
-                                            id="frete_terreo" name="frete_terreo"
-                                            value="<?= number_format($valorPadraoFreteTerreo, 2, ',', '.') ?>">
+
+                                <!-- FRETE TÉRREO (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_frete_terreo" id="aplicar_frete_terreo"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="frete_terreo">
+                                    </div>
+                                    <label for="aplicar_frete_terreo" class="col-sm-5 col-form-label pr-1">
+                                        Frete Térreo <small class="text-muted">(Sob consulta)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="frete_terreo" name="frete_terreo" placeholder="a confirmar" value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteTerreo, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="frete_terreo"
+                                                    data-target-checkbox="aplicar_frete_terreo"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoFreteTerreo, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="form-group row">
-                                    <label for="frete_elevador" class="col-sm-6 col-form-label">Frete Elevador:</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control" id="frete_elevador"
-                                            name="frete_elevador" placeholder="Ex: R$ 50,00 ou A Confirmar"></div>
+
+                                <!-- FRETE ELEVADOR (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_frete_elevador" id="aplicar_frete_elevador"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="frete_elevador">
+                                    </div>
+                                    <label for="aplicar_frete_elevador" class="col-sm-5 col-form-label pr-1">
+                                        Frete Elevador <small class="text-muted">(Sob consulta)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="frete_elevador" name="frete_elevador" placeholder="a confirmar"
+                                                value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteElevador, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="frete_elevador"
+                                                    data-target-checkbox="aplicar_frete_elevador"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoFreteElevador, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="form-group row">
-                                    <label for="frete_escadas" class="col-sm-6 col-form-label">Frete Escadas:</label>
-                                    <div class="col-sm-6"><input type="text" class="form-control" id="frete_escadas"
-                                            name="frete_escadas" placeholder="Ex: R$ 100,00 por lance ou A Confirmar"></div>
+
+
+                                <!-- FRETE ESCADAS (CORRIGIDO E PADRONIZADO) -->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_frete_escadas" id="aplicar_frete_escadas"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="frete_escadas">
+                                    </div>
+                                    <label for="aplicar_frete_escadas" class="col-sm-5 col-form-label pr-1">
+                                        Frete Escadas <small
+                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="frete_escadas" name="frete_escadas" placeholder="a confirmar"
+                                                value=""
+                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button"
+                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                                                    data-target-input="frete_escadas"
+                                                    data-target-checkbox="aplicar_frete_escadas"
+                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- CÓDIGO para desconto total-->
+                                <div class="form-group row align-items-center">
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_desconto_geral" id="aplicar_desconto_geral"
+                                            class="form-check-input taxa-frete-checkbox"
+                                            data-target-input="desconto_total">
+                                    </div>
+                                    <label for="aplicar_desconto_geral" class="col-sm-5 col-form-label pr-1">
+                                        Desconto Geral (-)
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text"
+                                                class="form-control money-input text-right taxa-frete-input"
+                                                id="desconto_total" name="desconto_total" placeholder="0,00" value=""
+                                                disabled>
+                                            <!-- Começa desabilitado -->
+                                        </div>
+                                    </div>
                                 </div>
                                 <hr>
+
+                                <!-- VALOR FINAL (Mantendo sua estrutura original) -->
                                 <div class="form-group row mt-3 bg-light p-2 rounded">
-                                    <label class="col-sm-6 col-form-label text-lg text-primary">VALOR FINAL (R$):</label>
+                                    <label class="col-sm-6 col-form-label text-lg text-primary">VALOR FINAL
+                                        (R$):</label>
                                     <div class="col-sm-6">
                                         <input type="text"
                                             class="form-control form-control-lg text-right font-weight-bold text-primary money-display"
                                             id="valor_final_display" readonly value="R$ 0,00"
-                                            style="background-color: #e9ecef; border: none;">
-                                        <!-- O valor final real para o POST será calculado e setado via JS ou no backend antes de salvar -->
+                                            style="background-color: #e9ecef !important; border: none !important;">
+                                        <!-- Adicionei !important para garantir -->
                                     </div>
                                 </div>
                             </div>
@@ -728,6 +937,47 @@ include_once __DIR__ . '/../includes/header.php';
                             Orçamento</button>
                     </div>
                 </div>
+
+                <!-- Adicione/Mantenha este CSS para melhor alinhamento do checkbox e label, e botões -->
+                <style>
+                    .form-group.row.align-items-center .col-form-label {
+                        padding-top: calc(0.375rem + 1px);
+                        padding-bottom: calc(0.375rem + 1px);
+                        line-height: 1.5;
+                    }
+
+                    .form-check-input.taxa-frete-checkbox {
+                        /* Classe específica para não afetar outros checkboxes */
+                        margin-top: 0.5rem !important;
+                        margin-left: auto !important;
+                        /* Para centralizar no col-sm-1 */
+                        margin-right: auto !important;
+                        /* Para centralizar no col-sm-1 */
+                        display: block !important;
+                        /* Para que margin auto funcione */
+                        transform: scale(1.2);
+                    }
+
+                    .input-group-sm .btn-xs {
+                        padding: .2rem .4rem;
+                        font-size: .75rem;
+                        line-height: 1.5;
+                    }
+
+                    .input-group-sm .btn-xs .fas {
+                        margin-right: 3px;
+                    }
+
+                    .btn-group-xs.d-flex .btn {
+                        flex-grow: 1;
+                    }
+
+                    /* Ajuste para label do checkbox quando o checkbox está na primeira coluna */
+                    .form-group.row .col-sm-1+.col-form-label {
+                        padding-left: 0;
+                        /* Remove padding esquerdo do label para ficar mais próximo do checkbox */
+                    }
+                </style>
             </form>
         </div>
     </section>
@@ -797,77 +1047,61 @@ include_once __DIR__ . '/../includes/header.php';
 
 
 <?php
-// O JavaScript que você já tinha, com as modificações para adicionar tipo_linha e ordem
+// O JavaScript com as modificações para adicionar tipo_linha e ordem
 // e a nova função para adicionar títulos de seção.
-// CERTIFIQUE-SE DE REMOVER LISTENERS DUPLICADOS SE HOUVER.
 // a nova função para adicionar títulos de seção, e agora com a miniatura na tabela.
 $custom_js = <<<'JS'
+// =================================================================================
+// JAVASCRIPT FINAL, COMPLETO E FORMATADO PARA create.php
+// =================================================================================
 $(document).ready(function() {
     var itemIndex = 0; // Índice para ordem e unicidade de linhas
-    // var BASE_URL_PATH = '<?= BASE_URL ?>'; // Se precisar no JS
 
-    // --- Funções de formatação/desformatação de moeda (globais para este script) ---
+    // -----------------------------------------------------------------------------
+    // Funções Auxiliares de Moeda (Globais)
+    // -----------------------------------------------------------------------------
+    function unformatCurrency(value) {
+        if (!value || typeof value !== 'string') {
+            return 0;
+        }
+        var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
+        return isNaN(number) ? 0 : number;
+    }
+
     function formatCurrency(value) {
-        let val = parseFloat(value);
-        if (isNaN(val)) return "R$ 0,00";
-        return "R$ " + val.toFixed(2).replace('.', ',').replace(/(\d)(?=(\d{3})+(?!\d{2}))/g, '$1.');
+        var number = parseFloat(value) || 0;
+        return number.toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL'
+        });
     }
-    function unformatCurrency(valueStr) {
-        if (typeof valueStr !== 'string' || valueStr.trim() === '') return 0.0;
-        let cleanedValue = valueStr.replace(/R\$\s*/g, '').replace(/\./g, '').replace(',', '.');
-        return parseFloat(cleanedValue) || 0.0;
-    }
-    
-    // --- LÓGICA PARA BUSCA DE PRODUTOS E ADIÇÃO DE ITENS ---
+
+    // -----------------------------------------------------------------------------
+    // Lógica da Tabela de Itens (Busca, Adição, Remoção)
+    // -----------------------------------------------------------------------------
     function carregarSugestoesProdutos() {
         var termoBusca = $('#busca_produto').val().trim();
         var categoriaSelecionada = $('#busca_categoria_produto').val();
-
         if (termoBusca.length < 2 && !categoriaSelecionada) {
             $('#sugestoes_produtos').empty().hide();
             return;
         }
-
         $.ajax({
-            url: 'create.php?ajax=buscar_produtos', 
+            url: 'create.php?ajax=buscar_produtos',
             type: 'GET',
             dataType: 'json',
-            data: { termo: termoBusca, categoria_id: categoriaSelecionada },
+            data: {
+                termo: termoBusca,
+                categoria_id: categoriaSelecionada
+            },
             success: function(produtos) {
                 $('#sugestoes_produtos').empty().show();
                 if (produtos && produtos.length > 0) {
                     $.each(produtos, function(i, produto) {
                         let preco = parseFloat(produto.preco_locacao) || 0;
-                        let fotoHtml = '';
-                        if (produto.foto_path_completo) {
-                            fotoHtml = `<img src="${produto.foto_path_completo}"
-                                         alt="Miniatura"
-                                         class="img-thumbnail mr-2 foto-produto-sugestao"
-                                         style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;"
-                                         data-foto-completa="${produto.foto_path_completo}"
-                                         data-nome-produto="${produto.nome_produto || 'Produto'}">`;
-                        } else {
-                            fotoHtml = `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
-                        }
-                        
+                        let fotoHtml = produto.foto_path_completo ? `<img src="${produto.foto_path_completo}" alt="Miniatura" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">` : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
                         let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
-                        
-                        $('#sugestoes_produtos').append(
-                            `<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2"
-                               data-id="${produto.id}"
-                               data-nome="${produto.nome_produto || 'Sem nome'}"
-                               data-codigo="${produto.codigo || ''}"
-                               data-preco="${preco}"
-                               data-foto-completa="${fotoPathParaDataAttribute}">
-                                ${fotoHtml}
-                                <div class="flex-grow-1">
-                                    <strong>${produto.nome_produto || 'Sem nome'}</strong>
-                                    ${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}
-                                    ${produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : ''}
-                                </div>
-                                <span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span>
-                            </a>`
-                        );
+                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : ''}</div><span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
                     });
                 } else {
                     $('#sugestoes_produtos').append('<div class="list-group-item text-muted">Nenhum produto encontrado.</div>');
@@ -880,16 +1114,41 @@ $(document).ready(function() {
         });
     }
 
+    function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
+        itemIndex++;
+        var tipoLinha = tipoLinhaParam;
+        var htmlLinha = '';
+        var nomeDisplay = dadosItem ? dadosItem.nome_produto : '';
+        var produtoIdInput = dadosItem ? dadosItem.id : '';
+        var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
+        var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
+        var nomeInputName = "nome_produto_display[]";
+
+        if (tipoLinha === 'PRODUTO') {
+            var quantidadeDefault = 1; var descontoDefault = 0; var subtotalDefault = (quantidadeDefault * precoUnitarioDefault) - descontoDefault;
+            var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
+            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="1" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ','')}</td><td><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+        } else if (tipoLinha === 'CABECALHO_SECAO') {
+            htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="5"><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent;"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
+        }
+        if (htmlLinha) {
+            $('#tabela_itens_orcamento tbody').append(htmlLinha);
+            if (tipoLinha === 'CABECALHO_SECAO') {
+                $('#tabela_itens_orcamento tbody tr:last-child .nome_titulo_secao').focus();
+            }
+            calcularTotaisOrcamento();
+        }
+    }
+
     $('#busca_produto').on('keyup', carregarSugestoesProdutos);
     $('#busca_categoria_produto').on('change', carregarSugestoesProdutos);
     $('#btnLimparBuscaProduto').on('click', function() {
-        $('#busca_produto').val('');
+        $('#busca_produto').val('').focus();
         $('#sugestoes_produtos').empty().hide();
-        $('#busca_produto').focus();
     });
-
     $('#sugestoes_produtos').on('click', '.foto-produto-sugestao', function(e) {
-        e.preventDefault(); e.stopPropagation();
+        e.preventDefault();
+        e.stopPropagation();
         var fotoSrc = $(this).data('foto-completa');
         var nomeProduto = $(this).data('nome-produto');
         if (fotoSrc) {
@@ -898,257 +1157,119 @@ $(document).ready(function() {
             $('#modalFotoProduto').modal('show');
         }
     });
-
-     $('#modalFotoProduto').on('hidden.bs.modal', function () {
-        $('#busca_produto').focus(); // Devolve o foco
-        // Se o campo de busca ainda tiver texto ou categoria selecionada, recarrega as sugestões
-        if ($('#busca_produto').val().trim().length > 0 || $('#busca_categoria_produto').val() !== '') {
-            carregarSugestoesProdutos();
-        }
-    });
-
-    // Clicar em uma sugestão para adicionar à tabela
     $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
         e.preventDefault();
-        var $itemClicado = $(this);
-
-        var produtoSelecionado = {
-            id: $itemClicado.data('id'),
-            nome_produto: $itemClicado.data('nome'),
-            codigo: $itemClicado.data('codigo'),
-            preco_locacao: $itemClicado.data('preco'),
-            foto_path_completo: $itemClicado.data('foto-completa') 
+        var produto = {
+            id: $(this).data('id'),
+            nome_produto: $(this).data('nome'),
+            codigo: $(this).data('codigo'),
+            preco_locacao: $(this).data('preco'),
+            foto_path_completo: $(this).data('foto-completa')
         };
-        
-        // console.log('Produto Selecionado para adicionar:', produtoSelecionado); // Para depuração
-        
-        adicionarLinhaItemTabela(produtoSelecionado, 'PRODUTO');
+        adicionarLinhaItemTabela(produto, 'PRODUTO');
         $('#busca_produto').val('').focus();
         $('#sugestoes_produtos').empty().hide();
     });
-
-    $(document).on('click', function(e) {
-        if (!$(e.target).closest('#busca_produto, #busca_categoria_produto, #sugestoes_produtos').length) {
-            $('#sugestoes_produtos').empty().hide();
-        }
-    });
-
-    // --- Função UNIFICADA para adicionar linha à tabela (Produto ou Título) ---
-    function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
-        itemIndex++;
-        var tipoLinha = tipoLinhaParam; 
-        var htmlLinha = '';
-
-        var nomeDisplay = dadosItem ? dadosItem.nome_produto : '';
-        var produtoIdInput = dadosItem ? dadosItem.id : '';
-        var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
-        var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao'; 
-        var nomeInputName = "nome_produto_display[]"; 
-
-        if (tipoLinha === 'PRODUTO') {
-            var quantidadeDefault = 1;
-            var descontoDefault = 0;
-            var subtotalDefault = (quantidadeDefault * precoUnitarioDefault) - descontoDefault;
-
-            var imagemHtml = ''; 
-            if (dadosItem && dadosItem.foto_path_completo) {
-                imagemHtml = `
-                    <img src="${dadosItem.foto_path_completo}" 
-                         alt="Miniatura" 
-                         style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
-                `;
-            }
-
-            htmlLinha = `
-                <tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}">
-                    <td> 
-                        ${imagemHtml}
-                        <input type="text" name="${nomeInputName}" 
-                               class="form-control form-control-sm nome_produto_display" 
-                               value="${nomeDisplay}" 
-                               placeholder="Nome do Produto/Serviço" 
-                               style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" 
-                               ${dadosItem && dadosItem.id ? 'readonly' : ''}>
-                        <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
-                        <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
-                        <input type="hidden" name="ordem[]" value="${itemIndex}">
-                        <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
-                        <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
-                        <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item">
-                    </td>
-                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center" value="${quantidadeDefault}" min="1" style="width: 70px;"></td>
-                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}" style="width: 100px;"></td>
-                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}" style="width: 100px;"></td>
-                    <td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ','')}</td>
-                    <td>
-                        <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
-                        <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
-                    </td>
-                </tr>`;
-        } else if (tipoLinha === 'CABECALHO_SECAO') {
-            htmlLinha = `
-                <tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}"
-                style="background-color: #f8f9fa;">  <!-- Estilo para a linha (fundo) -->
-                    <td colspan="5"> 
-                        <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..."style="font-weight: bold; border: none; background-color: transparent; box-shadow: none; padding-left: 5px; color: #333; width:100%;" required>
-                        <input type="hidden" name="produto_id[]" value="">
-                        <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
-                        <input type="hidden" name="ordem[]" value="${itemIndex}">
-                        <input type="hidden" name="quantidade[]" value="0">
-                        <input type="hidden" name="tipo_item[]" value="">
-                        <input type="hidden" name="valor_unitario[]" value="0.00">
-                        <input type="hidden" name="desconto_item[]" value="0.00">
-                        <input type="hidden" name="observacoes_item[]" value="">
-                    </td>
-                    <td>
-                        <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button>
-                    </td>
-                </tr>`;
-        }
-
-        if (htmlLinha) {
-            $('#tabela_itens_orcamento tbody').append(htmlLinha);
-            if (tipoLinha === 'CABECALHO_SECAO') {
-                 $('#tabela_itens_orcamento tbody tr:last-child .nome_titulo_secao').focus();
-            }
-            // Idealmente, reaplicar máscaras de dinheiro após adicionar a linha, se você estiver usando um plugin para isso.
-            // Ex: $('.money-input:last').mask(...); ou uma função que reaplique em todos os .money-input.
-            calcularTotaisOrcamento(); 
-        }
-    }
-
-    // Botão para adicionar Título de Seção
     $('#btn_adicionar_titulo_secao').click(function() {
         adicionarLinhaItemTabela(null, 'CABECALHO_SECAO');
     });
-
-    // Botão para adicionar Item Manualmente
     $('#btn_adicionar_item_manual').click(function() {
-        adicionarLinhaItemTabela(null, 'PRODUTO'); 
+        adicionarLinhaItemTabela(null, 'PRODUTO');
     });
-
-    // Remover item da tabela
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
         $(this).closest('tr').remove();
         calcularTotaisOrcamento();
     });
-
-    // Mostrar/Esconder campo de observação do item
     $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() {
         var $row = $(this).closest('tr');
         $row.find('.observacoes_item_label, .observacoes_item_input').toggle();
         if ($row.find('.observacoes_item_input').is(':visible')) {
-             $row.find('.observacoes_item_input').focus();
-        }
-    });
-    
-    $('#tabela_itens_orcamento').on('keydown', '.observacoes_item_input', function(event) {
-        if (event.key === 'Enter' || event.keyCode === 13) {
-            event.preventDefault();
-            return false;
+            $row.find('.observacoes_item_input').focus();
         }
     });
 
+    // --- Lógica de Cálculo de Totais ---
     function calcularSubtotalItem($row) {
-        if ($row.data('tipo-linha') === 'CABECALHO_SECAO') {
-            return 0; 
-        }
-        var quantidade = parseFloat($row.find('.quantidade_item').val()) || 0;
-        var valorUnitario = unformatCurrency($row.find('.valor_unitario_item').val());
-        var descontoItem = unformatCurrency($row.find('.desconto_item').val());
-        var subtotal = (quantidade * valorUnitario) - descontoItem;
-        $row.find('.subtotal_item_display').text(formatCurrency(subtotal).replace('R$ ',''));
+        if ($row.data('tipo-linha') === 'CABECALHO_SECAO') { return 0; }
+        var quantidade = parseFloat($row.find('.item-qtd').val()) || 0;
+        var valorUnitario = unformatCurrency($row.find('.item-valor-unitario').val());
+        var descontoUnitario = unformatCurrency($row.find('.desconto_item').val());
+        var subtotal = (quantidade * valorUnitario) - (quantidade * descontoUnitario);
+        $row.find('.subtotal_item_display').text(formatCurrency(subtotal).replace('R$ ', ''));
         return subtotal;
     }
-
     function calcularTotaisOrcamento() {
         var subtotalGeralItens = 0;
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             subtotalGeralItens += calcularSubtotalItem($(this));
         });
         $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
-
-        var descontoTotalOrc = unformatCurrency($('#desconto_total').val());
+        var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
         var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
         var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
         var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
         var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
         var freteTerreo = unformatCurrency($('#frete_terreo').val());
-
-        var valorFinalCalculado = subtotalGeralItens - descontoTotalOrc + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo;
+        var freteElevador = unformatCurrency($('#frete_elevador').val());
+        var freteEscadas = unformatCurrency($('#frete_escadas').val());
+        var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
         $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
     }
-
-    $('#tabela_itens_orcamento').on('change keyup blur', '.quantidade_item, .valor_unitario_item, .desconto_item', function() {
-        var $row = $(this).closest('tr');
-        calcularSubtotalItem($row); 
-        calcularTotaisOrcamento(); 
+    $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item, #desconto_total, .taxa-frete-input', function() {
+        calcularTotaisOrcamento();
     });
-    $('#desconto_total, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo').on('change keyup blur', calcularTotaisOrcamento);
 
-    // --- SEU CÓDIGO JS ORIGINAL PARA CLIENTES, DATAS, ETC. ---
-    if (typeof $.fn.select2 === 'function') {
-        $('#cliente_id').select2({
-            placeholder: 'Selecione ou Busque um Cliente',
-            allowClear: true,
-            width: '100%',
-            theme: 'bootstrap4',
-            language: "pt-BR",
-            ajax: {
-                url: 'create.php?ajax=buscar_clientes',
-                dataType: 'json',
-                delay: 250,
-                data: function (params) { return { termo: params.term }; },
-                processResults: function (data) {
-                    return {
-                        results: $.map(data, function (cliente) {
-                            var textoCliente = cliente.nome;
-                            if (cliente.cpf_cnpj) {
-                                var cpf_cnpj_formatado = cliente.cpf_cnpj.replace(/\D/g, '');
-                                if (cpf_cnpj_formatado.length === 11) {
-                                    textoCliente += ' (' + cpf_cnpj_formatado.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") + ')';
-                                } else if (cpf_cnpj_formatado.length === 14) {
-                                    textoCliente += ' (' + cpf_cnpj_formatado.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") + ')';
-                                } else {
-                                     textoCliente += ' (' + cliente.cpf_cnpj + ')';
-                                }
-                            }
-                             return { id: cliente.id, text: textoCliente, full_data: cliente };
-                        })
-                    };
+    // --- Lógica para Taxas e Fretes (Varinha Mágica e Checkboxes) ---
+    $('.btn-usar-padrao').on('click', function() {
+        var $button = $(this);
+        var targetInputId = $button.data('target-input');
+        var $targetInput = $('#' + targetInputId);
+        if (!$targetInput.length) { return; }
+        var valorSugeridoStr = $targetInput.data('valor-padrao');
+        if (typeof valorSugeridoStr === 'undefined') { return; }
+        var valorNumerico = unformatCurrency(valorSugeridoStr.toString());
+        $targetInput.val(formatCurrency(valorNumerico));
+        var targetCheckboxId = $button.data('target-checkbox');
+        if (targetCheckboxId) { $('#' + targetCheckboxId).prop('checked', true); }
+        $targetInput.trigger('change');
+    });
+    $('.taxa-frete-input').on('blur', function() {
+        var $input = $(this);
+        var $checkbox = $('.taxa-frete-checkbox[data-target-input="' + $input.attr('id') + '"]');
+        if ($checkbox.length) {
+            if (unformatCurrency($input.val()) > 0) {
+                $checkbox.prop('checked', true);
+            } else {
+                $checkbox.prop('checked', false);
+                $input.val('');
+            }
+        }
+    });
+    $('.taxa-frete-checkbox').on('change', function() {
+        var $checkbox = $(this);
+        var $targetInput = $('#' + $checkbox.data('target-input'));
+        if ($targetInput.length) {
+            if ($checkbox.is(':checked')) {
+                if (unformatCurrency($targetInput.val()) <= 0) {
+                    var valorPadraoStr = $targetInput.data('valor-padrao');
+                    if (typeof valorPadraoStr !== 'undefined') {
+                        $targetInput.val(formatCurrency(unformatCurrency(valorPadraoStr.toString())));
+                    }
                 }
-            },
-            minimumInputLength: 2
-        }).on('select2:select', function (e) {
-            var data = e.params.data.full_data;
-            if (data) {
-                $('#cliente_info_selecionado').html(
-                    `<strong>Tel:</strong> ${data.telefone || '-'} | <strong>Email:</strong> ${data.email || '-'}<br>` +
-                    `<strong>End.:</strong> ${data.endereco || '-'}, ${data.cidade || '-'}` +
-                    (data.observacoes ? `<br><strong>Obs Cliente:</strong> ${data.observacoes}` : '')
-                );
-                $('#btnUsarEnderecoCliente').fadeIn();
+            } else {
+                $targetInput.val('');
             }
-        }).on('select2:unselect', function () {
-            $('#cliente_info_selecionado').html('');
-            $('#btnUsarEnderecoCliente').fadeOut();
-        });
-    }
+            $targetInput.trigger('change');
+        }
+    });
 
-    if (typeof $.fn.datepicker === 'function' && typeof $.fn.datepicker.dates !== 'undefined' && $.fn.datepicker.dates['pt-BR']) {
-        $('.datepicker').datepicker({
-            format: 'dd/mm/yyyy',
-            language: 'pt-BR',
-            autoclose: true,
-            todayHighlight: true,
-            orientation: "bottom auto"
-        }).on('show', function(e){ 
-             if ($('.modal.show').length > 0) {
-                $(this).data('datepicker').picker.css('z-index', parseInt($('.modal.show').css('z-index')) + 10);
-            }
-        });
+    // --- Lógica Adicional da Página (Clientes, Datas, etc.) ---
+    if (typeof $.fn.select2 === 'function') {
+        $('#cliente_id').select2({ placeholder: 'Selecione ou Busque um Cliente', allowClear: true, width: '100%', theme: 'bootstrap4', language: "pt-BR", ajax: { url: 'create.php?ajax=buscar_clientes', dataType: 'json', delay: 250, data: function (params) { return { termo: params.term }; }, processResults: function (data) { return { results: $.map(data, function (cliente) { var textoCliente = cliente.nome; if (cliente.cpf_cnpj) { var cpf_cnpj_formatado = cliente.cpf_cnpj.replace(/\D/g, ''); if (cpf_cnpj_formatado.length === 11) { textoCliente += ' (' + cpf_cnpj_formatado.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4") + ')'; } else if (cpf_cnpj_formatado.length === 14) { textoCliente += ' (' + cpf_cnpj_formatado.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5") + ')'; } else { textoCliente += ' (' + cliente.cpf_cnpj + ')'; } } return { id: cliente.id, text: textoCliente, full_data: cliente }; }) }; } }, minimumInputLength: 2 }).on('select2:select', function (e) { var data = e.params.data.full_data; if (data) { $('#cliente_info_selecionado').html(`<strong>Tel:</strong> ${data.telefone || '-'} | <strong>Email:</strong> ${data.email || '-'}<br><strong>End.:</strong> ${data.endereco || '-'}, ${data.cidade || '-'}` + (data.observacoes ? `<br><strong>Obs Cliente:</strong> ${data.observacoes}` : '')); $('#btnUsarEnderecoCliente').fadeIn(); } }).on('select2:unselect', function () { $('#cliente_info_selecionado').html(''); $('#btnUsarEnderecoCliente').fadeOut(); });
     }
-
+    if (typeof $.fn.datepicker === 'function') {
+        $('.datepicker').datepicker({ format: 'dd/mm/yyyy', language: 'pt-BR', autoclose: true, todayHighlight: true, orientation: "bottom auto" });
+    }
     function calcularDataValidade() {
         var dataOrcamentoStr = $('#data_orcamento').val();
         var validadeDias = parseInt($('#validade_dias').val());
@@ -1167,12 +1288,10 @@ $(document).ready(function() {
                 }
             }
         }
-        $('#data_validade_display').text('Data inválida.');
+        $('#data_validade_display').text('');
         $('#data_validade_calculada_hidden').val('');
     }
     $('#data_orcamento, #validade_dias').on('change keyup blur dp.change', calcularDataValidade);
-    calcularDataValidade();
-
     const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
     function exibirDiaSemana(inputId, displayId) {
         var dataStr = $(inputId).val();
@@ -1185,7 +1304,7 @@ $(document).ready(function() {
                 if (!isNaN(dataObj.valueOf())) {
                     var diaSemana = diasDaSemana[dataObj.getDay()];
                     displayEl.text(diaSemana).addClass('font-weight-bold');
-                    if (dataObj.getDay() === 0 || dataObj.getDay() === 6) { 
+                    if (dataObj.getDay() === 0 || dataObj.getDay() === 6) {
                         displayEl.addClass('text-danger');
                     } else {
                         displayEl.addClass('text-success');
@@ -1194,58 +1313,46 @@ $(document).ready(function() {
                 }
             }
         }
-        displayEl.text('Data inválida').addClass('text-danger');
     }
     $('#data_evento').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_evento'); }).trigger('change');
     $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
     $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
-
     $('#btnUsarEnderecoCliente').on('click', function() {
-        var clienteSelecionadoData = $('#cliente_id').select2('data');
-        if (clienteSelecionadoData && clienteSelecionadoData.length > 0 && clienteSelecionadoData[0].full_data) {
-            var dadosCliente = clienteSelecionadoData[0].full_data;
-            var enderecoCompleto = (dadosCliente.endereco || '') + (dadosCliente.cidade ? ((dadosCliente.endereco ? ', ' : '') + dadosCliente.cidade) : '');
-            $('#local_evento').val(enderecoCompleto.trim() || 'Endereço não informado no cadastro.');
-        } else {
-            alert('Nenhum cliente selecionado ou dados do cliente estão incompletos.');
+        var clienteData = $('#cliente_id').select2('data');
+        if (clienteData && clienteData.length > 0 && clienteData[0].full_data) {
+            var endereco = (clienteData[0].full_data.endereco || '') + (clienteData[0].full_data.cidade ? ((clienteData[0].full_data.endereco ? ', ' : '') + clienteData[0].full_data.cidade) : '');
+            $('#local_evento').val(endereco.trim() || 'Endereço não informado.');
         }
     });
+    // LÓGICA CORRIGIDA: Vinculando o Switch de Ajuste ao Desconto Geral
+    $('#ajuste_manual_valor_final').on('change', function() {
+        var isChecked = $(this).is(':checked');
+        $('#aplicar_desconto_geral').prop('checked', isChecked).trigger('change');
+    });
 
-    $('#ajuste_manual').on('change', function() {
-        if ($(this).is(':checked')) {
+    $('#aplicar_desconto_geral').on('change', function() {
+        var isChecked = $(this).is(':checked');
+        var $descontoInput = $('#desconto_total');
+        
+        // Sincroniza o switch principal com este checkbox
+        $('#ajuste_manual_valor_final').prop('checked', isChecked);
+
+        if (isChecked) {
             $('#campo_motivo_ajuste').slideDown();
+            $descontoInput.prop('disabled', false).focus();
         } else {
             $('#campo_motivo_ajuste').slideUp();
-            $('#motivo_ajuste').val('');
-            calcularTotaisOrcamento(); 
+            $('#motivo_ajuste_valor_final').val('');
+            $descontoInput.val('').prop('disabled', true);
+            calcularTotaisOrcamento(); // Recalcula sem o desconto
         }
     });
-    
-    $('#formNovoOrcamento').on('keydown', 'input:not(textarea, [type="submit"], [type="button"])', function(event) {
-        if (event.key === 'Enter' || event.keyCode === 13) {
-            if ($(this).hasClass('observacoes_item_input')) { 
-                return;
-            }
-            event.preventDefault();
-            var $inputs = $(this).closest('form').find(':input:visible:not(:disabled):not([readonly])');
-            var $next = $inputs.eq($inputs.index(this) + 1);
-            if ($next.length) {
-                $next.focus();
-            }
-            return false;
-        }
-    });
-
-    // Inicializar máscaras (se usar jQuery Mask Plugin)
-    // $('.money').mask('#.##0,00', {reverse: true});
-    // $('.telefone').mask('(00) 00000-0000');
-    // $('.cep').mask('00000-000');
 
     $('#btnSalvarClienteModal').on('click', function() {
         var formData = $('#formNovoClienteModal').serialize();
         $('#modalClienteFeedback').html('<div class="text-info">Salvando...</div>');
         $.ajax({
-            url: '<?= BASE_URL ?>/views/clientes/ajax_create.php', 
+            url: '<?= BASE_URL ?>/views/clientes/ajax_create.php',
             type: 'POST',
             data: formData,
             dataType: 'json',
@@ -1254,30 +1361,37 @@ $(document).ready(function() {
                     $('#modalClienteFeedback').html('<div class="alert alert-success">Cliente salvo! Selecione-o na lista.</div>');
                     var newOption = new Option(response.cliente.text, response.cliente.id, true, true);
                     $('#cliente_id').append(newOption).trigger('change');
-                     $('#cliente_id').trigger({
-                        type: 'select2:select',
-                        params: { data: { full_data: response.cliente.full_data_for_select2 } } 
-                    });
-                    setTimeout(function() {
-                        $('#modalNovoCliente').modal('hide');
-                        $('#modalClienteFeedback').html('');
-                        $('#formNovoClienteModal')[0].reset();
-                    }, 1500);
+                    $('#cliente_id').trigger({ type: 'select2:select', params: { data: { full_data: response.cliente.full_data_for_select2 } } });
+                    setTimeout(function() { $('#modalNovoCliente').modal('hide'); $('#modalClienteFeedback').html(''); $('#formNovoClienteModal')[0].reset(); }, 1500);
                 } else {
                     $('#modalClienteFeedback').html('<div class="alert alert-danger">' + (response.message || 'Erro ao salvar cliente.') + '</div>');
                 }
             },
             error: function(xhr) {
-                 $('#modalClienteFeedback').html('<div class="alert alert-danger">Erro de comunicação. Tente novamente.</div>');
-                 console.error("Erro AJAX salvar cliente:", xhr.responseText);
+                $('#modalClienteFeedback').html('<div class="alert alert-danger">Erro de comunicação. Tente novamente.</div>');
+                console.error("Erro AJAX salvar cliente:", xhr.responseText);
             }
         });
     });
-     $('#modalNovoCliente').on('hidden.bs.modal', function () {
-        $('#modalClienteFeedback').html('');
-        $('#formNovoClienteModal')[0].reset();
+
+    // -----------------------------------------------------------------------------
+    // BLOQUEADOR GLOBAL DA TECLA ENTER PARA EVITAR SUBMISSÃO
+    // -----------------------------------------------------------------------------
+    $('#formNovoOrcamento').on('keydown', function(e) {
+        // Se a tecla pressionada for Enter (código 13)
+        if (e.keyCode === 13) {
+            // E o foco NÃO estiver numa área de texto (que precisa do Enter) ou num botão de submit
+            if (!$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) {
+                // Impede a ação padrão do navegador (que é submeter o formulário)
+                e.preventDefault();
+                // Retorna 'false' para parar a propagação do evento
+                return false;
+            }
+        }
     });
 
+    // --- Chamadas iniciais ---
+    calcularDataValidade();
     calcularTotaisOrcamento();
 
 }); // Fim do $(document).ready

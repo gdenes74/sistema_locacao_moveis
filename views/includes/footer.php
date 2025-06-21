@@ -107,11 +107,12 @@ if (!defined('BASE_URL')) {
             $('.cpf').inputmask('999.999.999-99');
             $('.cnpj').inputmask('99.999.999/9999-99');
             $('.cep').inputmask('99999-999');
-            $('.money').inputmask('currency', {
+            $('.money, .money-input, .money-display').inputmask('currency', {
                 prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
                 autoGroup: true, rightAlign: false,
                 clearMaskOnLostFocus: false,
                 numericInput: false // Garante que a digitação seja da esquerda para a direita
+                 nullable: true
             });
         } else {
             console.warn('Inputmask não está carregado.');
