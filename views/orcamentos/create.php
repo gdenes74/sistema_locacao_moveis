@@ -235,7 +235,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamentoModel->frete_elevador = $fnConverterMoeda($_POST['frete_elevador'] ?? '0,00');
         $orcamentoModel->frete_escadas = $fnConverterMoeda($_POST['frete_escadas'] ?? '0,00');
         $orcamentoModel->ajuste_manual = isset($_POST['ajuste_manual_valor_final']) ? 1 : 0;
-        $orcamentoModel->motivo_ajuste = !empty($_POST['motivo_ajuste_valor_final']) ? trim($_POST['motivo_ajuste_valor_final']) : null;
+        // CÓDIGO CORRIGIDO (DEPOIS)
+$orcamentoModel->motivo_ajuste = !empty($_POST['motivo_ajuste']) ? trim($_POST['motivo_ajuste']) : null;
         $orcamentoModel->observacoes = !empty($_POST['observacoes_gerais']) ? trim($_POST['observacoes_gerais']) : null;
         $orcamentoModel->condicoes_pagamento = !empty($_POST['condicoes_pagamento']) ? trim($_POST['condicoes_pagamento']) : null;
         $orcamentoModel->usuario_id = $_SESSION['usuario_id'] ?? 1;
@@ -652,8 +653,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div class="form-group" id="campo_motivo_ajuste" style="display: none;">
                                     <label for="motivo_ajuste_valor_final">Motivo do Ajuste Manual</label>
-                                    <input type="text" class="form-control" id="motivo_ajuste_valor_final"
-                                        name="motivo_ajuste_valor_final" placeholder="Ex: Desconto especial concedido">
+                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste" placeholder="Ex: Desconto especial concedido">
                                 </div>
                             </div>
 
@@ -1402,6 +1402,44 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     }).disableSelection();
 
     $('head').append('<style>.sortable-placeholder { height: 50px; background-color: #f0f8ff; border: 2px dashed #cce5ff; }</style>');
+
+    // --- INÍCIO DO CÓDIGO FINAL E SINCRONIZADO ---
+
+// AGORA escutamos o clique nos DOIS elementos ao mesmo tempo
+$('#ajuste_manual_valor_final, #aplicar_desconto_geral').on('change', function() {
+    
+    // 1. Descobrimos o estado atual (marcado ou desmarcado)
+    const isChecked = $(this).is(':checked');
+
+    // 2. A MÁGICA DA SINCRONIZAÇÃO:
+    // Forçamos os DOIS controles a terem o mesmo estado.
+    $('#ajuste_manual_valor_final').prop('checked', isChecked);
+    $('#aplicar_desconto_geral').prop('checked', isChecked);
+
+    // Pega os elementos que vamos manipular (igual antes)
+    const $campoDesconto = $('#desconto_total');
+    const $divMotivo = $('#campo_motivo_ajuste');
+    const $inputMotivo = $('#motivo_ajuste');
+
+    // 3. O resto da lógica continua a mesma, mas usando a variável 'isChecked'
+    if (isChecked) {
+        // Se LIGOU:
+        $campoDesconto.prop('disabled', false);
+        $divMotivo.slideDown();
+        $inputMotivo.prop('disabled', false);
+        $campoDesconto.focus();
+    } else {
+        // Se DESLIGOU:
+        $campoDesconto.prop('disabled', true).val('');
+        $divMotivo.slideUp();
+        $inputMotivo.prop('disabled', true).val('');
+    }
+
+    // Recalcula o total em qualquer um dos casos
+    calcularTotaisOrcamento();
+});
+
+// --- FIM DO CÓDIGO FINAL E SINCRONIZADO ---
 
 });
 JS;
