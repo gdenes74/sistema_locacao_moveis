@@ -3,6 +3,7 @@ class Orcamento {
     private $conn;
     private $table = 'orcamentos'; // Tabela principal de orçamentos
     private $table_itens = 'itens_orcamento'; // Tabela de itens do orçamento
+    
 
     // Propriedades do Orçamento (Cabeçalho)
     public $id;
@@ -217,8 +218,8 @@ class Orcamento {
             $this->taxa_hora_marcada = (float)($this->taxa_hora_marcada ?? 0.00);
             $this->frete_terreo = (float)($this->frete_terreo ?? 0.00);
             $this->valor_final = (float)($this->valor_final ?? 0.00);
-            $this->frete_elevador = !empty($this->frete_elevador) ? trim($this->frete_elevador) : null;
-            $this->frete_escadas = !empty($this->frete_escadas) ? trim($this->frete_escadas) : null;
+            $this->frete_elevador = (float)($this->frete_elevador ?? 0.00);
+            $this->frete_escadas = (float)($this->frete_escadas ?? 0.00);
             $this->ajuste_manual = (bool)($this->ajuste_manual ?? false);
             $this->motivo_ajuste = !empty($this->motivo_ajuste) ? trim($this->motivo_ajuste) : null;
             $this->observacoes = !empty($this->observacoes) ? trim($this->observacoes) : null;
@@ -349,12 +350,7 @@ class Orcamento {
     }
 
     // FUNÇÃO MODIFICADA: salvarItens
-    public function salvarItens($orcamento_id, $itens) {
-        $inTransaction = $this->conn->inTransaction();
-        if (!$inTransaction) {
-            $this->conn->beginTransaction();
-        }
-
+     public function salvarItens($orcamento_id, $itens) {
         try {
             $this->deletarTodosItens($orcamento_id);
 
@@ -366,79 +362,37 @@ class Orcamento {
                         (:orcamento_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
                          :preco_unitario, :desconto, :preco_final, :observacoes,
                          :tipo_linha, :ordem)";
-
             $stmt = $this->conn->prepare($query);
 
-            foreach ($itens as $item_do_formulario) {
-                $tipo_linha_atual = isset($item_do_formulario['tipo_linha']) ? trim($item_do_formulario['tipo_linha']) : 'PRODUTO';
-                $ordem_atual = isset($item_do_formulario['ordem']) ? (int)$item_do_formulario['ordem'] : 0;
+            foreach ($itens as $item) {
+                // CORREÇÃO: Confia no preco_final já calculado no create.php
+                // Não fazemos mais o cálculo aqui dentro.
+                $preco_final_correto = (float)($item['preco_final'] ?? 0.00);
 
-                $db_produto_id = null;
-                $db_nome_produto_manual = null;
-                $db_quantidade = 0;
-                $db_tipo_locacao_venda = null; // Agora pode ser null
-                $db_preco_unitario = 0.00;
-                $db_desconto = 0.00;
-                $db_preco_final = 0.00;
-                $db_observacoes = isset($item_do_formulario['observacoes']) ? trim($item_do_formulario['observacoes']) : null;
-
-                if ($tipo_linha_atual === 'CABECALHO_SECAO') {
-                    $db_nome_produto_manual = isset($item_do_formulario['nome_produto_manual']) ? trim($item_do_formulario['nome_produto_manual']) : 'Título de Seção';
-                    // Para CABECALHO_SECAO, $db_tipo_locacao_venda será null se $item_do_formulario['tipo'] for null (vindo do create.php)
-                    $db_tipo_locacao_venda = $item_do_formulario['tipo'] ?? null;
-                } else { // 'PRODUTO'
-                    $db_produto_id = isset($item_do_formulario['produto_id']) && !empty($item_do_formulario['produto_id']) ? (int)$item_do_formulario['produto_id'] : null;
-                    
-                    if ($db_produto_id === null) { 
-                        $db_nome_produto_manual = isset($item_do_formulario['nome_produto_manual']) ? trim($item_do_formulario['nome_produto_manual']) : null;
-                    }
-
-                    $db_quantidade = isset($item_do_formulario['quantidade']) ? (int)$item_do_formulario['quantidade'] : 1;
-                    if ($db_quantidade <= 0) $db_quantidade = 1;
-
-                    $db_tipo_locacao_venda = $item_do_formulario['tipo'] ?? 'locacao'; // Para produtos, default para locacao se não vier nada
-                    $db_preco_unitario = (float)($item_do_formulario['preco_unitario'] ?? 0.00);
-                    $db_desconto = (float)($item_do_formulario['desconto'] ?? 0.00);
-                    $db_preco_final = ($db_quantidade * $db_preco_unitario) - $db_desconto;
-                }
-
-                $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
-                $stmt->bindParam(':produto_id', $db_produto_id, $db_produto_id === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-                $stmt->bindParam(':nome_produto_manual', $db_nome_produto_manual, $db_nome_produto_manual === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmt->bindParam(':quantidade', $db_quantidade, PDO::PARAM_INT);
-                
-                // MODIFICAÇÃO NO BIND PARAM PARA :tipo
-                if ($db_tipo_locacao_venda === null) {
-                    $stmt->bindParam(':tipo', $db_tipo_locacao_venda, PDO::PARAM_NULL);
-                } else {
-                    $stmt->bindParam(':tipo', $db_tipo_locacao_venda, PDO::PARAM_STR);
-                }
-                
-                $stmt->bindParam(':preco_unitario', $db_preco_unitario);
-                $stmt->bindParam(':desconto', $db_desconto);
-                $stmt->bindParam(':preco_final', $db_preco_final);
-                $stmt->bindParam(':observacoes', $db_observacoes, $db_observacoes === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmt->bindParam(':tipo_linha', $tipo_linha_atual, PDO::PARAM_STR);
-                $stmt->bindParam(':ordem', $ordem_atual, PDO::PARAM_INT);
+                $stmt->bindValue(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
+                $stmt->bindValue(':produto_id', $item['produto_id'], $item['produto_id'] === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+                $stmt->bindValue(':nome_produto_manual', $item['nome_produto_manual'], $item['nome_produto_manual'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':quantidade', $item['quantidade'], PDO::PARAM_INT);
+                $stmt->bindValue(':tipo', $item['tipo'], $item['tipo'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':preco_unitario', $item['preco_unitario']);
+                $stmt->bindValue(':desconto', $item['desconto']);
+                $stmt->bindValue(':preco_final', $preco_final_correto);
+                $stmt->bindValue(':observacoes', $item['observacoes'], $item['observacoes'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':tipo_linha', $item['tipo_linha']);
+                $stmt->bindValue(':ordem', $item['ordem'], PDO::PARAM_INT);
 
                 if (!$stmt->execute()) {
-                    $errorInfo = $stmt->errorInfo();
-                    error_log("Erro ao inserir item de orçamento (Orcamento ID: {$orcamento_id}): SQLSTATE[{$errorInfo[0]}] - {$errorInfo[2]}. Item Data: " . print_r($item_do_formulario, true));
-                    if (!$inTransaction) $this->conn->rollBack();
+                    error_log("Erro ao inserir item de orçamento (ID: {$orcamento_id}): " . print_r($stmt->errorInfo(), true));
                     return false;
                 }
             }
-
-            if (!$inTransaction) $this->conn->commit();
             return true;
         } catch (PDOException $e) {
-            error_log("Exceção PDO em Orcamento::salvarItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
-            if ($this->conn->inTransaction() && !$inTransaction) {
-                $this->conn->rollBack();
-            }
+            error_log("Exceção PDO em Orcamento::salvarItens (ID: {$orcamento_id}): " . $e->getMessage());
             return false;
         }
     }
+
 
     public function deletarTodosItens($orcamento_id) {
         $query = "DELETE FROM {$this->table_itens} WHERE orcamento_id = :orcamento_id";
@@ -499,79 +453,69 @@ class Orcamento {
         }
     }
 
-    public function recalcularValores($orcamento_id) {
-        if (empty($this->id) || $this->id != $orcamento_id) {
-            $dadosOrcamentoAtual = $this->getById($orcamento_id);
-            if (!$dadosOrcamentoAtual) {
-                error_log("Erro em Orcamento::recalcularValores: Não foi possível carregar o orçamento ID {$orcamento_id} para recálculo.");
-                return false;
-            }
-        }
+         public function recalcularValores($orcamentoId) {
+        if (empty($orcamentoId)) return false;
 
-        $itens = $this->getItens($orcamento_id);
-        $subtotal_locacao_calc = 0.0;
-        $subtotal_venda_calc = 0.0;
-
-        if ($itens !== false && !empty($itens)) {
-            foreach ($itens as $item) {
-                if (isset($item['tipo_linha']) && $item['tipo_linha'] === 'PRODUTO') {
-                    $precoFinalItem = (float)($item['preco_final'] ?? 0.00);
-                    if (isset($item['tipo']) && $item['tipo'] === 'venda') {
-                        $subtotal_venda_calc += $precoFinalItem;
-                    } else { 
-                        $subtotal_locacao_calc += $precoFinalItem;
-                    }
-                }
-            }
-        }
-
-        $this->subtotal_locacao = $subtotal_locacao_calc;
-        $this->valor_total_locacao = $subtotal_locacao_calc;
-        $this->subtotal_venda = $subtotal_venda_calc;
-        $this->valor_total_venda = $subtotal_venda_calc;
-
-        $total_taxas = (float)($this->taxa_domingo_feriado ?? 0) +
-                       (float)($this->taxa_madrugada ?? 0) +
-                       (float)($this->taxa_horario_especial ?? 0) +
-                       (float)($this->taxa_hora_marcada ?? 0);
-        $total_frete = (float)($this->frete_terreo ?? 0);
-
-        $this->valor_final = ($this->subtotal_locacao + $this->subtotal_venda + $total_taxas + $total_frete) - (float)($this->desconto ?? 0);
-
-        $query = "UPDATE {$this->table} SET
-                  subtotal_locacao = :subtotal_locacao, valor_total_locacao = :valor_total_locacao,
-                  subtotal_venda = :subtotal_venda, valor_total_venda = :valor_total_venda,
-                  valor_final = :valor_final,
-                  desconto = :desconto, taxa_domingo_feriado = :taxa_domingo_feriado,
-                  taxa_madrugada = :taxa_madrugada, taxa_horario_especial = :taxa_horario_especial,
-                  taxa_hora_marcada = :taxa_hora_marcada, frete_terreo = :frete_terreo,
-                  frete_elevador = :frete_elevador, frete_escadas = :frete_escadas
-                  WHERE id = :id";
         try {
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':subtotal_locacao', $this->subtotal_locacao);
-            $stmt->bindParam(':valor_total_locacao', $this->valor_total_locacao);
-            $stmt->bindParam(':subtotal_venda', $this->subtotal_venda);
-            $stmt->bindParam(':valor_total_venda', $this->valor_total_venda);
-            $stmt->bindParam(':valor_final', $this->valor_final);
-            
-            $stmt->bindParam(':desconto', $this->desconto);
-            $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
-            $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
-            $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
-            $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
-            $stmt->bindParam(':frete_terreo', $this->frete_terreo);
-            $stmt->bindParam(':frete_elevador', $this->frete_elevador);
-            $stmt->bindParam(':frete_escadas', $this->frete_escadas);
+            // PASSO 1: Somar os totais da tabela de itens
+            $sqlSubtotal = "SELECT
+                                COALESCE(SUM(CASE WHEN tipo = 'locacao' THEN preco_final ELSE 0 END), 0) as subtotal_locacao,
+                                COALESCE(SUM(CASE WHEN tipo = 'venda' THEN preco_final ELSE 0 END), 0) as subtotal_venda
+                            FROM {$this->table_itens}
+                            WHERE orcamento_id = :orcamento_id";
+            $stmtSubtotal = $this->conn->prepare($sqlSubtotal);
+            $stmtSubtotal->bindParam(':orcamento_id', $orcamentoId, PDO::PARAM_INT);
+            $stmtSubtotal->execute();
+            $subtotais = $stmtSubtotal->fetch(PDO::FETCH_ASSOC);
+            $subtotalLocacao = $subtotais['subtotal_locacao'] ?? 0.00;
+            $subtotalVenda = $subtotais['subtotal_venda'] ?? 0.00;
 
-            $stmt->bindParam(':id', $orcamento_id, PDO::PARAM_INT);
-            return $stmt->execute();
+            // PASSO 2: Buscar as taxas, fretes e desconto do orçamento principal
+            $sqlValores = "SELECT
+                                desconto, taxa_domingo_feriado, taxa_madrugada, taxa_horario_especial,
+                                taxa_hora_marcada, frete_terreo, frete_elevador, frete_escadas
+                           FROM {$this->table}
+                           WHERE id = :id";
+            $stmtValores = $this->conn->prepare($sqlValores);
+            $stmtValores->bindParam(':id', $orcamentoId, PDO::PARAM_INT);
+            $stmtValores->execute();
+            $valores = $stmtValores->fetch(PDO::FETCH_ASSOC);
+            if (!$valores) return false;
+
+            // PASSO 3: Calcular o valor final
+            $somaTaxasFretes = ($valores['taxa_domingo_feriado'] ?? 0) +
+                                 ($valores['taxa_madrugada'] ?? 0) +
+                                 ($valores['taxa_horario_especial'] ?? 0) +
+                                 ($valores['taxa_hora_marcada'] ?? 0) +
+                                 ($valores['frete_terreo'] ?? 0) +
+                                 ($valores['frete_elevador'] ?? 0) +
+                                 ($valores['frete_escadas'] ?? 0);
+            $descontoGeral = $valores['desconto'] ?? 0.00;
+            $valorFinal = ($subtotalLocacao + $subtotalVenda + $somaTaxasFretes) - $descontoGeral;
+
+            // PASSO 4: Atualizar o orçamento principal com todos os valores corretos
+            $sqlUpdate = "UPDATE {$this->table} SET
+                            subtotal_locacao = :subtotal_locacao,
+                            valor_total_locacao = :valor_total_locacao,
+                            subtotal_venda = :subtotal_venda,
+                            valor_total_venda = :valor_total_venda,
+                            valor_final = :valor_final
+                        WHERE id = :id";
+            $stmtUpdate = $this->conn->prepare($sqlUpdate);
+            $stmtUpdate->bindParam(':subtotal_locacao', $subtotalLocacao);
+            $stmtUpdate->bindParam(':valor_total_locacao', $subtotalLocacao); // valor_total é igual ao subtotal antes das taxas gerais
+            $stmtUpdate->bindParam(':subtotal_venda', $subtotalVenda);
+            $stmtUpdate->bindParam(':valor_total_venda', $subtotalVenda); // valor_total é igual ao subtotal antes das taxas gerais
+            $stmtUpdate->bindParam(':valor_final', $valorFinal);
+            $stmtUpdate->bindParam(':id', $orcamentoId, PDO::PARAM_INT);
+
+            return $stmtUpdate->execute();
+
         } catch (PDOException $e) {
-            error_log("Erro em Orcamento::recalcularValores (update) (ID: {$orcamento_id}): " . $e->getMessage());
+            error_log("Exceção PDO em Orcamento::recalcularValores (ID: {$orcamentoId}): " . $e->getMessage());
             return false;
         }
     }
-
     public function obterUltimo() {
         $query = "SELECT o.*, c.nome as nome_cliente
                   FROM {$this->table} o
