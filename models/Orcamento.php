@@ -337,17 +337,40 @@ class Orcamento {
         }
     }
 
-    public function delete($id) {
-        $query = "DELETE FROM {$this->table} WHERE id = :id";
-        try {
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-            return $stmt->execute();
-        } catch (PDOException $e) {
-            error_log("Erro em Orcamento::delete (ID: {$id}): " . $e->getMessage());
-            return false;
-        }
+    // NOVO MÉTODO CORRIGIDO E SEGURO (DEPOIS)
+public function delete($id) {
+    // Inicia a "operação segura" de transação
+    $this->conn->beginTransaction();
+
+    try {
+        // Passo 1: Excluir todos os ITENS que pertencem a este orçamento.
+        // Isso previne erros de chave estrangeira e remove os dados órfãos.
+        $query_itens = "DELETE FROM {$this->table_itens} WHERE orcamento_id = :orcamento_id";
+        $stmt_itens = $this->conn->prepare($query_itens);
+        $stmt_itens->bindParam(':orcamento_id', $id, PDO::PARAM_INT);
+        $stmt_itens->execute();
+
+        // Passo 2: Excluir o ORÇAMENTO principal.
+        $query_orcamento = "DELETE FROM {$this->table} WHERE id = :id";
+        $stmt_orcamento = $this->conn->prepare($query_orcamento);
+        $stmt_orcamento->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt_orcamento->execute();
+
+        // Se os dois comandos acima funcionaram sem erros, confirma a transação.
+        $this->conn->commit();
+        return true;
+
+    } catch (PDOException $e) {
+        // Se QUALQUER um dos passos acima falhar, o banco desfaz TUDO.
+        $this->conn->rollBack();
+        
+        // Registra o erro para você poder depurar depois
+        error_log("Erro na transação de exclusão em Orcamento::delete (ID: {$id}): " . $e->getMessage());
+        
+        // Retorna false para o script delete.php saber que a operação falhou.
+        return false;
     }
+}
 
     // FUNÇÃO MODIFICADA: salvarItens
      public function salvarItens($orcamento_id, $itens) {

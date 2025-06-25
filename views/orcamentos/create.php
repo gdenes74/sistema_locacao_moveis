@@ -42,7 +42,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
     header('Content-Type: application/json; charset=utf-8');
     try {
         $termo = isset($_GET['termo']) ? trim($_GET['termo']) : '';
-        
+
         if (empty($termo)) {
             // Se o termo de busca for vazio, retorna os últimos clientes cadastrados
             $sql = "SELECT id, nome, telefone, email, cpf_cnpj, endereco, cidade, observacoes
@@ -236,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamentoModel->frete_escadas = $fnConverterMoeda($_POST['frete_escadas'] ?? '0,00');
         $orcamentoModel->ajuste_manual = isset($_POST['ajuste_manual_valor_final']) ? 1 : 0;
         // CÓDIGO CORRIGIDO (DEPOIS)
-$orcamentoModel->motivo_ajuste = !empty($_POST['motivo_ajuste']) ? trim($_POST['motivo_ajuste']) : null;
+        $orcamentoModel->motivo_ajuste = !empty($_POST['motivo_ajuste']) ? trim($_POST['motivo_ajuste']) : null;
         $orcamentoModel->observacoes = !empty($_POST['observacoes_gerais']) ? trim($_POST['observacoes_gerais']) : null;
         $orcamentoModel->condicoes_pagamento = !empty($_POST['condicoes_pagamento']) ? trim($_POST['condicoes_pagamento']) : null;
         $orcamentoModel->usuario_id = $_SESSION['usuario_id'] ?? 1;
@@ -442,11 +442,11 @@ include_once __DIR__ . '/../includes/header.php';
                                         placeholder="Ex: Salão de Festas Condomínio XYZ">
                                     <div class="input-group-append">
                                         <button type="button" id="btnUsarEnderecoCliente"
-        class="btn btn-sm btn-outline-info"
-        title="Usar endereço do cliente selecionado">
-    <i class="fas fa-map-marker-alt"></i> Usar End. Cliente
-</button>
-                                            </div>
+                                            class="btn btn-sm btn-outline-info"
+                                            title="Usar endereço do cliente selecionado">
+                                            <i class="fas fa-map-marker-alt"></i> Usar End. Cliente
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-md-3 mt-md-3">
@@ -605,7 +605,8 @@ include_once __DIR__ . '/../includes/header.php';
                                 <tfoot>
                                     <tr>
                                         <td colspan="4" class="text-right"><strong>Subtotal dos Itens:</strong></td>
-                                        <td id="subtotal_geral_itens" class="text-right font-weight-bold">R$ 0,00</td>
+                                        <td id="subtotal_geral_itens" class="text-right font-weight-bold">A confirmar
+                                        </td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -653,7 +654,8 @@ include_once __DIR__ . '/../includes/header.php';
                                 </div>
                                 <div class="form-group" id="campo_motivo_ajuste" style="display: none;">
                                     <label for="motivo_ajuste_valor_final">Motivo do Ajuste Manual</label>
-                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste" placeholder="Ex: Desconto especial concedido">
+                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste"
+                                        placeholder="Ex: Desconto especial concedido">
                                 </div>
                             </div>
 
@@ -896,9 +898,10 @@ include_once __DIR__ . '/../includes/header.php';
                                     <label class="col-sm-6 col-form-label text-lg text-primary">VALOR FINAL
                                         (R$):</label>
                                     <div class="col-sm-6">
+                                        <!-- CÓDIGO CORRIGIDO (DEPOIS) -->
                                         <input type="text"
                                             class="form-control form-control-lg text-right font-weight-bold text-primary money-display"
-                                            id="valor_final_display" readonly value="R$ 0,00"
+                                            id="valor_final_display" readonly placeholder="A confirmar"
                                             style="background-color: #e9ecef !important; border: none !important;">
                                     </div>
                                 </div>
@@ -1097,23 +1100,34 @@ $(document).ready(function() {
         return subtotal;
     }
 
-    function calcularTotaisOrcamento() {
-        var subtotalGeralItens = 0;
-        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
-            subtotalGeralItens += calcularSubtotalItem($(this));
-        });
+    // Versão robusta que calcula sempre e decide a exibição no final
+
+function calcularTotaisOrcamento() {
+    var subtotalGeralItens = 0;
+    $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+        subtotalGeralItens += calcularSubtotalItem($(this));
+    });
+
+    var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
+    var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
+    var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
+    var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
+    var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
+    var freteTerreo = unformatCurrency($('#frete_terreo').val());
+    var freteElevador = unformatCurrency($('#frete_elevador').val());
+    var freteEscadas = unformatCurrency($('#frete_escadas').val());
+
+    var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
+
+    // Lógica de exibição que controla o "a confirmar"
+    if (subtotalGeralItens === 0 && valorFinalCalculado === 0 && !$('#ajuste_manual_valor_final').is(':checked')) {
+        $('#subtotal_geral_itens').text('A confirmar');
+        $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
+    } else {
         $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
-        var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
-        var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
-        var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
-        var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
-        var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
-        var freteTerreo = unformatCurrency($('#frete_terreo').val());
-        var freteElevador = unformatCurrency($('#frete_elevador').val());
-        var freteEscadas = unformatCurrency($('#frete_escadas').val());
-        var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
         $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
     }
+}
     
     // =========================================================================
     // >>>>> CÓDIGO RESTAURADO AQUI <<<<<
@@ -1405,41 +1419,44 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
 
     // --- INÍCIO DO CÓDIGO FINAL E SINCRONIZADO ---
 
-// AGORA escutamos o clique nos DOIS elementos ao mesmo tempo
+// ▼▼▼ COLE ESTES DOIS BLOCOS NOVOS NO LUGAR ▼▼▼
+
+// Bloco 1: O evento de change, agora limpo e correto.
 $('#ajuste_manual_valor_final, #aplicar_desconto_geral').on('change', function() {
-    
-    // 1. Descobrimos o estado atual (marcado ou desmarcado)
     const isChecked = $(this).is(':checked');
+    $('#ajuste_manual_valor_final, #aplicar_desconto_geral').prop('checked', isChecked);
 
-    // 2. A MÁGICA DA SINCRONIZAÇÃO:
-    // Forçamos os DOIS controles a terem o mesmo estado.
-    $('#ajuste_manual_valor_final').prop('checked', isChecked);
-    $('#aplicar_desconto_geral').prop('checked', isChecked);
-
-    // Pega os elementos que vamos manipular (igual antes)
     const $campoDesconto = $('#desconto_total');
     const $divMotivo = $('#campo_motivo_ajuste');
     const $inputMotivo = $('#motivo_ajuste');
 
-    // 3. O resto da lógica continua a mesma, mas usando a variável 'isChecked'
     if (isChecked) {
-        // Se LIGOU:
         $campoDesconto.prop('disabled', false);
         $divMotivo.slideDown();
         $inputMotivo.prop('disabled', false);
         $campoDesconto.focus();
     } else {
-        // Se DESLIGOU:
         $campoDesconto.prop('disabled', true).val('');
         $divMotivo.slideUp();
         $inputMotivo.prop('disabled', true).val('');
     }
-
-    // Recalcula o total em qualquer um dos casos
     calcularTotaisOrcamento();
 });
 
-// --- FIM DO CÓDIGO FINAL E SINCRONIZADO ---
+
+// Bloco 2: A lógica do "a confirmar", agora no lugar certo para rodar na carga da página.
+// CÓDIGO PARA GARANTIR O "A CONFIRMAR" NA CARGA DA PÁGINA
+$('.taxa-frete-input').each(function() {
+    var valorNumerico = unformatCurrency($(this).val());
+    if (valorNumerico === 0) {
+        $(this).val(''); // Força o campo a ficar vazio para o placeholder aparecer
+    }
+});
+
+// Roda o cálculo final uma última vez para garantir que todos os totais estejam corretos
+calcularTotaisOrcamento();
+
+// ▲▲▲ FIM DOS BLOCOS PARA COLAR ▲▲▲
 
 });
 JS;

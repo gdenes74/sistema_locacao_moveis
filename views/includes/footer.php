@@ -81,7 +81,7 @@ if (!defined('BASE_URL')) {
             $('.money, .money-input, .money-display').inputmask('currency', {
                 prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
                 autoGroup: true, rightAlign: false,
-                clearMaskOnLostFocus: false,
+                clearMaskOnLostFocus: true,//"Tudo bem ficar vazio. Se o valor for zero ou nulo, respeite isso e mostre o placeholder." ai aparecerá o bendito, "a confirmar"
                 numericInput: false, // <<-- VÍRGULA CORRIGIDA AQUI
                 nullable: true
             });

@@ -506,7 +506,7 @@ include_once __DIR__ . '/../includes/header.php';
 <script>
 // Função para confirmar exclusão
 function confirmDelete(id, identificador) {
-    const deleteUrl = `<?php echo BASE_URL; ?>/views/orcamentos/delete_orcamento.php?id=${id}`;
+    const deleteUrl = `<?php echo BASE_URL; ?>/views/orcamentos/delete.php?id=${id}`;
     
     Swal.fire({
         title: 'Confirmar exclusão?',
