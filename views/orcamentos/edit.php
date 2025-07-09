@@ -28,6 +28,24 @@ if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
 
 $orcamentoId = (int)$_GET['id'];
 $orcamentoDados = $orcamentoModel->getById($orcamentoId);
+// --- 4. BUSCA DOS ITENS DO ORÇAMENTO ---
+$itensOrcamento = $orcamentoModel->getItens($orcamentoId);
+if ($itensOrcamento === false) {
+    $itensOrcamento = []; // Garante que é um array, mesmo em caso de erro
+    $_SESSION['error_message'] = "Atenção: não foi possível carregar os itens deste orçamento.";
+}
+
+// Prepara o caminho completo da foto para cada item, igual fazemos no AJAX
+$base_url_config = rtrim(BASE_URL, '/');
+foreach ($itensOrcamento as &$item_processado) {
+    if (!empty($item_processado['foto_path']) && $item_processado['foto_path'] !== "null" && trim($item_processado['foto_path']) !== "") {
+        $foto_path_limpo = ltrim($item_processado['foto_path'], '/');
+        $item_processado['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
+    } else {
+        $item_processado['foto_path_completo'] = null;
+    }
+}
+unset($item_processado); // Limpa a referência do loop
 
 if ($orcamentoDados === false) {
     $_SESSION['error_message'] = "Orçamento com ID {$orcamentoId} não encontrado.";
@@ -618,8 +636,74 @@ include_once __DIR__ . '/../includes/header.php';
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <!-- Linhas de itens e títulos serão adicionadas aqui via JavaScript -->
-                                </tbody>
+    <?php if (empty($itensOrcamento)): ?>
+        <tr class="no-items-row">
+            <td colspan="6" class="text-center text-muted">Nenhum item adicionado a este orçamento ainda.</td>
+        </tr>
+    <?php else: ?>
+        <?php foreach ($itensOrcamento as $index => $item): ?>
+            <?php
+                // Prepara variáveis para facilitar a leitura no HTML
+                $itemIndex = $index + 1; // Para o data-index
+                $tipoLinha = htmlspecialchars($item['tipo_linha']);
+
+                // Define o nome a ser exibido (se for manual, usa o manual, senão o do catálogo)
+                $nomeDisplay = htmlspecialchars($item['nome_produto_manual'] ?? $item['nome_produto_catalogo'] ?? 'Item sem nome');
+
+                // Formatação de valores monetários
+                $precoUnitario = number_format($item['preco_unitario'] ?? 0, 2, ',', '.');
+                $descontoItem = number_format($item['desconto'] ?? 0, 2, ',', '.');
+                $subtotalItem = number_format($item['preco_final'] ?? 0, 2, ',', '.');
+            ?>
+
+            <?php if ($tipoLinha === 'CABECALHO_SECAO'): ?>
+                <tr class="item-orcamento-row item-titulo-secao" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #e7f1ff !important;">
+                    <td colspan="5">
+                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_titulo_secao" value="<?= $nomeDisplay ?>" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);">
+                        <input type="hidden" name="produto_id[]" value="">
+                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
+                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
+                        <input type="hidden" name="quantidade[]" value="0">
+                        <input type="hidden" name="tipo_item[]" value="">
+                        <input type="hidden" name="valor_unitario[]" value="0.00">
+                        <input type="hidden" name="desconto_item[]" value="0.00">
+                        <input type="hidden" name="observacoes_item[]" value="">
+                    </td>
+                    <td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td>
+                </tr>
+            <?php else: // O padrão é ser 'PRODUTO' ?>
+                <?php
+                    $isItemManual = empty($item['produto_id']);
+                    $observacoesEstilo = empty($item['observacoes']) ? 'display:none;' : '';
+                ?>
+                <tr class="item-orcamento-row" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #ffffff !important;">
+                    <td>
+                        <?php if (!empty($item['foto_path_completo'])): ?>
+                            <img src="<?= htmlspecialchars($item['foto_path_completo']) ?>" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
+                        <?php endif; ?>
+                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_produto_display" value="<?= $nomeDisplay ?>" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" <?= !$isItemManual ? 'readonly' : '' ?>>
+                        <input type="hidden" name="produto_id[]" class="produto_id" value="<?= htmlspecialchars($item['produto_id'] ?? '') ?>">
+                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
+                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
+                        <input type="hidden" name="tipo_item[]" value="<?= htmlspecialchars($item['tipo'] ?? 'locacao') ?>">
+                        <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
+                        <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
+                    </td>
+                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 1) ?>" min="1" style="width: 70px;"></td>
+                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $precoUnitario ?>"></td>
+                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $descontoItem ?>"></td>
+                    <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
+                    <td>
+                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                        <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                        <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            <?php endif; ?>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</tbody>
                                 <tfoot>
                                     <tr>
                                         <td colspan="4" class="text-right"><strong>Subtotal dos Itens:</strong></td>
@@ -1226,6 +1310,28 @@ $(document).ready(function() {
     $('#formEditarOrcamento').on('keydown', function(e) { if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) { e.preventDefault(); } });
     function atualizarOrdemDosItens() { $('#tabela_itens_orcamento tbody tr').each(function(index) { $(this).attr('data-index', index + 1); $(this).find('input[name="ordem[]"]').val(index + 1); }); }
     $('#tabela_itens_orcamento tbody').sortable({ handle: '.drag-handle', placeholder: 'sortable-placeholder', helper: function(e, ui) { ui.children().each(function() { $(this).width($(this).width()); }); return ui; }, stop: function(event, ui) { atualizarOrdemDosItens(); } }).disableSelection();
+    // AÇÃO PARA O BOTÃO 'USAR PADRÃO' (VARINHA MÁGICA)
+$('#formEditarOrcamento').on('click', '.btn-usar-padrao', function(e) {
+    e.preventDefault(); // Previne qualquer comportamento padrão do botão
+    
+    var targetInputId = $(this).data('target-input');
+    var $targetInput = $('#' + targetInputId);
+    var valorPadrao = parseFloat($targetInput.data('valor-padrao'));
+    var targetCheckboxId = $(this).data('target-checkbox');
+    var $targetCheckbox = $('#' + targetCheckboxId);
+
+    // Marca o checkbox correspondente
+    $targetCheckbox.prop('checked', true);
+    
+    // Habilita o campo de input, caso esteja desabilitado
+    $targetInput.prop('disabled', false);
+    
+    // Define o valor padrão no campo e força a máscara a reformatar
+    $targetInput.val(valorPadrao.toFixed(2)).trigger('input'); 
+    
+    // Recalcula todos os totais do orçamento
+    calcularTotaisOrcamento();
+});
     $('head').append('<style>.sortable-placeholder { height: 50px; background-color: #f0f8ff; border: 2px dashed #cce5ff; }</style>');
     $('#ajuste_manual_valor_final, #aplicar_desconto_geral').on('change', function() { const isChecked = $(this).is(':checked'); $('#ajuste_manual_valor_final, #aplicar_desconto_geral').prop('checked', isChecked); const $campoDesconto = $('#desconto_total'); const $divMotivo = $('#campo_motivo_ajuste'); const $inputMotivo = $('#motivo_ajuste'); if (isChecked) { $campoDesconto.prop('disabled', false).focus(); $divMotivo.slideDown(); $inputMotivo.prop('disabled', false); } else { $campoDesconto.prop('disabled', true).val(''); $divMotivo.slideUp(); $inputMotivo.prop('disabled', true).val(''); } calcularTotaisOrcamento(); });
     calcularDataValidade();

@@ -467,25 +467,28 @@ public function delete($id) {
         }
     }
 
-    public function getItens($orcamento_id) {
-        $query = "SELECT
-                    io.*,
-                    p.nome_produto AS nome_produto_catalogo,
-                    p.codigo AS codigo_produto
-                  FROM {$this->table_itens} io
-                  LEFT JOIN produtos p ON io.produto_id = p.id
-                  WHERE io.orcamento_id = :orcamento_id
-                  ORDER BY io.ordem ASC, io.id ASC";
-        try {
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
-            $stmt->execute();
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
-            error_log("Erro em Orcamento::getItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
-            return false;
-        }
+public function getItens($orcamento_id) {
+    $query = "SELECT
+                io.*,
+                p.nome_produto AS nome_produto_catalogo,
+                p.codigo AS codigo_produto,
+                p.foto_path                           -- ADICIONADO: para buscar a foto
+              FROM {$this->table_itens} io
+              LEFT JOIN produtos p ON io.produto_id = p.id
+              WHERE io.orcamento_id = :orcamento_id
+              ORDER BY io.ordem ASC, io.id ASC";
+    try {
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log("Erro em Orcamento::getItens (Orcamento ID: {$orcamento_id}): " . $e->getMessage());
+        return false;
     }
+}
+
+
 
     public function verificarEAtualizarExpirados() {
         $query = "UPDATE {$this->table}
