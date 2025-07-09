@@ -50,6 +50,14 @@ if (!defined('BASE_URL')) {
         const DEFAULT_PLACEHOLDER_IMAGE = BASE_URL + "/assets/img/avatar_placeholder.png";
     </script>
 
+    <!-- === NOVO BLOCO: Constantes JavaScript específicas da página === -->
+    <?php if (isset($inline_js_setup)): ?>
+    <script>
+        <?php echo $inline_js_setup; // Isso imprimirá 'const ORCAMENTO_ID = 123;' ?>
+    </script>
+    <?php endif; ?>
+    <!-- === FIM DO NOVO BLOCO === -->
+
     <!-- SCRIPTS DE INICIALIZAÇÃO GLOBAIS -->
     <script>
     $(function () { // Equivalente a $(document).ready()
@@ -81,8 +89,8 @@ if (!defined('BASE_URL')) {
             $('.money, .money-input, .money-display').inputmask('currency', {
                 prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
                 autoGroup: true, rightAlign: false,
-                clearMaskOnLostFocus: true,//"Tudo bem ficar vazio. Se o valor for zero ou nulo, respeite isso e mostre o placeholder." ai aparecerá o bendito, "a confirmar"
-                numericInput: false, // <<-- VÍRGULA CORRIGIDA AQUI
+                clearMaskOnLostFocus: true,
+                numericInput: false,
                 nullable: true
             });
         } else { console.warn('Inputmask não está carregado.'); }

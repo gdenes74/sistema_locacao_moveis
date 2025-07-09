@@ -76,13 +76,19 @@ class Orcamento {
                 WHERE 1=1";
         $params = [];
 
-        if (!empty($filtros['pesquisar'])) {
-            $searchTerm = "%" . $filtros['pesquisar'] . "%";
-            $query .= " AND (CAST(o.numero AS CHAR) LIKE :pesquisar_num OR o.codigo LIKE :pesquisar_cod OR c.nome LIKE :pesquisar_cliente)";
-            $params[':pesquisar_num'] = $searchTerm;
-            $params[':pesquisar_cod'] = $searchTerm;
-            $params[':pesquisar_cliente'] = $searchTerm;
-        }
+if (!empty($filtros['pesquisar'])) {
+    $searchTerm = "%" . $filtros['pesquisar'] . "%";
+    // Adicionamos o campo id na busca para permitir encontrar orçamentos pelo ID 
+    // Mantemos o campo numero (ex.: 159), codigo e nome do cliente como já estavam
+    $query .= " AND (CAST(o.id AS CHAR) LIKE :pesquisar_id OR CAST(o.numero AS CHAR) LIKE :pesquisar_num OR o.codigo LIKE :pesquisar_cod OR c.nome LIKE :pesquisar_cliente)";
+    $params[':pesquisar_id'] = $searchTerm; // Parâmetro adicionado para busca por ID
+    $params[':pesquisar_num'] = $searchTerm; // Parâmetro existente para busca por Número
+    $params[':pesquisar_cod'] = $searchTerm; // Parâmetro existente para busca por Código
+    $params[':pesquisar_cliente'] = $searchTerm; // Parâmetro existente para busca por Nome do Cliente
+}
+
+
+       
         if (!empty($filtros['cliente_id']) && filter_var($filtros['cliente_id'], FILTER_VALIDATE_INT)) {
             $query .= " AND o.cliente_id = :cliente_id";
             $params[':cliente_id'] = (int)$filtros['cliente_id'];
@@ -276,66 +282,98 @@ class Orcamento {
     }
 
     public function update() {
-        $query = "UPDATE {$this->table} SET
-                    cliente_id = :cliente_id, data_orcamento = :data_orcamento, data_validade = :data_validade,
-                    data_entrega = :data_entrega, hora_entrega = :hora_entrega, data_evento = :data_evento,
-                    hora_evento = :hora_evento, local_evento = :local_evento, data_devolucao_prevista = :data_devolucao_prevista,
-                    hora_devolucao = :hora_devolucao, turno_entrega = :turno_entrega, turno_devolucao = :turno_devolucao,
-                    tipo = :tipo, status = :status,
-                    desconto = :desconto, taxa_domingo_feriado = :taxa_domingo_feriado,
-                    taxa_madrugada = :taxa_madrugada, taxa_horario_especial = :taxa_horario_especial,
-                    taxa_hora_marcada = :taxa_hora_marcada, frete_elevador = :frete_elevador,
-                    frete_escadas = :frete_escadas, frete_terreo = :frete_terreo,
-                    ajuste_manual = :ajuste_manual, motivo_ajuste = :motivo_ajuste, observacoes = :observacoes,
-                    condicoes_pagamento = :condicoes_pagamento, usuario_id = :usuario_id
-                WHERE id = :id";
+    if (empty($this->id)) {
+        error_log("Erro: Tentativa de atualizar orçamento sem ID.");
+        return false;
+    }
 
-        try {
-            $stmt = $this->conn->prepare($query);
+    $query = "UPDATE {$this->table} SET
+                cliente_id = :cliente_id, data_orcamento = :data_orcamento, data_validade = :data_validade,
+                data_entrega = :data_entrega, hora_entrega = :hora_entrega, data_evento = :data_evento,
+                hora_evento = :hora_evento, local_evento = :local_evento, data_devolucao_prevista = :data_devolucao_prevista,
+                hora_devolucao = :hora_devolucao, turno_entrega = :turno_entrega, turno_devolucao = :turno_devolucao,
+                tipo = :tipo, status = :status,
+                desconto = :desconto, taxa_domingo_feriado = :taxa_domingo_feriado,
+                taxa_madrugada = :taxa_madrugada, taxa_horario_especial = :taxa_horario_especial,
+                taxa_hora_marcada = :taxa_hora_marcada, frete_elevador = :frete_elevador,
+                frete_escadas = :frete_escadas, frete_terreo = :frete_terreo,
+                ajuste_manual = :ajuste_manual, motivo_ajuste = :motivo_ajuste, observacoes = :observacoes,
+                condicoes_pagamento = :condicoes_pagamento, usuario_id = :usuario_id
+            WHERE id = :id";
 
-            $this->cliente_id = (int)$this->cliente_id;
-            // ... (outras sanitizações como no create) ...
+    try {
+        $stmt = $this->conn->prepare($query);
 
-            $stmt->bindParam(':id', $this->id, PDO::PARAM_INT);
-            $stmt->bindParam(':cliente_id', $this->cliente_id, PDO::PARAM_INT);
-            $stmt->bindParam(':data_orcamento', $this->data_orcamento);
-            $stmt->bindParam(':data_validade', $this->data_validade);
-            $stmt->bindParam(':data_entrega', $this->data_entrega);
-            $stmt->bindParam(':hora_entrega', $this->hora_entrega);
-            $stmt->bindParam(':data_evento', $this->data_evento);
-            $stmt->bindParam(':hora_evento', $this->hora_evento);
-            $stmt->bindParam(':local_evento', $this->local_evento);
-            $stmt->bindParam(':data_devolucao_prevista', $this->data_devolucao_prevista);
-            $stmt->bindParam(':hora_devolucao', $this->hora_devolucao);
-            $stmt->bindParam(':turno_entrega', $this->turno_entrega);
-            $stmt->bindParam(':turno_devolucao', $this->turno_devolucao);
-            $stmt->bindParam(':tipo', $this->tipo);
-            $stmt->bindParam(':status', $this->status);
-            $stmt->bindParam(':desconto', $this->desconto);
-            $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
-            $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
-            $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
-            $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
-            $stmt->bindParam(':frete_elevador', $this->frete_elevador);
-            $stmt->bindParam(':frete_escadas', $this->frete_escadas);
-            $stmt->bindParam(':frete_terreo', $this->frete_terreo);
-            $stmt->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
-            $stmt->bindParam(':motivo_ajuste', $this->motivo_ajuste);
-            $stmt->bindParam(':observacoes', $this->observacoes);
-            $stmt->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
-            $stmt->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
+        // --- Sanitização e tratamento dos dados (igual ao create) ---
+        $this->cliente_id = (int)$this->cliente_id;
+        $this->data_orcamento = !empty($this->data_orcamento) ? $this->data_orcamento : date('Y-m-d');
+        $this->data_validade = !empty($this->data_validade) ? $this->data_validade : date('Y-m-d', strtotime('+7 days'));
+        $this->data_entrega = !empty($this->data_entrega) ? $this->data_entrega : null;
+        $this->hora_entrega = !empty($this->hora_entrega) ? $this->hora_entrega : null;
+        $this->data_evento = !empty($this->data_evento) ? $this->data_evento : null;
+        $this->hora_evento = !empty($this->hora_evento) ? $this->hora_evento : null;
+        $this->data_devolucao_prevista = !empty($this->data_devolucao_prevista) ? $this->data_devolucao_prevista : null;
+        $this->hora_devolucao = !empty($this->hora_devolucao) ? $this->hora_devolucao : null;
+        $this->local_evento = !empty($this->local_evento) ? trim($this->local_evento) : null;
+        $this->turno_entrega = $this->turno_entrega ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->tipo = $this->tipo ?? 'locacao';
+        $this->status = $this->status ?? 'pendente';
+        $this->desconto = (float)($this->desconto ?? 0.00);
+        $this->taxa_domingo_feriado = (float)($this->taxa_domingo_feriado ?? 0.00);
+        $this->taxa_madrugada = (float)($this->taxa_madrugada ?? 0.00);
+        $this->taxa_horario_especial = (float)($this->taxa_horario_especial ?? 0.00);
+        $this->taxa_hora_marcada = (float)($this->taxa_hora_marcada ?? 0.00);
+        $this->frete_terreo = (float)($this->frete_terreo ?? 0.00);
+        $this->frete_elevador = (float)($this->frete_elevador ?? 0.00);
+        $this->frete_escadas = (float)($this->frete_escadas ?? 0.00);
+        $this->ajuste_manual = (bool)($this->ajuste_manual ?? false);
+        $this->motivo_ajuste = !empty($this->motivo_ajuste) ? trim($this->motivo_ajuste) : null;
+        $this->observacoes = !empty($this->observacoes) ? trim($this->observacoes) : null;
+        $this->condicoes_pagamento = !empty($this->condicoes_pagamento) ? trim($this->condicoes_pagamento) : null;
+        $this->usuario_id = $this->usuario_id ?? (isset($_SESSION['usuario_id']) ? (int)$_SESSION['usuario_id'] : 1);
 
-            if ($stmt->execute()) {
-                return true;
-            } else {
-                error_log("Erro ao atualizar orçamento principal (ID: {$this->id}): " . print_r($stmt->errorInfo(), true));
-                return false;
-            }
-        } catch (PDOException $e) {
-            error_log("Exceção PDO em Orcamento::update (ID: {$this->id}): " . $e->getMessage());
+        // --- Bind dos parâmetros ---
+        $stmt->bindParam(':id', $this->id, PDO::PARAM_INT);
+        $stmt->bindParam(':cliente_id', $this->cliente_id, PDO::PARAM_INT);
+        $stmt->bindParam(':data_orcamento', $this->data_orcamento);
+        $stmt->bindParam(':data_validade', $this->data_validade);
+        $stmt->bindParam(':data_entrega', $this->data_entrega);
+        $stmt->bindParam(':hora_entrega', $this->hora_entrega);
+        $stmt->bindParam(':data_evento', $this->data_evento);
+        $stmt->bindParam(':hora_evento', $this->hora_evento);
+        $stmt->bindParam(':local_evento', $this->local_evento);
+        $stmt->bindParam(':data_devolucao_prevista', $this->data_devolucao_prevista);
+        $stmt->bindParam(':hora_devolucao', $this->hora_devolucao);
+        $stmt->bindParam(':turno_entrega', $this->turno_entrega);
+        $stmt->bindParam(':turno_devolucao', $this->turno_devolucao);
+        $stmt->bindParam(':tipo', $this->tipo);
+        $stmt->bindParam(':status', $this->status);
+        $stmt->bindParam(':desconto', $this->desconto);
+        $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
+        $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
+        $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
+        $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
+        $stmt->bindParam(':frete_elevador', $this->frete_elevador);
+        $stmt->bindParam(':frete_escadas', $this->frete_escadas);
+        $stmt->bindParam(':frete_terreo', $this->frete_terreo);
+        $stmt->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
+        $stmt->bindParam(':motivo_ajuste', $this->motivo_ajuste);
+        $stmt->bindParam(':observacoes', $this->observacoes);
+        $stmt->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
+        $stmt->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
+
+        if ($stmt->execute()) {
+            return true;
+        } else {
+            error_log("Erro ao atualizar orçamento principal (ID: {$this->id}): " . print_r($stmt->errorInfo(), true));
             return false;
         }
+    } catch (PDOException $e) {
+        error_log("Exceção PDO em Orcamento::update (ID: {$this->id}): " . $e->getMessage());
+        return false;
     }
+}
 
     // NOVO MÉTODO CORRIGIDO E SEGURO (DEPOIS)
 public function delete($id) {
