@@ -29,6 +29,9 @@ if (!defined('BASE_URL')) {
     <!-- 2. jQuery UI (ESSENCIAL PARA O 'SORTABLE'. DEVE VIR DEPOIS DO JQUERY) -->
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 
+    <!-- 2.1. SortableJS (ALTERNATIVA MODERNA AO JQUERY UI SORTABLE) -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
     <!-- 3. Bootstrap Bundle JS (inclui Popper.js - depende do jQuery) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -87,7 +90,7 @@ if (!defined('BASE_URL')) {
             $('.cnpj').inputmask('99.999.999/9999-99');
             $('.cep').inputmask('99999-999');
             $('.money, .money-input, .money-display').inputmask('currency', {
-                prefix: 'R$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
+                prefix: 'R\$ ', groupSeparator: '.', radixPoint: ',', digits: 2,
                 autoGroup: true, rightAlign: false,
                 clearMaskOnLostFocus: true,
                 numericInput: false,

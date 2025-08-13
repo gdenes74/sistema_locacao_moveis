@@ -59,14 +59,15 @@ $page_title = "Editar Orçamento #" . htmlspecialchars($orcamentoDados['numero']
 $textoPadraoObservacoes = !empty($orcamentoDados['observacoes']) ? $orcamentoDados['observacoes'] : "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\\n* Não Inclui Posicionamento dos Móveis no Local.";
 $textoPadraoCondicoes = !empty($orcamentoDados['condicoes_pagamento']) ? $orcamentoDados['condicoes_pagamento'] : "50% na aprovação para reserva em PIX ou Depósito.\\nSaldo em PIX ou Depósito 7 dias antes do evento.\\n* Consulte disponibilidade e preços para pagamento no cartão de crédito.";
 
-// Valores padrão para taxas (para exibição inicial no formulário se não estiverem no orçamento)
-$valorPadraoTaxaDomingo = (float)($orcamentoDados['taxa_domingo_feriado'] ?? 250.00);
-$valorPadraoTaxaMadrugada = (float)($orcamentoDados['taxa_madrugada'] ?? 800.00);
-$valorPadraoTaxaHorarioEspecial = (float)($orcamentoDados['taxa_horario_especial'] ?? 500.00);
-$valorPadraoTaxaHoraMarcada = (float)($orcamentoDados['taxa_hora_marcada'] ?? 200.00);
-$valorPadraoFreteTerreo = (float)($orcamentoDados['frete_terreo'] ?? 180.00);
-$valorPadraoFreteElevador = (float)($orcamentoDados['frete_elevador'] ?? 100.00);
-$valorPadraoFreteEscadas = (float)($orcamentoDados['frete_escadas'] ?? 200.00);
+// CORRIGIDO: Valores padrão FIXOS para as taxas, utilizados no atributo data-valor-padrao dos inputs.
+// Estes valores representam o "default" para a funcionalidade da "varinha mágica".
+$valorPadraoTaxaDomingo = 250.00;
+$valorPadraoTaxaMadrugada = 800.00;
+$valorPadraoTaxaHorarioEspecial = 500.00;
+$valorPadraoTaxaHoraMarcada = 200.00;
+$valorPadraoFreteTerreo = 180.00;
+$valorPadraoFreteElevador = 100.00;
+$valorPadraoFreteEscadas = 200.00;
 
 
 // --- 2. Bloco AJAX para buscar clientes ---
@@ -766,36 +767,37 @@ include_once __DIR__ . '/../includes/header.php';
                                 <h5 class="text-muted">Taxas Adicionais</h5>
 
                                 <div class="form-group row align-items-center">
-                                    <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="taxa_domingo_feriado"
-                                            <?= (($orcamentoDados['taxa_domingo_feriado'] ?? 0) > 0) ? 'checked' : '' ?>>
-                                    </div>
-                                    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
-                                        Taxa Dom./Feriado <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>)</small>
-                                    </label>
-                                    <div class="col-sm-6">
-                                        <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="taxa_domingo_feriado" name="taxa_domingo_feriado"
-                                                placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoTaxaDomingo // Passa o número puro ?>">
-                                            <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="taxa_domingo_feriado"
-                                                    data-target-checkbox="aplicar_taxa_domingo"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>">
-                                                    <i class="fas fa-magic"></i> Usar
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="taxa_domingo_feriado"
+            <?= (($orcamentoDados['taxa_domingo_feriado'] ?? 0) > 0) ? 'checked' : '' ?>>
+    </div>
+    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
+        Taxa Dom./Feriado <small
+            class="text-muted">(R\$<?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="taxa_domingo_feriado" name="taxa_domingo_feriado"
+                placeholder="a confirmar"
+                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>"
+                data-valor-padrao="<?= htmlspecialchars($valorPadraoTaxaDomingo) ?>"
+                data-valor-original="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="taxa_domingo_feriado"
+                    data-target-checkbox="aplicar_taxa_domingo"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
@@ -1131,18 +1133,16 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+
 <?php
-// === ALTERAÇÃO CRÍTICA AQUI ===
-// O heredoc custom_js NÃO contém mais a declaração de ORCAMENTO_ID.
-// Ele apenas UTILIZA a constante ORCAMENTO_ID que será definida anteriormente no HTML.
+// === CÓDIGO JAVASCRIPT COM AS CORREÇÕES FINAIS APLICADAS (SEM JSON) ===
+// ORCAMENTO_ID e BASE_URL devem ser definidos no seu footer.php ou em um escopo global acessível.
 
-
-// === CÓDIGO JAVASCRIPT COM AS CORREÇÕES FINAIS APLICADAS ===
 $custom_js = <<<'JS'
 $(document).ready(function() {
-    // ORCAMENTO_ID é uma constante global definida via PHP.
+    // ORCAMENTO_ID é uma constante global definida via PHP no footer, acessível aqui.
 
-    // ▼▼▼ INÍCIO DO BLOCO DE CORREÇÃO ▼▼▼
+    // ▼▼▼ INÍCIO DO BLOCO DE CORREÇÃO (Mantido do seu código original) ▼▼▼
 
     // Variáveis para guardar os estados atuais, resolvendo os dois problemas
     let dadosClienteAtual = null;
@@ -1177,7 +1177,8 @@ $(document).ready(function() {
 
     var itemIndex = 0; 
     function unformatCurrency(value) {
-        if (!value || typeof value !== 'string') { return 0; }
+        if (value === null || typeof value === 'undefined' || value === '') return 0;
+        if (typeof value !== 'string') value = String(value); // Garante que é string
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
         return isNaN(number) ? 0 : number;
     }
@@ -1195,7 +1196,7 @@ $(document).ready(function() {
             return;
         }
         $.ajax({
-            url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_produtos`,
+            url: `${BASE_URL}/orcamentos/edit.php?id=${ORCAMENTO_ID}&ajax=buscar_produtos`, // Usando BASE_URL
             type: 'GET',
             dataType: 'json',
             data: { termo: termoBusca, categoria_id: categoriaSelecionada },
@@ -1256,16 +1257,31 @@ $(document).ready(function() {
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             subtotalGeralItens += calcularSubtotalItem($(this));
         });
-        var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
-        var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
-        var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
-        var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
-        var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
-        var freteTerreo = unformatCurrency($('#frete_terreo').val());
-        var freteElevador = unformatCurrency($('#frete_elevador').val());
-        var freteEscadas = unformatCurrency($('#frete_escadas').val());
+
+        // Função interna para pegar o valor de uma taxa APENAS se o seu checkbox estiver marcado
+        function getValorTaxaSeAtiva(inputId) {
+            const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + inputId + '"]');
+            if ($checkbox.length > 0 && $checkbox.is(':checked')) {
+                return unformatCurrency($('#' + inputId).val());
+            }
+            return 0;
+        }
+
+        var taxaDomingo = getValorTaxaSeAtiva('taxa_domingo_feriado');
+        var taxaMadrugada = getValorTaxaSeAtiva('taxa_madrugada');
+        var taxaHorarioEspecial = getValorTaxaSeAtiva('taxa_horario_especial');
+        var taxaHoraMarcada = getValorTaxaSeAtiva('taxa_hora_marcada');
+        var freteTerreo = getValorTaxaSeAtiva('frete_terreo');
+        var freteElevador = getValorTaxaSeAtiva('frete_elevador');
+        var freteEscadas = getValorTaxaSeAtiva('frete_escadas');
+        
+        // O desconto geral também usa essa lógica
+        var descontoTotalGeral = getValorTaxaSeAtiva('desconto_total');
+
         var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
-        if (subtotalGeralItens === 0 && valorFinalCalculado === 0 && !$('#ajuste_manual_valor_final').is(':checked')) {
+
+        // Atualiza os displays
+        if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
             $('#subtotal_geral_itens').text('A confirmar');
             $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
         } else {
@@ -1280,11 +1296,253 @@ $(document).ready(function() {
     $('#btn_adicionar_item_manual').click(function() { adicionarLinhaItemTabela(null, 'PRODUTO'); });
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() { $(this).closest('tr').remove(); atualizarOrdemDosItens(); calcularTotaisOrcamento(); });
     $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { var $row = $(this).closest('tr'); $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); if ($row.find('.observacoes_item_input').is(':visible')) { $row.find('.observacoes_item_input').focus(); } });
-    $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item, #desconto_total, .taxa-frete-input', calcularTotaisOrcamento);
-    $('.btn-usar-padrao').on('click', function() { var $button = $(this); var targetInputId = $button.data('target-input'); var $targetInput = $('#' + targetInputId); if (!$targetInput.length) { return; } var valorSugerido = parseFloat($targetInput.data('valor-padrao')) || 0; $targetInput.val(formatCurrency(valorSugerido)); var targetCheckboxId = $button.data('target-checkbox'); if (targetCheckboxId) { $('#' + targetCheckboxId).prop('checked', true); } $targetInput.trigger('change'); });
-    $('.taxa-frete-input').on('blur', function() { var $input = $(this); var $checkbox = $('.taxa-frete-checkbox[data-target-input="' + $input.attr('id') + '"]'); if ($checkbox.length) { if (unformatCurrency($input.val()) > 0) { $checkbox.prop('checked', true); } else { $checkbox.prop('checked', false); $input.val(''); } } });
-    $('.taxa-frete-checkbox').on('change', function() { var $checkbox = $(this); var $targetInput = $('#' + $checkbox.data('target-input')); if ($checkbox.is(':checked')) { if (unformatCurrency($targetInput.val()) <= 0) { var valorPadrao = parseFloat($targetInput.data('valor-padrao')) || 0; $targetInput.val(formatCurrency(valorPadrao)); } } else { $targetInput.val(''); } $targetInput.trigger('change'); });
-    if (typeof $.fn.select2 === 'function') { $('#cliente_id').select2({ theme: 'bootstrap4', language: 'pt-BR', placeholder: 'Digite para buscar...', allowClear: true, minimumInputLength: 0, ajax: { url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`, dataType: 'json', delay: 250, data: function (params) { return { termo: params.term || '' }; }, processResults: function (data) { return { results: $.map(data, function (cliente) { return { id: cliente.id, text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), clienteData: cliente }; }) }; }, cache: true } }).on('select2:select', function (e) { dadosClienteAtual = e.params.data.clienteData; $(this).find('option:selected').attr('data-cliente-full-data', JSON.stringify(dadosClienteAtual)); }); }
+    
+    // === CONFIGURAÇÃO DOS CAMPOS DE TAXAS E FRETES COM VARINHA MÁGICA (REVISADO SEM JSON) ===
+    
+    // Lista dos IDs dos campos que possuem a lógica de taxa/frete
+    const campoIdsTaxasFretes = [
+        'taxa_domingo_feriado', 'taxa_madrugada', 'taxa_horario_especial',
+        'taxa_hora_marcada', 'frete_terreo', 'frete_elevador', 'frete_escadas'
+    ];
+
+    // Função auxiliar para encontrar o botão "Usar Padrão" associado a um campo de entrada
+    function getAssociatedButton($campo) {
+        return $campo.closest('.input-group').find('.btn-usar-padrao');
+    }
+
+    // Função para atualizar o estado visual do botão da varinha mágica
+    function atualizarEstadoVarinha($campo) {
+        const $button = getAssociatedButton($campo);
+        if (!$button.length) return;
+
+        const usandoPadrao = $campo.data('usandoPadrao') === 'true';
+        
+        if (usandoPadrao) {
+            $button.removeClass('btn-outline-secondary').addClass('btn-primary');
+            $button.attr('title', 'Clique para voltar ao valor anterior/digitado');
+        } else {
+            $button.removeClass('btn-primary').addClass('btn-outline-secondary');
+            $button.attr('title', 'Clique para usar valor padrão');
+        }
+    }
+
+    // Função para alternar o valor entre o original/digitado e o padrão
+    function alternarValor($campo) { // Não precisa mais de campoId aqui, lê direto do input
+        let usandoPadrao = $campo.data('usandoPadrao') === 'true';
+        let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao')); // Lê do data attribute
+
+        if (usandoPadrao) {
+            // Se estava usando o padrão, volta para o valor original armazenado
+            let valorOriginalArmazenado = $campo.data('valorOriginal');
+            $campo.val(formatCurrency(valorOriginalArmazenado));
+            $campo.data('usandoPadrao', 'false');
+        } else {
+            // Se não estava usando o padrão, armazena o valor atual como original e define o valor padrão
+            $campo.data('valorOriginal', unformatCurrency($campo.val())); // Armazena o valor NUMERICO atual como original
+            $campo.val(formatCurrency(valorPadraoNumerico));
+            $campo.data('usandoPadrao', 'true');
+        }
+        atualizarEstadoVarinha($campo);
+        calcularTotaisOrcamento();
+    }
+
+    // Função para gerenciar o estado do campo de entrada e do checkbox
+    function toggleCampo($campo, $checkbox) { // Não precisa mais de campoId
+        if ($checkbox.is(':checked')) {
+            $campo.prop('disabled', false); // Habilita o campo
+
+            let valorOriginalArmazenado = $campo.data('valorOriginal'); // Valor que veio do DB ou último manual
+            let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao')); // Valor padrão do data attribute
+            
+            // Prioriza o valor original se ele existe (>0) e não é igual ao padrão
+            if (valorOriginalArmazenado > 0 && valorOriginalArmazenado !== valorPadraoNumerico) {
+                $campo.val(formatCurrency(valorOriginalArmazenado));
+                $campo.data('usandoPadrao', 'false');
+            } 
+            // Se o valor original é zero ou igual ao padrão, tenta aplicar o padrão se ele existir
+            else if (valorPadraoNumerico > 0) {
+                $campo.val(formatCurrency(valorPadraoNumerico));
+                $campo.data('usandoPadrao', 'true');
+            } 
+            // Se nem original, nem padrão são aplicáveis ou são zero, zera o campo
+            else {
+                $campo.val(formatCurrency(0));
+                $campo.data('usandoPadrao', 'false');
+            }
+            $campo.focus(); // Coloca foco no campo habilitado
+        } else {
+            // Ao desmarcar o checkbox, salva o valor atual como original APENAS se:
+            // 1. Ele for > 0
+            // 2. E não estiver no modo "usandoPadrao" (significa que o valor é customizado pelo usuário)
+            // 3. E não for igual ao valor padrão (para não salvar o padrão como original se o usuário digitou o padrão)
+            const currentValNum = unformatCurrency($campo.val());
+            const valorPadraoNum = unformatCurrency($campo.data('valor-padrao')); // Lê do data attribute
+
+            if (currentValNum > 0 && $campo.data('usandoPadrao') === 'false' && currentValNum !== valorPadraoNum) {
+                 $campo.data('valorOriginal', currentValNum); // Armazena o valor customizado pelo usuário
+            }
+            
+            $campo.prop('disabled', true); // Desabilita o campo
+            $campo.val(formatCurrency(0)); // Zera o valor visivelmente
+            $campo.data('usandoPadrao', 'false'); // Não está usando padrão
+        }
+        atualizarEstadoVarinha($campo); // Atualiza o botão da varinha
+        calcularTotaisOrcamento(); // Recalcula totais
+    }
+
+    // Inicialização dos campos de taxa/frete e seus eventos
+    campoIdsTaxasFretes.forEach(function(campoId) {
+        const $campo = $('#' + campoId);
+        // Encontra o checkbox associado usando o data-target-input
+        const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + campoId + '"]'); 
+
+        if ($campo.length) {
+            // Valor inicial do campo conforme veio do PHP (do banco de dados)
+            const initialValFromHTML = unformatCurrency($campo.val());
+            // Valor padrão do campo conforme vem do HTML
+            const initialValorPadraoHTML = unformatCurrency($campo.data('valor-padrao'));
+
+            // Armazena o valor inicial (do banco) como o valor original para referência futura.
+            $campo.data('valorOriginal', initialValFromHTML); 
+            // Aqui, o 'valorPadrao' para referência será o do HTML
+            // Note: Não precisamos mais de um camposConfig separado para o valorPadrao
+            // $campo.data('valorPadrao', initialValorPadraoHTML); // Removido, pois data('valor-padrao') já existe
+
+            // Aplica formatação inicial ao valor que veio do HTML
+            $campo.val(formatCurrency(initialValFromHTML));
+
+            // Listener para digitação manual no campo
+            $campo.off('input').on('input', function() {
+                $campo.data('usandoPadrao', 'false'); // Usuário digitou, não está mais no modo padrão
+                atualizarEstadoVarinha($campo); // Atualiza o visual do botão
+            }).off('blur').on('blur', function() {
+                // Re-formatar ao sair do campo e recalcular totais
+                $campo.val(formatCurrency(unformatCurrency($campo.val())));
+                calcularTotaisOrcamento(); 
+            });
+        }
+
+        // Event listener para o botão "Usar Padrão"
+        const $button = getAssociatedButton($campo);
+        if ($button.length) {
+            $button.off('click').on('click', function() {
+                const targetInputId = $(this).data('target-input');
+                const $targetCampo = $('#' + targetInputId);
+                const targetCheckboxId = $(this).data('target-checkbox');
+                const $targetCheckbox = $('#' + targetCheckboxId);
+                // Se o campo estiver desabilitado, primeiro marca o checkbox e simula o 'change'
+                if ($targetCampo.prop('disabled')) {
+                    $targetCheckbox.prop('checked', true);
+                    $targetCheckbox.trigger('change'); // Isso vai habilitar o campo e setar o valor
+                } else {
+                    // Se o campo já estiver habilitado, apenas alterna o valor
+                    alternarValor($targetCampo); // Passa apenas o campo, pois o valorPadrao é lido do data-attribute
+                }
+            });
+        }
+
+        // Event listener para o checkbox
+        if ($checkbox.length) {
+            $checkbox.off('change').on('change', function() {
+                toggleCampo($campo, $checkbox); // Passa apenas o campo e checkbox
+            });
+            // Sincroniza o estado inicial do campo e checkbox ao carregar a página
+            // Isso garantirá que disabled/enabled e o valor inicial estejam corretos
+            toggleCampo($campo, $checkbox);
+        }
+        
+        // Garante que o estado da varinha é atualizado após todas as inicializações
+        atualizarEstadoVarinha($campo);
+    });
+
+    // === Lógica SIMPLES para Ajuste Manual do Valor Final ===
+    $('#ajuste_manual_valor_final').on('change', function() {
+        const $motivoAjusteCampo = $('#campo_motivo_ajuste');
+        const $descontoGeralCheckbox = $('#aplicar_desconto_geral');
+        const $descontoGeralInput = $('#desconto_total');
+
+        if ($(this).is(':checked')) {
+            // Quando marca "Ajustar Valor Final Manualmente":
+            // 1. Mostra o campo "Motivo do Ajuste Manual"
+            $motivoAjusteCampo.show();
+            
+            // 2. Automaticamente marca o checkbox "Desconto Geral"
+            $descontoGeralCheckbox.prop('checked', true);
+            
+            // 3. Automaticamente habilita o campo "Desconto Geral"
+            $descontoGeralInput.prop('disabled', false);
+            
+            // 4. Se o campo de desconto estiver vazio, coloca 0,00
+            if (unformatCurrency($descontoGeralInput.val()) === 0) {
+                $descontoGeralInput.val(formatCurrency(0));
+            }
+            
+            // 5. Coloca foco no campo de desconto para o usuário digitar
+            $descontoGeralInput.focus();
+            
+        } else {
+            // Quando desmarca "Ajustar Valor Final Manualmente":
+            // 1. Esconde o campo "Motivo do Ajuste Manual"
+            $motivoAjusteCampo.hide();
+            
+            // 2. Desmarca o checkbox "Desconto Geral"
+            $descontoGeralCheckbox.prop('checked', false);
+            
+            // 3. Desabilita o campo "Desconto Geral" e zera
+            $descontoGeralInput.prop('disabled', true);
+            $descontoGeralInput.val(formatCurrency(0));
+        }
+        // Recalcula os totais sempre
+        calcularTotaisOrcamento();
+    }).trigger('change'); // Dispara no carregamento para configurar o estado inicial
+
+    // === Lógica Específica para Desconto Geral ===
+    // O desconto geral não tem "varinha mágica", então é tratado de forma mais simples.
+    
+    // Listener para o checkbox de desconto geral
+    $('#aplicar_desconto_geral').off('change').on('change', function() {
+        const $descontoInput = $('#desconto_total');
+        if ($(this).is(':checked')) {
+            $descontoInput.prop('disabled', false);
+            // Se o campo está vazio, define um valor inicial de 0.00
+            if (unformatCurrency($descontoInput.val()) === 0) {
+                 $descontoInput.val(formatCurrency(0)); 
+            }
+            $descontoInput.focus();
+        } else {
+            $descontoInput.prop('disabled', true);
+            $descontoInput.val(formatCurrency(0)); // Zera o valor ao desabilitar
+        }
+        calcularTotaisOrcamento(); // Recalcula os totais
+    });
+
+    // Listener para formatação e cálculo ao sair do campo de desconto
+    $('#desconto_total').off('blur').on('blur', function() {
+        $(this).val(formatCurrency(unformatCurrency($(this).val())));
+        calcularTotaisOrcamento();
+    }).off('input').on('input', function() {
+        // Recalcula em tempo real enquanto digita
+        calcularTotaisOrcamento();
+    });
+
+    // Sincroniza o estado inicial do desconto geral ao carregar a página
+    // O valor do input já vem do banco via PHP, então apenas habilita/desabilita
+    const $descontoInput = $('#desconto_total');
+    if ($('#aplicar_desconto_geral').is(':checked')) {
+        $descontoInput.prop('disabled', false);
+    } else {
+        $descontoInput.prop('disabled', true);
+        $descontoInput.val(formatCurrency(0)); // Se não está aplicado, zera visualmente
+    }
+    // Formata o valor inicial do desconto
+    $descontoInput.val(formatCurrency(unformatCurrency($descontoInput.val())));
+    // FIM DA Lógica Específica para Desconto Geral
+
+    // Listener para mudanças nos itens da tabela que afetam o cálculo
+    $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item', calcularTotaisOrcamento);
+
+    // CONTINUAÇÃO DO SEU CÓDIGO JAVASCRIPT EXISTENTE...
+    if (typeof $.fn.select2 === 'function') { $('#cliente_id').select2({ theme: 'bootstrap4', language: 'pt-BR', placeholder: 'Digite para buscar...', allowClear: true, minimumInputLength: 0, ajax: { url: `${BASE_URL}/orcamentos/edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`, dataType: 'json', delay: 250, data: function (params) { return { termo: params.term || '' }; }, processResults: function (data) { return { results: $.map(data, function (cliente) { return { id: cliente.id, text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), clienteData: cliente }; }) }; }, cache: true } }).on('select2:select', function (e) { dadosClienteAtual = e.params.data.clienteData; $(this).find('option:selected').attr('data-cliente-full-data', JSON.stringify(dadosClienteAtual)); }); }
     if (typeof $.fn.datepicker === 'function') { $('.datepicker').datepicker({ format: 'dd/mm/yyyy', language: 'pt-BR', autoclose: true, todayHighlight: true, orientation: "bottom auto" }); }
     function calcularDataValidade() { var dataOrcamentoStr = $('#data_orcamento').val(); var validadeDias = parseInt($('#validade_dias').val()); if (dataOrcamentoStr && validadeDias > 0) { var partesData = dataOrcamentoStr.split('/'); if (partesData.length === 3) { var dataOrcamento = new Date(partesData[2], partesData[1] - 1, partesData[0]); if (!isNaN(dataOrcamento.valueOf())) { dataOrcamento.setDate(dataOrcamento.getDate() + validadeDias); var dia = String(dataOrcamento.getDate()).padStart(2, '0'); var mes = String(dataOrcamento.getMonth() + 1).padStart(2, '0'); var ano = dataOrcamento.getFullYear(); $('#data_validade_display').text('Validade: ' + dia + '/' + mes + '/' + ano); $('#data_validade_calculada_hidden').val(ano + '-' + mes + '-' + dia); } } } else { $('#data_validade_display').text(''); $('#data_validade_calculada_hidden').val(''); } }
     $('#validade_dias').on('change keyup blur', calcularDataValidade);
@@ -1310,33 +1568,8 @@ $(document).ready(function() {
     $('#formEditarOrcamento').on('keydown', function(e) { if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) { e.preventDefault(); } });
     function atualizarOrdemDosItens() { $('#tabela_itens_orcamento tbody tr').each(function(index) { $(this).attr('data-index', index + 1); $(this).find('input[name="ordem[]"]').val(index + 1); }); }
     $('#tabela_itens_orcamento tbody').sortable({ handle: '.drag-handle', placeholder: 'sortable-placeholder', helper: function(e, ui) { ui.children().each(function() { $(this).width($(this).width()); }); return ui; }, stop: function(event, ui) { atualizarOrdemDosItens(); } }).disableSelection();
-    // AÇÃO PARA O BOTÃO 'USAR PADRÃO' (VARINHA MÁGICA)
-$('#formEditarOrcamento').on('click', '.btn-usar-padrao', function(e) {
-    e.preventDefault(); // Previne qualquer comportamento padrão do botão
     
-    var targetInputId = $(this).data('target-input');
-    var $targetInput = $('#' + targetInputId);
-    var valorPadrao = parseFloat($targetInput.data('valor-padrao'));
-    var targetCheckboxId = $(this).data('target-checkbox');
-    var $targetCheckbox = $('#' + targetCheckboxId);
-
-    // Marca o checkbox correspondente
-    $targetCheckbox.prop('checked', true);
-    
-    // Habilita o campo de input, caso esteja desabilitado
-    $targetInput.prop('disabled', false);
-    
-    // Define o valor padrão no campo e força a máscara a reformatar
-    $targetInput.val(valorPadrao.toFixed(2)).trigger('input'); 
-    
-    // Recalcula todos os totais do orçamento
-    calcularTotaisOrcamento();
-});
-    $('head').append('<style>.sortable-placeholder { height: 50px; background-color: #f0f8ff; border: 2px dashed #cce5ff; }</style>');
-    $('#ajuste_manual_valor_final, #aplicar_desconto_geral').on('change', function() { const isChecked = $(this).is(':checked'); $('#ajuste_manual_valor_final, #aplicar_desconto_geral').prop('checked', isChecked); const $campoDesconto = $('#desconto_total'); const $divMotivo = $('#campo_motivo_ajuste'); const $inputMotivo = $('#motivo_ajuste'); if (isChecked) { $campoDesconto.prop('disabled', false).focus(); $divMotivo.slideDown(); $inputMotivo.prop('disabled', false); } else { $campoDesconto.prop('disabled', true).val(''); $divMotivo.slideUp(); $inputMotivo.prop('disabled', true).val(''); } calcularTotaisOrcamento(); });
-    calcularDataValidade();
-    $('.taxa-frete-input').each(function() { if (unformatCurrency($(this).val()) === 0) { $(this).val(''); } });
-    $('#ajuste_manual_valor_final').trigger('change');
+    // Garante que o cálculo inicial seja feito ao carregar a página
     calcularTotaisOrcamento();
 });
 JS;
