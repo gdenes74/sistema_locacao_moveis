@@ -344,51 +344,67 @@ include_once __DIR__ . '/../includes/header.php';
                                                 <span class="<?php echo $status_classe; ?>"><?php echo htmlspecialchars($status_texto); ?></span>
                                             </td>
                                             <td>
-                                                <div class="btn-group">
-                                                    <a href="<?php echo BASE_URL; ?>/views/orcamentos/show.php?id=<?php echo $orc['id']; ?>" 
-                                                       class="btn btn-xs btn-info" title="Visualizar Detalhes">
-                                                        <i class="fas fa-eye"></i>
-                                                    </a>
-                                                    <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
-                                                       class="btn btn-xs btn-primary" title="Editar Orçamento">
-                                                        <i class="fas fa-edit"></i>
-                                                    </a>
-                                                    <a href="<?php echo BASE_URL; ?>/views/orcamentos/print.php?id=<?php echo $orc['id']; ?>" 
-                                                        class="btn btn-xs btn-secondary" title="Imprimir Orçamento">
-                                                        <i class="fas fa-print"></i>
-                                                    </a>
-                                                    
-                                                    <?php if (strtolower($orc['status'] ?? '') === 'aprovado'): ?>
-                                                        <a href="<?php echo BASE_URL; ?>/views/pedidos/create_from_orcamento.php?orcamento_id=<?php echo $orc['id']; ?>" 
-                                                           class="btn btn-xs btn-success" title="Converter para Pedido" 
-                                                           onclick="return confirm('Tem certeza que deseja converter este orçamento em um pedido?');">
-                                                            <i class="fas fa-file-invoice-dollar"></i>
-                                                        </a>
-                                                    <?php endif; ?>
-                                                    
-                                                    <button type="button" class="btn btn-xs btn-danger" title="Excluir Orçamento"
-                                                            onclick="confirmDelete(<?php echo $orc['id']; ?>, '<?php echo htmlspecialchars(addslashes($orc['codigo'] ?? $orc['numero'] ?? $orc['id'])); ?>')">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                    
-                                                    <button type="button" class="btn btn-xs btn-default" title="Mais Detalhes"
-                                                            data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
-                                                            data-content="
-                                                            <strong>Local:</strong> <?php echo htmlspecialchars($orc['local_evento'] ?? '-'); ?><br>
-                                                            <strong>Hora Evento:</strong> <?php echo $orc['hora_evento'] ? substr($orc['hora_evento'], 0, 5) : '-'; ?><br>
-                                                            <strong>Devolução:</strong> <?php echo $orc['data_devolucao_prevista'] ? formatar_data_br($orc['data_devolucao_prevista']) : '-'; ?><br>
-                                                            <strong>Subtotal Locação:</strong> <?php echo formatar_moeda_br($orc['subtotal_locacao']); ?><br>
-                                                            <strong>Subtotal Venda:</strong> <?php echo formatar_moeda_br($orc['subtotal_venda']); ?><br>
-                                                            <strong>Desconto:</strong> <?php echo formatar_moeda_br($orc['desconto']); ?><br>
-                                                            <strong>Taxas:</strong> <?php echo formatar_moeda_br(($orc['taxa_domingo_feriado'] ?? 0) + ($orc['taxa_madrugada'] ?? 0) + ($orc['taxa_horario_especial'] ?? 0) + ($orc['taxa_hora_marcada'] ?? 0)); ?><br>
-                                                            <strong>Frete Térreo:</strong> <?php echo formatar_moeda_br($orc['frete_terreo']); ?><br>
-                                                            <strong>Frete Elevador:</strong> <?php echo htmlspecialchars($orc['frete_elevador'] ?? 'confirmar'); ?><br>
-                                                            <strong>Frete Escadas:</strong> <?php echo htmlspecialchars($orc['frete_escadas'] ?? 'confirmar'); ?><br>
-                                                            ">
-                                                        <i class="fas fa-info-circle"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
+    <div class="btn-group">
+        <a href="<?php echo BASE_URL; ?>/views/orcamentos/show.php?id=<?php echo $orc['id']; ?>" 
+           class="btn btn-xs btn-info" title="Visualizar Detalhes">
+            <i class="fas fa-eye"></i>
+        </a>
+        <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
+           class="btn btn-xs btn-primary" title="Editar Orçamento">
+            <i class="fas fa-edit"></i>
+        </a>
+       <button type="button" class="btn btn-xs btn-secondary btn-imprimir-orcamento" 
+        data-id="<?= $orc['id'] ?>" 
+        data-numero="<?= htmlspecialchars($orc['numero']) ?>"
+        title="Imprimir Orçamento">
+    <i class="fas fa-print"></i>
+</button>
+        
+        <?php if (strtolower($orc['status'] ?? '') === 'aprovado'): ?>
+            <?php
+            // Verifica se já existe pedido para este orçamento
+            $stmt_check = $conn->prepare("SELECT id, numero FROM pedidos WHERE orcamento_id = ?");
+            $stmt_check->execute([$orc['id']]);
+            $pedido_existente = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            ?>
+            
+            <?php if ($pedido_existente): ?>
+                <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $pedido_existente['id']; ?>" 
+                   class="btn btn-xs btn-success" title="Ver Pedido #<?php echo $pedido_existente['numero']; ?>">
+                    <i class="fas fa-check-circle"></i>
+                </a>
+            <?php else: ?>
+                <button type="button" class="btn btn-xs btn-success btnGerarPedido" 
+                        title="Converter para Pedido" data-orcamento-id="<?php echo $orc['id']; ?>"
+                        data-orcamento-numero="<?php echo htmlspecialchars($orc['numero']); ?>">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                </button>
+            <?php endif; ?>
+        <?php endif; ?>
+        
+        <button type="button" class="btn btn-xs btn-danger" title="Excluir Orçamento"
+                onclick="confirmDelete(<?php echo $orc['id']; ?>, '<?php echo htmlspecialchars(addslashes($orc['codigo'] ?? $orc['numero'] ?? $orc['id'])); ?>')">
+            <i class="fas fa-trash"></i>
+        </button>
+        
+        <button type="button" class="btn btn-xs btn-default" title="Mais Detalhes"
+                data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
+                data-content="
+                <strong>Local:</strong> <?php echo htmlspecialchars($orc['local_evento'] ?? '-'); ?><br>
+                <strong>Hora Evento:</strong> <?php echo $orc['hora_evento'] ? substr($orc['hora_evento'], 0, 5) : '-'; ?><br>
+                <strong>Devolução:</strong> <?php echo $orc['data_devolucao_prevista'] ? formatar_data_br($orc['data_devolucao_prevista']) : '-'; ?><br>
+                <strong>Subtotal Locação:</strong> <?php echo formatar_moeda_br($orc['subtotal_locacao']); ?><br>
+                <strong>Subtotal Venda:</strong> <?php echo formatar_moeda_br($orc['subtotal_venda']); ?><br>
+                <strong>Desconto:</strong> <?php echo formatar_moeda_br($orc['desconto']); ?><br>
+                <strong>Taxas:</strong> <?php echo formatar_moeda_br(($orc['taxa_domingo_feriado'] ?? 0) + ($orc['taxa_madrugada'] ?? 0) + ($orc['taxa_horario_especial'] ?? 0) + ($orc['taxa_hora_marcada'] ?? 0)); ?><br>
+                <strong>Frete Térreo:</strong> <?php echo formatar_moeda_br($orc['frete_terreo']); ?><br>
+                <strong>Frete Elevador:</strong> <?php echo htmlspecialchars($orc['frete_elevador'] ?? 'confirmar'); ?><br>
+                <strong>Frete Escadas:</strong> <?php echo htmlspecialchars($orc['frete_escadas'] ?? 'confirmar'); ?><br>
+                ">
+            <i class="fas fa-info-circle"></i>
+        </button>
+    </div>
+</td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
@@ -579,6 +595,108 @@ $(function () {
         }
     });
 });
+// === LÓGICA CONVERSÃO ORÇAMENTO → PEDIDO ===
+$(document).on('click', '.btnGerarPedido', function() {
+    const $btn = $(this);
+    const orcamentoId = $btn.data('orcamento-id');
+    const orcamentoNumero = $btn.data('orcamento-numero');
+    
+    Swal.fire({
+        title: 'Gerar Pedido',
+        text: `Deseja converter o orçamento #${orcamentoNumero} em um pedido confirmado?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, Gerar Pedido',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#28a745',
+        cancelButtonColor: '#6c757d'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+            
+            $.ajax({
+                url: 'converter_pedido.php',
+                type: 'POST',
+                dataType: 'json',
+                data: { orcamento_id: orcamentoId },
+                success: function(response) {
+                    if (response.success) {
+                        Swal.fire({
+                            title: 'Sucesso!',
+                            text: `Pedido #${response.pedido_numero} gerado com sucesso!`,
+                            icon: 'success',
+                            confirmButtonText: 'Ver Pedido',
+                            showCancelButton: true,
+                            cancelButtonText: 'Continuar Aqui'
+                        }).then((result) => {
+                            if (result.isConfirmed) {
+                                window.location.href = `../pedidos/show.php?id=${response.pedido_id}`;
+                            } else {
+                                window.location.reload();
+                            }
+                        });
+                    } else {
+                        Swal.fire('Erro', response.message, 'error');
+                        $btn.prop('disabled', false).html('<i class="fas fa-file-invoice-dollar"></i>');
+                    }
+                },
+                error: function() {
+                    Swal.fire('Erro', 'Erro de comunicação com o servidor', 'error');
+                    $btn.prop('disabled', false).html('<i class="fas fa-file-invoice-dollar"></i>');
+                }
+            });
+        }
+    });
+});
+// === LÓGICA DE IMPRESSÃO COM OPÇÃO ===
+$(document).on('click', '.btn-imprimir-orcamento', function() {
+    const orcamentoId = $(this).data('id');
+    const orcamentoNumero = $(this).data('numero');
+    
+    Swal.fire({
+        title: `Imprimir Orçamento #${orcamentoNumero}`,
+        text: 'Escolha o tipo de impressão:',
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: '<i class="fas fa-user"></i> Para Cliente',
+        denyButtonText: '<i class="fas fa-tools"></i> Para Produção',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#007bff',
+        denyButtonColor: '#ffc107',
+        cancelButtonColor: '#6c757d'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Impressão para cliente
+            imprimirOrcamento(orcamentoId, 'cliente');
+        } else if (result.isDenied) {
+            // Impressão para produção
+            imprimirOrcamento(orcamentoId, 'producao');
+        }
+    });
+});
+
+// Função para imprimir orçamento
+function imprimirOrcamento(id, tipo) {
+    // Abre uma nova janela com o orçamento
+    const url = `show.php?id=${id}&print=${tipo}`;
+    const printWindow = window.open(url, '_blank', 'width=800,height=600,scrollbars=yes');
+    
+    // Aguarda carregar e imprime
+    printWindow.onload = function() {
+        setTimeout(function() {
+            if (tipo === 'cliente') {
+                printWindow.imprimirCliente();
+            } else {
+                printWindow.imprimirProducao();
+            }
+            // Fecha a janela após imprimir
+            setTimeout(function() {
+                printWindow.close();
+            }, 2000);
+        }, 1000);
+    };
+}
 </script>
 
 <?php

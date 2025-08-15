@@ -121,13 +121,12 @@ $itens = $orcamentoModel->getItens($id);
                         class="btn btn-warning btn-sm">
                         <i class="fas fa-edit"></i> Editar
                     </a>
-                    <a href="../pedidos/create.php?orcamento_id=<?= htmlspecialchars($orcamentoModel->id ?? '') ?>"
-                        class="btn btn-success btn-sm">
-                        <i class="fas fa-check-circle"></i> Converter p/ Pedido
-                    </a>
-                    <button onclick="imprimirCliente();" class="btn btn-primary btn-sm">
-                        <i class="fas fa-print"></i> Imprimir p/ Cliente
-                    </button>
+                    <button type="button" class="btn btn-success btn-sm" id="btnGerarPedidoShow">
+    <i class="fas fa-check-circle"></i> Converter p/ Pedido
+</button>
+<button onclick="imprimirCliente();" class="btn btn-primary btn-sm">
+    <i class="fas fa-print"></i> Imprimir p/ Cliente
+</button>
                     <button onclick="imprimirProducao();" class="btn btn-warning btn-sm">
                         <i class="fas fa-tools"></i> Imprimir p/ Produção
                     </button>
@@ -651,7 +650,7 @@ $itens = $orcamentoModel->getItens($id);
         .no-print,
         .main-sidebar,
         .content-header .btn,
-        .alert {
+     orcamento   .alert {
             display: none !important;
         }
 
@@ -775,6 +774,37 @@ $itens = $orcamentoModel->getItens($id);
         console.log('Função imprimirCliente:', typeof imprimirCliente);
         console.log('Função imprimirProducao:', typeof imprimirProducao);
     });
+    $('#btnGerarPedidoShow').on('click', function() {
+    const orcamentoId = <?= $orcamentoModel->id ?>;
+    const orcamentoNumero = '<?= htmlspecialchars($orcamentoModel->numero) ?>';
+    
+    Swal.fire({
+        title: 'Gerar Pedido',
+        text: `Deseja converter o orçamento #${orcamentoNumero} em um pedido confirmado?`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sim, Gerar Pedido',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.ajax({
+                url: 'converter_pedido.php',
+                type: 'POST',
+                data: { orcamento_id: orcamentoId },
+                success: function(response) {
+                    const data = JSON.parse(response);
+                    if (data.success) {
+                        Swal.fire('Sucesso!', data.message, 'success').then(() => {
+                            window.location.href = `../pedidos/show.php?id=${data.pedido_id}`;
+                        });
+                    } else {
+                        Swal.fire('Erro', data.message, 'error');
+                    }
+                }
+            });
+        }
+    });
+});
 </script>
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
