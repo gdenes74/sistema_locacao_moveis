@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Funções Auxiliares ---
+// --- Funções Auxiliares (mantidas e reajustadas para o uso correto) ---
 if (!function_exists('formatarDataDiaSemana')) {
     function formatarDataDiaSemana($dataModel)
     {
@@ -20,6 +20,7 @@ if (!function_exists('formatarDataDiaSemana')) {
             if ($timestamp === false)
                 return '-';
             $dias = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+            // Retorna DD.MM.YY DIA_DA_SEMANA
             return date('d.m.y', $timestamp) . ' ' . $dias[date('w', $timestamp)];
         } catch (Exception $e) {
             return '-';
@@ -30,15 +31,21 @@ if (!function_exists('formatarDataDiaSemana')) {
 if (!function_exists('formatarTurnoHora')) {
     function formatarTurnoHora($turno, $hora)
     {
-        $retorno = htmlspecialchars(trim($turno ?? ''));
+        $retorno = htmlspecialchars(trim($turno ?? '')); // Começa com o turno
+        
+        // Se a hora não for vazia e não for "00:00:00", adiciona a hora formatada
         if (!empty($hora) && $hora !== '00:00:00') {
             try {
                 $horaFormatada = date('H\H', strtotime($hora));
+                // Adiciona "APROX. HH\H"
                 $retorno .= ($retorno ? ' APROX. ' : 'APROX. ') . htmlspecialchars($horaFormatada);
             } catch (Exception $e) {
-                // não faz nada se a hora for inválida
+                // Se a hora for inválida, apenas ignora
             }
         }
+        
+        // Se o turno for o padrão, o PDF de referência apenas mostra o turno sem a data.
+        // Se o retorno ainda estiver vazio, indica que não havia informações úteis.
         return trim($retorno) ?: '-';
     }
 }
@@ -97,12 +104,58 @@ if (!$orcamentoModel->getById($id)) {
     exit;
 }
 
+// *** VERIFICAÇÃO SINCRONIZADA COM EDIT.PHP - CORRIGIDA E REFORÇADA ***
+// Verificar se o orçamento já foi convertido em pedido (mesma lógica do edit.php)
+$stmt = $conn->prepare("SELECT COUNT(*) FROM pedidos WHERE orcamento_id = ?");
+$stmt->execute([$id]);
+$ja_convertido = $stmt->fetchColumn() > 0;
+
+// Buscar dados do pedido se existir
+$pedidoId = null;
+$pedidoNumero = null;
+if ($ja_convertido) {
+    $stmt_pedido = $conn->prepare("SELECT id, numero FROM pedidos WHERE orcamento_id = ? LIMIT 1");
+    $stmt_pedido->execute([$id]);
+    $pedido_dados = $stmt_pedido->fetch(PDO::FETCH_ASSOC);
+    if ($pedido_dados) {
+        $pedidoId = $pedido_dados['id'];
+        $pedidoNumero = $pedido_dados['numero'];
+    }
+    
+    // CORREÇÃO ESSENCIAL: Sincronizar status no banco se necessário - FORÇAR ATUALIZAÇÃO
+    // Isso garante que o objeto $orcamentoModel em memória e o banco de dados estejam consistentes.
+    if ($orcamentoModel->status !== 'convertido') {
+        try {
+            // Updated_at é importante para que o ORM/Framework ou a lista leiam a nova data de modificação
+            $stmt_update_status = $conn->prepare("UPDATE orcamentos SET status = 'convertido', updated_at = NOW() WHERE id = ?");
+            $stmt_update_status->execute([$id]);
+            
+            if ($stmt_update_status->rowCount() > 0) {
+                $orcamentoModel->status = 'convertido'; // Atualizar objeto em memória
+                error_log("Status do orçamento $id foi corrigido para 'convertido' no show.php (exibição).");
+            } else {
+                error_log("AVISO: Não foi possível atualizar status do orçamento $id para 'convertido' (sem linhas afetadas).");
+            }
+        } catch (PDOException $e) {
+            error_log("Erro ao sincronizar status do orçamento convertido no show.php: " . $e->getMessage());
+        }
+    }
+}
+
+// Verificar status que permitem conversão (mesma lógica do converter_pedido.php)
+$statusPermiteConversao = !in_array($orcamentoModel->status, ['convertido', 'recusado', 'expirado', 'cancelado']);
+$orcamento_finalizado_ou_irreversivel = in_array($orcamentoModel->status, ['convertido', 'finalizado', 'recusado', 'expirado', 'cancelado']);
+// *** FIM DA VERIFICAÇÃO ***
+
 // Preencher dados do cliente
 if (!empty($orcamentoModel->cliente_id)) {
     $clienteModel->getById($orcamentoModel->cliente_id);
 }
 
 $itens = $orcamentoModel->getItens($id);
+
+// Define a variável JavaScript para uso no footer
+$inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE_URL . "';";
 ?>
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
@@ -117,16 +170,42 @@ $itens = $orcamentoModel->getItens($id);
                     <a href="index.php" class="btn btn-secondary btn-sm">
                         <i class="fas fa-arrow-left"></i> Voltar
                     </a>
-                    <a href="edit.php?id=<?= htmlspecialchars($orcamentoModel->id ?? '') ?>"
-                        class="btn btn-warning btn-sm">
-                        <i class="fas fa-edit"></i> Editar
-                    </a>
-                    <button type="button" class="btn btn-success btn-sm" id="btnGerarPedidoShow">
-    <i class="fas fa-check-circle"></i> Converter p/ Pedido
-</button>
-<button onclick="imprimirCliente();" class="btn btn-primary btn-sm">
-    <i class="fas fa-print"></i> Imprimir p/ Cliente
-</button>
+                    
+                    <?php if ($ja_convertido): ?>
+                        <!-- Orçamento já convertido - mostrar link para o pedido -->
+                        <a href="../pedidos/show.php?id=<?= $pedidoId ?>" class="btn btn-info btn-sm">
+                            <i class="fas fa-eye"></i> Ver Pedido #<?= $pedidoNumero ?>
+                        </a>
+                        <span class="badge badge-success ml-1">
+                            <i class="fas fa-check-circle"></i> CONVERTIDO
+                        </span>
+                    <?php elseif ($orcamento_finalizado_ou_irreversivel): ?>
+                        <!-- Status final - apenas mostrar badge -->
+                        <span class="badge badge-<?= 
+                            $orcamentoModel->status === 'recusado' ? 'danger' : 
+                            ($orcamentoModel->status === 'expirado' ? 'warning' : 'secondary') 
+                        ?> ml-1">
+                            <i class="fas fa-<?= 
+                                $orcamentoModel->status === 'recusado' ? 'times-circle' : 
+                                ($orcamentoModel->status === 'expirado' ? 'clock' : 'info-circle') 
+                            ?>"></i> <?= strtoupper($orcamentoModel->status) ?>
+                        </span>
+                    <?php else: ?>
+                        <!-- Status permite edição e conversão -->
+                        <a href="edit.php?id=<?= htmlspecialchars($orcamentoModel->id ?? '') ?>" class="btn btn-warning btn-sm">
+                            <i class="fas fa-edit"></i> Editar
+                        </a>
+                        <button type="button" class="btn btn-success btn-sm" id="btnGerarPedidoShow"
+                                data-orcamento-id="<?= $id ?>"
+                                data-orcamento-numero="<?= htmlspecialchars($orcamentoModel->numero) ?>">
+                            <i class="fas fa-check-circle"></i> Converter p/ Pedido
+                        </button>
+                    <?php endif; ?>
+                    
+                    <!-- Botões de impressão sempre disponíveis -->
+                    <button onclick="imprimirCliente();" class="btn btn-primary btn-sm">
+                        <i class="fas fa-print"></i> Imprimir p/ Cliente
+                    </button>
                     <button onclick="imprimirProducao();" class="btn btn-warning btn-sm">
                         <i class="fas fa-tools"></i> Imprimir p/ Produção
                     </button>
@@ -187,40 +266,101 @@ $itens = $orcamentoModel->getItens($id);
                                 <br><small><strong>Válido até:</strong>
                                     <?= date('d/m/Y', strtotime($orcamentoModel->data_validade)) ?></small>
                             <?php endif; ?>
+                            
+                            <!-- NOVO: Indicador de status -->
+                            <?php if ($ja_convertido): ?>
+                                <br><span class="badge badge-success mt-1">
+                                    <i class="fas fa-check-circle"></i> CONVERTIDO EM PEDIDO
+                                </span>
+                            <?php elseif ($orcamentoModel->status === 'recusado'): ?>
+                                <br><span class="badge badge-danger mt-1">
+                                    <i class="fas fa-times-circle"></i> RECUSADO
+                                </span>
+                            <?php elseif ($orcamentoModel->status === 'expirado'): ?>
+                                <br><span class="badge badge-warning mt-1">
+                                    <i class="fas fa-clock"></i> EXPIRADO
+                                </span>
+                            <?php elseif ($orcamentoModel->status === 'aprovado'): ?>
+                                <br><span class="badge badge-info mt-1">
+                                    <i class="fas fa-thumbs-up"></i> APROVADO
+                                </span>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <hr>
 
-                    <!-- INFORMAÇÕES DO CLIENTE E EVENTO -->
+                    <!-- INFORMAÇÕES DO CLIENTE E EVENTO (REORGANIZADO CONFORME SEU PDF) -->
                     <div class="row mb-3">
-                        <div class="col-8">
-                            <strong>Cliente:</strong>
-                            <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?><br>
-                            <?php if (!empty($clienteModel->telefone)): ?>
-                                <strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?><br>
-                            <?php endif; ?>
-                            <?php if (!empty($clienteModel->cpf_cnpj)): ?>
-                                <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?><br>
-                            <?php endif; ?>
-                            <strong>Data do evento:</strong>
-                            <?= formatarDataDiaSemana($orcamentoModel->data_evento ?? null) ?><br>
-                            <strong>Local de Entrega:</strong>
-                            <?= htmlspecialchars($orcamentoModel->local_evento ?: '-') ?>
-                        </div>
-                        <div class="col-4 text-right">
-                            <!-- Espaço reservado para informações adicionais se necessário -->
-                        </div>
-                    </div>
-
-                    <!-- DATAS DE LOGÍSTICA -->
-                    <div class="row mb-2">
-                        <div class="col-12">
-                            <strong>Data da Entrega:</strong>
-                            <?= formatarTurnoHora($orcamentoModel->turno_entrega ?? null, $orcamentoModel->hora_evento ?? null) ?><br>
-                            <strong>Data da Coleta:</strong>
-                            <?= formatarTurnoHora($orcamentoModel->turno_devolucao ?? null, $orcamentoModel->hora_devolucao ?? null) ?>
-                        </div>
-                    </div>
+    <div class="col-8">
+        <strong>Cliente:</strong>
+        <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?><br>
+        <?php if (!empty($clienteModel->telefone)): ?>
+            <strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?><br>
+        <?php endif; ?>
+        <?php if (!empty($clienteModel->cpf_cnpj)): ?>
+            <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?><br>
+        <?php endif; ?>
+        
+        <!-- Data do Evento: DD.MM.YY DIA_DA_SEMANA + Hora se existir -->
+<strong>Data do evento:</strong>
+<?php 
+$dataEventoCompleta = '';
+if (!empty($orcamentoModel->data_evento)) {
+    $dataEventoCompleta = formatarDataDiaSemana($orcamentoModel->data_evento);
+    // Adicionar hora do evento se existir
+    if (!empty($orcamentoModel->hora_evento) && $orcamentoModel->hora_evento !== '00:00:00') {
+        try {
+            $horaEventoFormatada = date('H\H', strtotime($orcamentoModel->hora_evento));
+            $dataEventoCompleta .= ' às ' . $horaEventoFormatada;
+        } catch (Exception $e) {
+            // Ignora erro de hora
+        }
+    }
+} else {
+    $dataEventoCompleta = '-';
+}
+echo $dataEventoCompleta;
+?><br>
+        
+        <strong>Local de Entrega:</strong>
+        <?= htmlspecialchars($orcamentoModel->local_evento ?: '-') ?><br>
+        
+        <!-- Data da Entrega: DD.MM.YY DIA_DA_SEMANA + Turno/Hora -->
+        <strong>Data da Entrega:</strong>
+        <?php 
+        $dataEntregaCompleta = '';
+        if (!empty($orcamentoModel->data_entrega)) {
+            $dataEntregaCompleta = formatarDataDiaSemana($orcamentoModel->data_entrega);
+            $turnoHoraEntrega = formatarTurnoHora($orcamentoModel->turno_entrega ?? null, $orcamentoModel->hora_entrega ?? null);
+            if ($turnoHoraEntrega !== '-') {
+                $dataEntregaCompleta .= ' - ' . $turnoHoraEntrega;
+            }
+        } else {
+            $dataEntregaCompleta = '-';
+        }
+        echo $dataEntregaCompleta;
+        ?><br>
+        
+        <!-- Data da Coleta: DD.MM.YY DIA_DA_SEMANA + Turno/Hora -->
+        <strong>Data da Coleta:</strong>
+        <?php 
+        $dataColetaCompleta = '';
+        if (!empty($orcamentoModel->data_devolucao_prevista)) {
+            $dataColetaCompleta = formatarDataDiaSemana($orcamentoModel->data_devolucao_prevista);
+            $turnoHoraColeta = formatarTurnoHora($orcamentoModel->turno_devolucao ?? null, $orcamentoModel->hora_devolucao ?? null);
+            if ($turnoHoraColeta !== '-') {
+                $dataColetaCompleta .= ' - ' . $turnoHoraColeta;
+            }
+        } else {
+            $dataColetaCompleta = '-';
+        }
+        echo $dataColetaCompleta;
+        ?>
+    </div>
+    <div class="col-4 text-right">
+        <!-- Espaço reservado para informações adicionais se necessário -->
+    </div>
+</div>
 
                     <!-- OBSERVAÇÕES DE TAXAS -->
                     <div class="row mb-3 obs-taxas-regras">
@@ -484,7 +624,7 @@ $itens = $orcamentoModel->getItens($id);
                         </div>
                     <?php endif; ?>
 
-                    <?php if (!empty($orcamentoModel->motivo_ajuste) && !empty($orcamentoModel->desconto) && $orcamentoModel->desconto > 0): ?>
+                                        <?php if (!empty($orcamentoModel->motivo_ajuste) && !empty($orcamentoModel->desconto) && $orcamentoModel->desconto > 0): ?>
                         <div class="row mt-2">
                             <div class="col-12">
                                 <small><strong>Motivo do ajuste:</strong>
@@ -639,6 +779,27 @@ $itens = $orcamentoModel->getItens($id);
         color: #000;
     }
 
+    /* Estilos para badges */
+    .badge {
+        font-size: 0.8em;
+        margin-left: 5px;
+    }
+
+    .btn-group-actions {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+    }
+
+    /* Melhorar aparência do SweetAlert */
+    .swal2-html-container {
+        line-height: 1.5;
+    }
+
+    .swal2-html-container .text-left {
+        text-align: left !important;
+    }
+
     @media print {
         body {
             font-size: 10pt;
@@ -650,7 +811,7 @@ $itens = $orcamentoModel->getItens($id);
         .no-print,
         .main-sidebar,
         .content-header .btn,
-     orcamento   .alert {
+        .alert {
             display: none !important;
         }
 
@@ -718,93 +879,192 @@ $itens = $orcamentoModel->getItens($id);
 </style>
 
 <script>
-    function imprimirCliente() {
-        console.log('Função imprimirCliente chamada');
+// Funções de impressão
+function imprimirCliente() {
+    console.log('Função imprimirCliente chamada');
 
-        // Esconde as observações dos itens
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
+    // Esconde as observações dos itens
+    var observacoes = document.querySelectorAll('.observacao-item');
+    console.log('Observações encontradas:', observacoes.length);
 
-        observacoes.forEach(function (el) {
-            el.style.display = 'none';
-        });
+    observacoes.forEach(function (el) {
+        el.style.display = 'none';
+    });
 
-        // Adiciona classe para identificar impressão cliente
-        document.body.classList.add('impressao-cliente');
+    // Adiciona classe para identificar impressão cliente
+    document.body.classList.add('impressao-cliente');
 
-        // Imprime
-        window.print();
+    // Imprime
+    window.print();
 
-        // Restaura as observações após a impressão
-        setTimeout(function () {
-            observacoes.forEach(function (el) {
-                el.style.display = 'block';
-            });
-            document.body.classList.remove('impressao-cliente');
-            console.log('Observações restauradas');
-        }, 1000);
-    }
-
-    function imprimirProducao() {
-        console.log('Função imprimirProducao chamada');
-
-        // Mostra todas as observações
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
-
+    // Restaura as observações após a impressão
+    setTimeout(function () {
         observacoes.forEach(function (el) {
             el.style.display = 'block';
         });
+        document.body.classList.remove('impressao-cliente');
+        console.log('Observações restauradas');
+    }, 1000);
+}
 
-        // Adiciona classe para identificar impressão produção
-        document.body.classList.add('impressao-producao');
+function imprimirProducao() {
+    console.log('Função imprimirProducao chamada');
 
-        // Imprime
-        window.print();
+    // Mostra todas as observações
+    var observacoes = document.querySelectorAll('.observacao-item');
+    console.log('Observações encontradas:', observacoes.length);
 
-        setTimeout(function () {
-            document.body.classList.remove('impressao-producao');
-            console.log('Classe impressao-producao removida');
-        }, 1000);
+    observacoes.forEach(function (el) {
+        el.style.display = 'block';
+    });
+
+    // Adiciona classe para identificar impressão produção
+    document.body.classList.add('impressao-producao');
+
+    // Imprime
+    window.print();
+
+    setTimeout(function () {
+        document.body.classList.remove('impressao-producao');
+        console.log('Classe impressao-producao removida');
+    }, 1000);
+}
+
+// Função para converter orçamento em pedido (sincronizada com edit.php)
+$(document).ready(function() {
+    // Verificar se o botão existe antes de adicionar o evento
+    const $btnConverter = $('#btnGerarPedidoShow');
+    if ($btnConverter.length === 0) {
+        console.log('Botão de conversão não encontrado - orçamento já convertido ou status não permite conversão');
+        return;
     }
 
-    // Teste se as funções estão carregadas
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('JavaScript carregado com sucesso');
-        console.log('Função imprimirCliente:', typeof imprimirCliente);
-        console.log('Função imprimirProducao:', typeof imprimirProducao);
-    });
-    $('#btnGerarPedidoShow').on('click', function() {
-    const orcamentoId = <?= $orcamentoModel->id ?>;
-    const orcamentoNumero = '<?= htmlspecialchars($orcamentoModel->numero) ?>';
-    
-    Swal.fire({
-        title: 'Gerar Pedido',
-        text: `Deseja converter o orçamento #${orcamentoNumero} em um pedido confirmado?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Sim, Gerar Pedido',
-        cancelButtonText: 'Cancelar'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            $.ajax({
-                url: 'converter_pedido.php',
-                type: 'POST',
-                data: { orcamento_id: orcamentoId },
-                success: function(response) {
-                    const data = JSON.parse(response);
-                    if (data.success) {
-                        Swal.fire('Sucesso!', data.message, 'success').then(() => {
-                            window.location.href = `../pedidos/show.php?id=${data.pedido_id}`;
-                        });
-                    } else {
-                        Swal.fire('Erro', data.message, 'error');
-                    }
-                }
-            });
+    $btnConverter.on('click', function() {
+        const orcamentoId = $(this).data('orcamento-id');
+        const orcamentoNumero = $(this).data('orcamento-numero');
+        
+        // Verificação adicional de segurança
+        if ($(this).prop('disabled')) {
+            return;
         }
+
+        Swal.fire({
+            title: 'Confirmar Conversão?',
+            html: `
+                <div class="text-left">
+                    <p>Deseja realmente converter o orçamento <strong>#${orcamentoNumero}</strong> em um pedido confirmado?</p>
+                    <hr>
+                    <small class="text-muted">
+                        <i class="fas fa-info-circle"></i> <strong>O que acontecerá:</strong><br>
+                        • Um novo pedido será criado<br>
+                        • Todos os itens serão copiados<br>
+                        • O orçamento será marcado como "convertido"<br>
+                        • Esta ação não pode ser desfeita
+                    </small>
+                </div>
+            `,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: '<i class="fas fa-check"></i> Sim, Converter',
+            cancelButtonText: '<i class="fas fa-times"></i> Cancelar',
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#6c757d',
+            reverseButtons: true,
+            width: '500px'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Desabilitar o botão para evitar duplo clique
+                const $btn = $('#btnGerarPedidoShow');
+                $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Convertendo...');
+                
+                $.ajax({
+                    url: `${BASE_URL}/views/orcamentos/converter_pedido.php`,
+                    type: 'POST',
+                    data: { 
+                        orcamento_id: orcamentoId
+                    },
+                    dataType: 'json',
+                    timeout: 30000, // 30 segundos
+                    success: function(response) {
+                        if (response.success) {
+                            Swal.fire({
+                                title: 'Sucesso!',
+                                html: `
+                                    <div class="text-center">
+                                        <i class="fas fa-check-circle text-success" style="font-size: 3em;"></i>
+                                        <p class="mt-3">${response.message}</p>
+                                        <p><strong>Pedido #${response.pedido_numero || response.pedido_id}</strong></p>
+                                    </div>
+                                `,
+                                icon: 'success',
+                                confirmButtonText: '<i class="fas fa-eye"></i> Ver Pedido',
+                                confirmButtonColor: '#007bff'
+                            }).then(() => {
+                                window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
+                            });
+                        } else {
+                            Swal.fire({
+                                title: 'Erro na Conversão',
+                                text: response.message,
+                                icon: 'error',
+                                confirmButtonText: 'Entendi'
+                            });
+                            // Reabilitar o botão em caso de erro
+                            $btn.prop('disabled', false).html('<i class="fas fa-check-circle"></i> Converter p/ Pedido');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('Erro AJAX:', error);
+                        console.error('Status:', status);
+                        console.error('Response:', xhr.responseText);
+                        
+                        let errorMessage = 'Erro de comunicação com o servidor.';
+                        
+                        if (status === 'timeout') {
+                            errorMessage = 'Tempo limite excedido. Tente novamente.';
+                        } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message;
+                        } else if (xhr.responseText) {
+                            try {
+                                const errorData = JSON.parse(xhr.responseText);
+                                errorMessage = errorData.message || errorMessage;
+                            } catch (e) {
+                                errorMessage = 'Erro interno do servidor.';
+                            }
+                        }
+                        
+                        Swal.fire({
+                            title: 'Erro de Comunicação',
+                            text: errorMessage,
+                            icon: 'error',
+                            confirmButtonText: 'Tentar Novamente'
+                        });
+                        
+                        // Reabilitar o botão em caso de erro
+                        $btn.prop('disabled', false).html('<i class="fas fa-check-circle"></i> Converter p/ Pedido');
+                    }
+                });
+            }
+        });
     });
+});
+
+// Teste se as funções estão carregadas
+document.addEventListener('DOMContentLoaded', function () {
+    console.log('JavaScript carregado com sucesso');
+    console.log('Função imprimirCliente:', typeof imprimirCliente);
+    console.log('Função imprimirProducao:', typeof imprimirProducao);
 });
 </script>
 
-<?php include_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+// Define o JavaScript customizado para o footer
+$custom_js = <<<'JS'
+// JavaScript adicional se necessário
+console.log('Show.php carregado com sucesso');
+console.log('ORCAMENTO_ID:', typeof ORCAMENTO_ID !== 'undefined' ? ORCAMENTO_ID : 'não definido');
+console.log('BASE_URL:', typeof BASE_URL !== 'undefined' ? BASE_URL : 'não definido');
+JS;
+
+include_once __DIR__ . '/../includes/footer.php';
+?>

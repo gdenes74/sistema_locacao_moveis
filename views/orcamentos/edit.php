@@ -28,6 +28,20 @@ if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
 
 $orcamentoId = (int)$_GET['id'];
 $orcamentoDados = $orcamentoModel->getById($orcamentoId);
+
+// VERIFICAR SE JÁ FOI CONVERTIDO EM PEDIDO
+$stmt = $db->prepare("SELECT COUNT(*) FROM pedidos WHERE orcamento_id = ?");
+$stmt->execute([$orcamentoId]);
+$ja_convertido = $stmt->fetchColumn() > 0;
+
+if ($ja_convertido) {
+    $_SESSION['error_message'] = "Este orçamento já foi convertido em pedido e não pode ser editado!";
+    header("Location: index.php");
+    exit;
+}
+
+// --- 4. BUSCA DOS ITENS DO ORÇAMENTO ---
+$itensOrcamento = $orcamentoModel->getItens($orcamentoId);
 // --- 4. BUSCA DOS ITENS DO ORÇAMENTO ---
 $itensOrcamento = $orcamentoModel->getItens($orcamentoId);
 if ($itensOrcamento === false) {
@@ -512,6 +526,20 @@ include_once __DIR__ . '/../includes/header.php';
     <label for="status_orcamento" class="form-label">Status do Orçamento</label>
     <select class="form-control" id="status_orcamento" name="status_orcamento"
             <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
+        <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
+        <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
+        <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
+        <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
+        <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
+        <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
+        <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
+    </select>
+    <?php if ($orcamentoDados['status'] === 'convertido'): ?>
+        <small class="text-danger mt-1 d-block">
+            <i class="fas fa-lock"></i> <strong>ORÇAMENTO BLOQUEADO:</strong> Convertido em pedido - não pode ser editado!
+        </small>
+    <?php endif; ?>
+</div>
         <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
         <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
         <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
