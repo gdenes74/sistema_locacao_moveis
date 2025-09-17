@@ -508,17 +508,22 @@ include_once __DIR__ . '/../includes/header.php';
                                     <option value="Horário Específico" <?= ($orcamentoDados['turno_entrega'] ?? '') == 'Horário Específico' ? 'selected' : '' ?>>Horário Específico</option>
                                 </select>
                             </div>
-                            <div class="col-md-4 mt-md-3">
-                                <label for="status_orcamento" class="form-label">Status do Orçamento</label>
-                                <select class="form-control" id="status_orcamento" name="status_orcamento">
-                                    <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
-                                    <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
-                                    <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
-                                    <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
-                                    <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
-                                    <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
-                                </select>
-                            </div>
+                            <div class="col-md-4">
+    <label for="status_orcamento" class="form-label">Status do Orçamento</label>
+    <select class="form-control" id="status_orcamento" name="status_orcamento"
+            <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
+        <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
+        <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
+        <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
+        <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
+        <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
+        <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
+        <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
+    </select>
+    <?php if ($orcamentoDados['status'] === 'convertido'): ?>
+        <small class="text-info mt-1 d-block"><i class="fas fa-info-circle"></i> Este orçamento foi convertido em pedido.</small>
+    <?php endif; ?>
+</div>
                         </div>
                         <hr>
                         <div class="row mb-3">
@@ -1027,10 +1032,32 @@ include_once __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
                     <div class="card-footer text-right">
-                        <a href="index.php" class="btn btn-secondary mr-2">Cancelar</a>
-                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save mr-1"></i> Salvar
-                            Orçamento</button>
-                    </div>
+    <?php
+    $status_atual = $orcamentoDados['status'] ?? 'pendente';
+    $orcamento_finalizado_ou_irreversivel = in_array($status_atual, ['convertido', 'finalizado', 'recusado', 'expirado', 'cancelado']);
+    ?>
+
+    <?php if (!$orcamento_finalizado_ou_irreversivel): // Mostrar botão de converter se não for um status final ou já convertido ?>
+        <button type="button" class="btn btn-success btn-lg mr-2" id="btnConverterPedido"
+                data-orcamento-id="<?= $orcamentoId ?>"
+                title="Converter este Orçamento em um Pedido">
+            <i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido
+        </button>
+    <?php elseif ($status_atual === 'convertido'): // Se já foi convertido, talvez mostrar um link para o pedido gerado ?>
+        <?php
+        // TODO: Para que este link funcione perfeitamente, você precisaria buscar o ID do pedido gerado
+        // na tabela 'numeracao_sequencial' ou adicionar uma coluna 'pedido_id' em 'orcamentos'.
+        // Por ora, vamos apenas mostrar um texto informativo.
+        // Se a funcionalidade de "ver pedido gerado" for prioritária, podemos ajustar o Orcamento.php
+        // para buscar o pedido_id associado quando o status for 'convertido'.
+        // Por enquanto, o status já impedirá nova conversão e informará ao usuário.
+        ?>
+        <span class="badge badge-info badge-lg mr-2"><i class="fas fa-check-circle"></i> Convertido em Pedido</span>
+    <?php endif; ?>
+
+    <a href="index.php" class="btn btn-secondary mr-2">Cancelar</a>
+    <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save mr-1"></i> Salvar Orçamento</button>
+</div>
                 </div>
 
                 <style>
@@ -1572,7 +1599,74 @@ $(document).ready(function() {
     // Garante que o cálculo inicial seja feito ao carregar a página
     calcularTotaisOrcamento();
 });
+    // --- Lógica para o botão "Converter para Pedido" ---
+    $('#btnConverterPedido').on('click', function(e) {
+        e.preventDefault(); // Impede o envio padrão do formulário, se houver
+        const orcamentoIdParaConverter = $(this).data('orcamento-id');
+
+        Swal.fire({
+            title: 'Confirmar Conversão?',
+            text: "Deseja realmente converter este Orçamento em um Pedido? Esta ação marcará o Orçamento como 'Convertido'.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#28a745', // Green
+            cancelButtonColor: '#dc3545', // Red
+            confirmButtonText: 'Sim, converter!',
+            cancelButtonText: 'Não, cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Desabilitar o botão para evitar cliques múltiplos
+                $('#btnConverterPedido').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Convertendo...');
+                
+                $.ajax({
+                    url: `${BASE_URL}/views/orcamentos/converter_pedido.php`,
+                    type: 'POST',
+                    dataType: 'json',
+                    data: { orcamento_id: orcamentoIdParaConverter },
+                    success: function(response) {
+                        if (response.success) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Sucesso!',
+                                text: response.message + (response.pedido_numero ? ' Pedido #' + response.pedido_numero + ' criado.' : ''),
+                                confirmButtonText: 'OK'
+                            }).then(() => {
+                                // Redirecionar para a página de edição do NOVO pedido
+                                if (response.pedido_id) {
+                                  // Por esta:
+window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
+                                } else {
+                                    // Se por algum motivo o pedido_id não voltar, apenas recarrega
+                                    location.reload(); 
+                                }
+                            });
+                        } else {
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Erro!',
+                                text: response.message
+                            }).then(() => {
+                                $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido'); // Reabilita e restaura o texto
+                            });
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error("Erro na requisição AJAX:", status, error, xhr.responseText);
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Erro de Conexão!',
+                            text: 'Não foi possível converter o orçamento. Verifique sua conexão ou tente novamente.'
+                        }).then(() => {
+                            $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido'); // Reabilita e restaura o texto
+                        });
+                    }
+                });
+            }
+        });
+    });
 JS;
+
 // Este include agora pressupõe que footer.php foi modificado
+
 include_once __DIR__ . '/../includes/footer.php';
 ?>

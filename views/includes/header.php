@@ -355,6 +355,7 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
         </div>
         <!-- /.sidebar -->
     </aside>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
 
     <!-- Content Wrapper. Contains page content -->
     <div class="content-wrapper">

@@ -603,7 +603,7 @@ $(document).on('click', '.btnGerarPedido', function() {
     
     Swal.fire({
         title: 'Gerar Pedido',
-        text: `Deseja converter o orçamento #${orcamentoNumero} em um pedido confirmado?`,
+        text: `Deseja converter o orçamento #${orcamentoNumero} em um pedido?`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sim, Gerar Pedido',
