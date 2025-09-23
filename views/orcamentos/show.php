@@ -934,6 +934,8 @@ function imprimirProducao() {
 $(document).ready(function() {
     // Verificar se o botão existe antes de adicionar o evento
     const $btnConverter = $('#btnGerarPedidoShow');
+   
+   
     if ($btnConverter.length === 0) {
         console.log('Botão de conversão não encontrado - orçamento já convertido ou status não permite conversão');
         return;
@@ -997,10 +999,10 @@ $(document).ready(function() {
                                     </div>
                                 `,
                                 icon: 'success',
-                                confirmButtonText: '<i class="fas fa-eye"></i> Ver Pedido',
+                                confirmButtonText: '<i class="fas fa-edit"></i> Editar Pedido',
                                 confirmButtonColor: '#007bff'
                             }).then(() => {
-                                window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
+                                window.location.href = `${BASE_URL}/views/pedidos/edit.php?id=${response.pedido_id}&converted=1`;
                             });
                         } else {
                             Swal.fire({

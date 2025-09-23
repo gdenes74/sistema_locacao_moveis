@@ -85,128 +85,127 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
     }
 }
 
-// --- Bloco AJAX para buscar orçamentos aprovados ---
+// --- Bloco AJAX para buscar orçamentos ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_orcamentos') {
     header('Content-Type: application/json; charset=utf-8');
     try {
+        // LOG: Registrar todos os parâmetros recebidos
+        error_log("🔍 FILTROS RECEBIDOS: " . print_r($_GET, true));
+        
+        // Capturar TODOS os filtros
         $termo = isset($_GET['termo']) ? trim($_GET['termo']) : '';
-        $cliente_id = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : 0;
+        $cliente_id = isset($_GET['cliente_id']) ? (int) $_GET['cliente_id'] : 0;
+        $status_filtro = isset($_GET['status']) ? trim($_GET['status']) : '';
+        $cliente_filtro = isset($_GET['cliente']) ? trim($_GET['cliente']) : '';
+        $numero_filtro = isset($_GET['numero']) ? trim($_GET['numero']) : '';
+        $data_orc_de = isset($_GET['data_orcamento_de']) ? trim($_GET['data_orcamento_de']) : '';
+        $data_orc_ate = isset($_GET['data_orcamento_ate']) ? trim($_GET['data_orcamento_ate']) : '';
+        $data_evt_de = isset($_GET['data_evento_de']) ? trim($_GET['data_evento_de']) : '';
+        $data_evt_ate = isset($_GET['data_evento_ate']) ? trim($_GET['data_evento_ate']) : '';
 
+        // Query base
         $sql = "SELECT o.id, o.numero, o.codigo, o.data_orcamento, o.data_evento, 
-                       o.valor_final, c.nome as nome_cliente
+                       o.valor_final, o.status, c.nome as nome_cliente
                 FROM orcamentos o
                 LEFT JOIN clientes c ON o.cliente_id = c.id
-                WHERE o.status = 'aprovado'";
-        
+                WHERE o.status NOT IN ('convertido')";
         $params = [];
 
-        if (!empty($termo)) {
-            $sql .= " AND (CAST(o.numero AS CHAR) LIKE :termo OR o.codigo LIKE :termo OR c.nome LIKE :termo)";
+        // LOG: Mostrar filtros que serão aplicados
+        $filtros_aplicados = [];
+
+        // Filtro por status
+        if (!empty($status_filtro)) {
+            $sql .= " AND o.status = :status";
+            $params[':status'] = $status_filtro;
+            $filtros_aplicados[] = "Status: " . $status_filtro;
+        }
+
+        // Filtro por cliente (nome)
+        if (!empty($cliente_filtro)) {
+            $sql .= " AND c.nome LIKE :cliente_nome";
+            $params[':cliente_nome'] = "%" . $cliente_filtro . "%";
+            $filtros_aplicados[] = "Cliente: " . $cliente_filtro;
+        }
+
+        // Filtro por número
+        if (!empty($numero_filtro)) {
+            $sql .= " AND (o.numero = :numero_exato OR CAST(o.numero AS CHAR) LIKE :numero_like OR o.codigo LIKE :codigo_like)";
+            $params[':numero_exato'] = $numero_filtro;
+            $params[':numero_like'] = "%" . $numero_filtro . "%";
+            $params[':codigo_like'] = "%" . $numero_filtro . "%";
+            $filtros_aplicados[] = "Número: " . $numero_filtro;
+        }
+
+        // Filtros de data do orçamento
+        if (!empty($data_orc_de)) {
+            $sql .= " AND DATE(o.data_orcamento) >= :data_orc_de";
+            $params[':data_orc_de'] = $data_orc_de;
+            $filtros_aplicados[] = "Data Orçamento DE: " . $data_orc_de;
+        }
+        if (!empty($data_orc_ate)) {
+            $sql .= " AND DATE(o.data_orcamento) <= :data_orc_ate";
+            $params[':data_orc_ate'] = $data_orc_ate;
+            $filtros_aplicados[] = "Data Orçamento ATÉ: " . $data_orc_ate;
+        }
+
+        // Filtros de data do evento
+        if (!empty($data_evt_de)) {
+            $sql .= " AND DATE(o.data_evento) >= :data_evt_de";
+            $params[':data_evt_de'] = $data_evt_de;
+            $filtros_aplicados[] = "Data Evento DE: " . $data_evt_de;
+        }
+        if (!empty($data_evt_ate)) {
+            $sql .= " AND DATE(o.data_evento) <= :data_evt_ate";
+            $params[':data_evt_ate'] = $data_evt_ate;
+            $filtros_aplicados[] = "Data Evento ATÉ: " . $data_evt_ate;
+        }
+
+        // Filtros antigos (compatibilidade)
+        if (!empty($termo) && empty($cliente_filtro) && empty($numero_filtro)) {
+            $sql .= " AND (CAST(o.numero AS CHAR) LIKE :termo OR o.codigo LIKE :termo_codigo OR c.nome LIKE :termo_cliente)";
             $params[':termo'] = "%" . $termo . "%";
+            $params[':termo_codigo'] = "%" . $termo . "%";
+            $params[':termo_cliente'] = "%" . $termo . "%";
+            $filtros_aplicados[] = "Termo geral: " . $termo;
         }
 
         if ($cliente_id > 0) {
             $sql .= " AND o.cliente_id = :cliente_id";
             $params[':cliente_id'] = $cliente_id;
+            $filtros_aplicados[] = "Cliente ID: " . $cliente_id;
         }
 
-        $sql .= " ORDER BY o.id DESC LIMIT 15";
+        $sql .= " ORDER BY o.id DESC LIMIT 50";
+
+        // LOG: Mostrar SQL final e parâmetros
+        error_log("📋 SQL FINAL: " . $sql);
+        error_log("🎯 PARÂMETROS: " . print_r($params, true));
+        error_log("✅ FILTROS APLICADOS: " . implode(", ", $filtros_aplicados));
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
-        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // LOG: Mostrar quantos resultados foram encontrados
+        error_log("�� RESULTADOS ENCONTRADOS: " . count($resultados));
+        
+        echo json_encode($resultados);
         exit;
 
     } catch (PDOException $e) {
         http_response_code(500);
-        error_log("Erro AJAX buscar_orcamentos: " . $e->getMessage());
+        error_log("❌ ERRO AJAX buscar_orcamentos: " . $e->getMessage());
         echo json_encode(['error' => 'Erro no banco de dados ao buscar orçamentos.']);
         exit;
     }
 }
-
-// --- Bloco AJAX para buscar produtos ---
-if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        $termo = isset($_GET['termo']) ? trim($_GET['termo']) : '';
-        $categoria_principal_id = isset($_GET['categoria_id']) ? (int) $_GET['categoria_id'] : 0;
-
-        if (empty($termo) && $categoria_principal_id === 0) {
-            echo json_encode([]);
-            exit;
-        }
-
-        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path
-                FROM produtos p";
-
-        $conditions = [];
-        $executeParams = [];
-
-        if (!empty($termo)) {
-            $conditions[] = "(p.nome_produto LIKE ? OR p.codigo LIKE ?)";
-            $executeParams[] = "%" . $termo . "%";
-            $executeParams[] = "%" . $termo . "%";
-        }
-
-        if ($categoria_principal_id > 0) {
-            $sqlSubcategorias = "SELECT id FROM subcategorias WHERE categoria_id = ?";
-            $stmtSub = $db->prepare($sqlSubcategorias);
-            $stmtSub->execute([$categoria_principal_id]);
-            $subcategoriasIds = $stmtSub->fetchAll(PDO::FETCH_COLUMN);
-
-            if (!empty($subcategoriasIds)) {
-                $placeholders = implode(',', array_fill(0, count($subcategoriasIds), '?'));
-                $conditions[] = "p.subcategoria_id IN ({$placeholders})";
-                $executeParams = array_merge($executeParams, $subcategoriasIds);
-            } else {
-                echo json_encode([]);
-                exit;
-            }
-        }
-
-        if (!empty($conditions)) {
-            $sql .= " WHERE " . implode(' AND ', $conditions);
-        } else {
-            echo json_encode([]);
-            exit;
-        }
-
-        $sql .= " ORDER BY p.nome_produto LIMIT 15";
-
-        $stmt = $db->prepare($sql);
-        $stmt->execute($executeParams);
-        $produtos_ajax = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $base_url_config = rtrim(BASE_URL, '/');
-
-        foreach ($produtos_ajax as &$produto_item) {
-            if (!empty($produto_item['foto_path']) && $produto_item['foto_path'] !== "null" && trim($produto_item['foto_path']) !== "") {
-                $foto_path_limpo = ltrim($produto_item['foto_path'], '/');
-                $produto_item['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
-            } else {
-                $produto_item['foto_path_completo'] = null;
-            }
-        }
-        unset($produto_item);
-
-        echo json_encode($produtos_ajax);
-        exit;
-
-    } catch (PDOException $e) {
-        http_response_code(500);
-        error_log("Erro AJAX buscar_produtos: " . $e->getMessage());
-        echo json_encode(['error' => 'Ocorreu um erro interno ao buscar produtos.']);
-        exit;
-    }
-}
-
 // --- AJAX para carregar dados do orçamento ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'carregar_orcamento') {
     header('Content-Type: application/json; charset=utf-8');
     try {
-        $orcamento_id = isset($_GET['orcamento_id']) ? (int)$_GET['orcamento_id'] : 0;
-        
+        $orcamento_id = isset($_GET['orcamento_id']) ? (int) $_GET['orcamento_id'] : 0;
+
         if ($orcamento_id <= 0) {
             echo json_encode(['error' => 'ID do orçamento inválido']);
             exit;
@@ -243,16 +242,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamento_origem_id = null;
 
         if ($origem_pedido === 'orcamento' && !empty($_POST['orcamento_id'])) {
-            $orcamento_origem_id = (int)$_POST['orcamento_id'];
-            
+            $orcamento_origem_id = (int) $_POST['orcamento_id'];
+
             // Buscar dados do orçamento
             $orcamento = $orcamentoModel->getById($orcamento_origem_id);
             if (!$orcamento) {
                 throw new Exception("Orçamento selecionado não encontrado.");
             }
-            
-            if ($orcamento['status'] !== 'aprovado') {
-                throw new Exception("Apenas orçamentos aprovados podem ser convertidos em pedidos.");
+
+            if (in_array($orcamento['status'], ['convertido'])) {
+                throw new Exception("Este orçamento já foi convertido em pedido.");
             }
 
             // Verificar se já existe pedido para este orçamento
@@ -333,11 +332,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $pedidoModel->valor_sinal = $fnConverterMoeda($_POST['valor_sinal'] ?? '0,00');
         $pedidoModel->valor_pago = $fnConverterMoeda($_POST['valor_pago'] ?? '0,00');
         $pedidoModel->valor_multas = $fnConverterMoeda($_POST['valor_multas'] ?? '0,00');
-        
+
         // Datas de pagamento
         $data_pagamento_sinal_dt = !empty($_POST['data_pagamento_sinal']) ? DateTime::createFromFormat('d/m/Y', $_POST['data_pagamento_sinal']) : null;
         $pedidoModel->data_pagamento_sinal = $data_pagamento_sinal_dt ? $data_pagamento_sinal_dt->format('Y-m-d') : null;
-        
+
         $data_pagamento_final_dt = !empty($_POST['data_pagamento_final']) ? DateTime::createFromFormat('d/m/Y', $_POST['data_pagamento_final']) : null;
         $pedidoModel->data_pagamento_final = $data_pagamento_final_dt ? $data_pagamento_final_dt->format('Y-m-d') : null;
 
@@ -486,7 +485,8 @@ include_once __DIR__ . '/../includes/header.php';
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="custom-control custom-radio">
-                                    <input class="custom-control-input" type="radio" id="origem_novo" name="origem_pedido" value="novo" checked>
+                                    <input class="custom-control-input" type="radio" id="origem_novo"
+                                        name="origem_pedido" value="novo" checked>
                                     <label for="origem_novo" class="custom-control-label">
                                         <strong>Pedido completo</strong><br>
                                         <small class="text-muted">Criar um pedido completo</small>
@@ -495,27 +495,99 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                             <div class="col-md-6">
                                 <div class="custom-control custom-radio">
-                                    <input class="custom-control-input" type="radio" id="origem_orcamento" name="origem_pedido" value="orcamento">
+                                    <input class="custom-control-input" type="radio" id="origem_orcamento"
+                                        name="origem_pedido" value="orcamento">
                                     <label for="origem_orcamento" class="custom-control-label">
                                         <strong>A partir de Orçamento</strong><br>
-                                        <small class="text-muted">Converter orçamento aprovado em pedido</small>
+                                        <small class="text-muted">Converter orçamento em PEDIDO</small>
                                     </label>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <!-- Seleção de Orçamento (oculto inicialmente) -->
                         <div id="secao_selecao_orcamento" class="mt-3" style="display: none;">
-                            <div class="row">
+                            <!-- Filtros de Orçamentos -->
+<div class="row">
+    <!-- Status -->
+    <div class="col-md-3">
+        <label for="filtro_status_orcamento">Status:</label>
+        <select id="filtro_status_orcamento" class="form-control form-control-sm">
+            <option value="">Todos os Status</option>
+            <option value="pendente">Pendentes</option>
+            <option value="aprovado">Aprovados</option>
+            <option value="recusado">Recusados</option>
+            <option value="expirado">Expirados</option>
+        </select>
+    </div>
+    
+    <!-- Cliente -->
+<div class="col-md-3">
+    <label for="filtro_cliente">Cliente:</label>
+    <select id="filtro_cliente" class="form-control form-control-sm select2-cliente-filtro">
+        <option value="">Todos os clientes</option>
+    </select>
+</div>
+    
+    <!-- Número -->
+    <div class="col-md-2">
+        <label for="filtro_numero">Número:</label>
+        <input type="text" id="filtro_numero" class="form-control form-control-sm" placeholder="Ex: 123">
+    </div>
+    
+    <!-- Botões -->
+<div class="col-md-2">
+    <label>&nbsp;</label>
+    <div class="row">
+        <div class="col-6">
+            <button type="button" id="btnPesquisar" class="btn btn-primary btn-sm btn-block">🔍 Buscar</button>
+        </div>
+        <div class="col-6">
+            <button type="button" id="btnLimparFiltros" class="btn btn-secondary btn-sm btn-block">🗑️ Limpar</button>
+        </div>
+    </div>
+</div>
+</div>
+
+<div class="row mt-2">
+    <!-- Data Orçamento -->
+    <div class="col-md-3">
+        <label for="filtro_data_orcamento_de">Data Orçamento:</label>
+        <div class="row">
+            <div class="col-6">
+                <input type="date" id="filtro_data_orcamento_de" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <input type="date" id="filtro_data_orcamento_ate" class="form-control form-control-sm">
+            </div>
+        </div>
+    </div>
+    
+    <!-- Data Evento -->
+    <div class="col-md-3">
+        <label for="filtro_data_evento_de">Data Evento:</label>
+        <div class="row">
+            <div class="col-6">
+                <input type="date" id="filtro_data_evento_de" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <input type="date" id="filtro_data_evento_ate" class="form-control form-control-sm">
+            </div>
+        </div>
+    </div>
+</div>
+                                <!-- Select de orçamentos (modificado para col-md-8) -->
                                 <div class="col-md-8">
-                                    <label for="orcamento_id" class="form-label">Selecionar Orçamento Aprovado <span class="text-danger">*</span></label>
+                                    <label for="orcamento_id" class="form-label">Selecionar Orçamento <span
+                                            class="text-danger">*</span></label>
                                     <select class="form-control select2" id="orcamento_id" name="orcamento_id">
-                                        <option value="">Selecione um orçamento aprovado</option>
+                                        <option value="">Selecione um orçamento disponível</option>
                                     </select>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">&nbsp;</label>
-                                    <button type="button" class="btn btn-info btn-block" id="btnCarregarOrcamento" disabled>
+                                    <button type="button" class="btn btn-info btn-block" id="btnCarregarOrcamento"
+                                        disabled>
                                         <i class="fas fa-download"></i> Carregar Dados
                                     </button>
                                 </div>
@@ -523,7 +595,7 @@ include_once __DIR__ . '/../includes/header.php';
                             <div id="info_orcamento_selecionado" class="mt-2 text-muted small"></div>
                         </div>
                     </div>
-                </div>                <!-- Dados do Pedido -->
+                </div> <!-- Dados do Pedido -->
                 <div class="card card-primary card-outline">
                     <div class="card-header">
                         <h3 class="card-title">Dados do Pedido</h3>
@@ -787,63 +859,66 @@ include_once __DIR__ . '/../includes/header.php';
                                         rows="3"
                                         placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($textoPadraoCondicoes ?? '') ?></textarea>
                                 </div>
-                                
+
                                 <!-- SEÇÃO ESPECÍFICA DE PEDIDOS - PAGAMENTOS -->
                                 <hr>
-                                <h5 class="text-primary"><i class="fas fa-money-bill-wave mr-2"></i>Controle de Pagamentos</h5>
-                                
+                                <h5 class="text-primary"><i class="fas fa-money-bill-wave mr-2"></i>Controle de
+                                    Pagamentos</h5>
+
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="valor_sinal">Valor do Sinal (R$)</label>
-                                            <input type="text" class="form-control money-input text-right" 
-                                                   id="valor_sinal" name="valor_sinal" placeholder="0,00">
+                                            <input type="text" class="form-control money-input text-right"
+                                                id="valor_sinal" name="valor_sinal" placeholder="0,00">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="data_pagamento_sinal">Data Pagto. Sinal</label>
                                             <div class="input-group">
-                                                <input type="text" class="form-control datepicker" 
-                                                       id="data_pagamento_sinal" name="data_pagamento_sinal" 
-                                                       placeholder="DD/MM/AAAA">
+                                                <input type="text" class="form-control datepicker"
+                                                    id="data_pagamento_sinal" name="data_pagamento_sinal"
+                                                    placeholder="DD/MM/AAAA">
                                                 <div class="input-group-append">
-                                                    <span class="input-group-text"><i class="fas fa-calendar-alt"></i></span>
+                                                    <span class="input-group-text"><i
+                                                            class="fas fa-calendar-alt"></i></span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="valor_pago">Valor Total Pago (R$)</label>
-                                            <input type="text" class="form-control money-input text-right" 
-                                                   id="valor_pago" name="valor_pago" placeholder="0,00">
+                                            <input type="text" class="form-control money-input text-right"
+                                                id="valor_pago" name="valor_pago" placeholder="0,00">
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label for="data_pagamento_final">Data Pagto. Final</label>
                                             <div class="input-group">
-                                                <input type="text" class="form-control datepicker" 
-                                                       id="data_pagamento_final" name="data_pagamento_final" 
-                                                       placeholder="DD/MM/AAAA">
+                                                <input type="text" class="form-control datepicker"
+                                                    id="data_pagamento_final" name="data_pagamento_final"
+                                                    placeholder="DD/MM/AAAA">
                                                 <div class="input-group-append">
-                                                    <span class="input-group-text"><i class="fas fa-calendar-alt"></i></span>
+                                                    <span class="input-group-text"><i
+                                                            class="fas fa-calendar-alt"></i></span>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <label for="valor_multas">Multas/Taxas Extras (R$)</label>
-                                    <input type="text" class="form-control money-input text-right" 
-                                           id="valor_multas" name="valor_multas" placeholder="0,00">
+                                    <input type="text" class="form-control money-input text-right" id="valor_multas"
+                                        name="valor_multas" placeholder="0,00">
                                 </div>
-                                
+
                                 <div class="form-group">
                                     <div class="custom-control custom-switch">
                                         <input type="checkbox" class="custom-control-input"
@@ -865,34 +940,204 @@ include_once __DIR__ . '/../includes/header.php';
                                 <h5 class="text-muted">Taxas Adicionais</h5>
 
                                 <div class="form-group row align-items-center">
-                                    <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="taxa_domingo_feriado">
-                                    </div>
-                                    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
-                                        Taxa Dom./Feriado <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>)</small>
-                                    </label>
-                                    <div class="col-sm-6">
-                                        <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="taxa_domingo_feriado" name="taxa_domingo_feriado"
-                                                placeholder="a confirmar" value=""
-                                                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
-                                            <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="taxa_domingo_feriado"
-                                                    data-target-checkbox="aplicar_taxa_domingo"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
-                                                    <i class="fas fa-magic"></i> Usar
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="taxa_madrugada">
+    </div>
+    <label for="aplicar_taxa_madrugada" class="col-sm-5 col-form-label pr-1">
+        Taxa Madrugada <small
+            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="taxa_madrugada" name="taxa_madrugada"
+                placeholder="a confirmar" value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="taxa_madrugada"
+                    data-target-checkbox="aplicar_taxa_madrugada"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_taxa_horario_especial"
+            id="aplicar_taxa_horario_especial"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="taxa_horario_especial">
+    </div>
+    <label for="aplicar_taxa_horario_especial" class="col-sm-5 col-form-label pr-1">
+        Taxa Hor. Especial <small
+            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="taxa_horario_especial" name="taxa_horario_especial"
+                placeholder="a confirmar" value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="taxa_horario_especial"
+                    data-target-checkbox="aplicar_taxa_horario_especial"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_taxa_hora_marcada"
+            id="aplicar_taxa_hora_marcada" class="form-check-input taxa-frete-checkbox"
+            data-target-input="taxa_hora_marcada">
+    </div>
+    <label for="aplicar_taxa_hora_marcada" class="col-sm-5 col-form-label pr-1">
+        Taxa Hora Marcada <small
+            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="taxa_hora_marcada" name="taxa_hora_marcada"
+                placeholder="a confirmar" value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="taxa_hora_marcada"
+                    data-target-checkbox="aplicar_taxa_hora_marcada"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<hr>
+<h5 class="text-muted">Frete</h5>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_frete_terreo" id="aplicar_frete_terreo"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="frete_terreo">
+    </div>
+    <label for="aplicar_frete_terreo" class="col-sm-5 col-form-label pr-1">
+        Frete Térreo <small class="text-muted">(Sob consulta)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="frete_terreo" name="frete_terreo" placeholder="a confirmar" value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteTerreo, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="frete_terreo"
+                    data-target-checkbox="aplicar_frete_terreo"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoFreteTerreo, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_frete_elevador" id="aplicar_frete_elevador"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="frete_elevador">
+    </div>
+    <label for="aplicar_frete_elevador" class="col-sm-5 col-form-label pr-1">
+        Frete Elevador <small class="text-muted">(Sob consulta)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="frete_elevador" name="frete_elevador" placeholder="a confirmar"
+                value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteElevador, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="frete_elevador"
+                    data-target-checkbox="aplicar_frete_elevador"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoFreteElevador, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_frete_escadas" id="aplicar_frete_escadas"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="frete_escadas">
+    </div>
+    <label for="aplicar_frete_escadas" class="col-sm-5 col-form-label pr-1">
+        Frete Escadas <small
+            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>)</small>
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="frete_escadas" name="frete_escadas" placeholder="a confirmar"
+                value=""
+                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>">
+            <div class="input-group-append">
+                <button type="button"
+                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                    data-target-input="frete_escadas"
+                    data-target-checkbox="aplicar_frete_escadas"
+                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>">
+                    <i class="fas fa-magic"></i> Usar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-group row align-items-center">
+    <div class="col-sm-1 pl-0 pr-0 text-center">
+        <input type="checkbox" name="aplicar_desconto_geral" id="aplicar_desconto_geral"
+            class="form-check-input taxa-frete-checkbox"
+            data-target-input="desconto_total">
+    </div>
+    <label for="aplicar_desconto_geral" class="col-sm-5 col-form-label pr-1">
+        Desconto Geral (-)
+    </label>
+    <div class="col-sm-6">
+        <div class="input-group input-group-sm">
+            <input type="text"
+                class="form-control money-input text-right taxa-frete-input"
+                id="desconto_total" name="desconto_total" placeholder="0,00" value=""
+                disabled>
+        </div>
+    </div>
+</div>
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
@@ -924,13 +1169,12 @@ include_once __DIR__ . '/../includes/header.php';
                                             style="background-color: #e9ecef !important; border: none !important;">
                                     </div>
                                 </div>
-                                
+
                                 <!-- Indicador de Saldo -->
                                 <div class="form-group row bg-info p-2 rounded">
                                     <label class="col-sm-6 col-form-label text-white">SALDO A PAGAR:</label>
                                     <div class="col-sm-6">
-                                        <input type="text"
-                                            class="form-control text-right font-weight-bold text-white"
+                                        <input type="text" class="form-control text-right font-weight-bold text-white"
                                             id="saldo_display" readonly placeholder="A confirmar"
                                             style="background-color: transparent !important; border: none !important;">
                                     </div>
@@ -977,6 +1221,31 @@ include_once __DIR__ . '/../includes/header.php';
                     .form-group.row .col-sm-1+.col-form-label {
                         padding-left: 0;
                     }
+                    /* Controlar tamanho do dropdown do Select2 de orçamentos */
+.select2-dropdown-small {
+    max-height: 200px !important;
+}
+
+.select2-dropdown-small .select2-results__options {
+    max-height: 150px !important;
+    overflow-y: auto;
+}
+
+.select2-container--bootstrap4 .select2-dropdown {
+    border-radius: 0.25rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+/* Garantir que o dropdown fique na posição correta */
+#secao_selecao_orcamento .select2-container {
+    position: relative;
+    z-index: 1;
+}
+
+#secao_selecao_orcamento .select2-dropdown {
+    position: absolute;
+    z-index: 1050;
+}
                 </style>
             </form>
         </div>
@@ -1070,35 +1339,135 @@ $(document).ready(function() {
 
     // Lógica específica de pedidos - origem
     $('input[name="origem_pedido"]').change(function() {
-        if ($(this).val() === 'orcamento') {
-            $('#secao_selecao_orcamento').slideDown();
-            carregarOrcamentosAprovados();
-        } else {
-            $('#secao_selecao_orcamento').slideUp();
-            limparFormulario();
+    if ($(this).val() === 'orcamento') {
+        $('#secao_selecao_orcamento').slideDown();
+        carregarOrcamentosDisponiveis(); // ← CORRIGIDO AQUI
+    } else {
+        $('#secao_selecao_orcamento').slideUp();
+        limparFormulario();
+    }
+});
+
+    // Carregar orçamentos disponíveis (COM FILTRO)
+function carregarOrcamentosDisponiveis() {
+   // Pegar TODOS os filtros
+var filtros = {
+    status: $('#filtro_status_orcamento').val(),
+    cliente: $('#filtro_cliente').val(),
+    numero: $('#filtro_numero').val(),
+    data_orcamento_de: $('#filtro_data_orcamento_de').val(),
+    data_orcamento_ate: $('#filtro_data_orcamento_ate').val(),
+    data_evento_de: $('#filtro_data_evento_de').val(),
+    data_evento_ate: $('#filtro_data_evento_ate').val()
+};
+
+// Debug: Mostrar filtros sendo enviados
+console.log('🔍 Filtros enviados:', filtros);
+
+// Debug: Mostrar filtros sendo enviados
+console.log('🔍 Filtros enviados:', filtros);
+    
+    $.ajax({
+        url: 'create.php?ajax=buscar_orcamentos',
+        type: 'GET',
+        dataType: 'json',
+        data: filtros, // Enviar TODOS os filtros
+        success: function(orcamentos) {
+            var $select = $('#orcamento_id');
+            $select.empty().append('<option value="">Selecione um orçamento disponível</option>');
+            
+            if (orcamentos && orcamentos.length > 0) {
+                $.each(orcamentos, function(i, orc) {
+                    var statusBadge = '';
+                    switch(orc.status) {
+                        case 'pendente': statusBadge = '🟡'; break;
+                        case 'aprovado': statusBadge = '🟢'; break;
+                        case 'recusado': statusBadge = '🔴'; break;
+                        case 'expirado': statusBadge = '⚫'; break;
+                    }
+                    
+                    $select.append(`<option value="${orc.id}">${statusBadge} ${orc.codigo} - ${orc.nome_cliente} - R$ ${parseFloat(orc.valor_final || 0).toFixed(2).replace('.', ',')}</option>`);
+                });
+            }
+            // Recriar Select2 com configurações específicas
+$select.select2('destroy');
+$select.select2({
+    theme: 'bootstrap4',
+    placeholder: 'Selecione um orçamento disponível',
+    allowClear: true,
+    dropdownAutoWidth: true,
+    width: '100%',
+    dropdownCssClass: 'select2-dropdown-small',
+    dropdownParent: $('#secao_selecao_orcamento') // Força ficar dentro da seção
+});
+
+// NÃO abrir automaticamente - só quando o usuário clicar
+// (removido o .select2('open') automático)
+        },
+        error: function() {
+            console.error('Erro ao carregar orçamentos');
         }
     });
+}
 
-    function carregarOrcamentosAprovados() {
-        $.ajax({
-            url: 'create.php?ajax=buscar_orcamentos',
-            type: 'GET',
-            dataType: 'json',
-            success: function(orcamentos) {
-                var $select = $('#orcamento_id');
-                $select.empty().append('<option value="">Selecione um orçamento aprovado</option>');
-                
-                if (orcamentos && orcamentos.length > 0) {
-                    $.each(orcamentos, function(i, orc) {
-                        $select.append(`<option value="${orc.id}" data-cliente-id="${orc.cliente_id || ''}">${orc.codigo} - ${orc.nome_cliente} - ${formatCurrency(orc.valor_final)}</option>`);
-                    });
-                }
-            },
-            error: function() {
-                console.error('Erro ao carregar orçamentos');
-            }
-        });
+// Event listeners para os filtros
+$('#btnPesquisar').click(function() {
+    carregarOrcamentosDisponiveis();
+});
+
+$('#filtro_status_orcamento').change(function() {
+    carregarOrcamentosDisponiveis();
+});
+
+// Configurar Select2 para o filtro de cliente
+$('#filtro_cliente').select2({
+    theme: 'bootstrap4',
+    placeholder: 'Digite para buscar cliente...',
+    allowClear: true,
+    minimumInputLength: 2,
+    ajax: {
+        url: 'create.php?ajax=buscar_clientes',
+        dataType: 'json',
+        delay: 250,
+        data: function (params) {
+            return { termo: params.term || '' };
+        },
+        processResults: function (data) {
+            return {
+                results: $.map(data, function (cliente) {
+                    return {
+                        id: cliente.nome,
+                        text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : '')
+                    };
+                })
+            };
+        },
+        cache: true
     }
+});
+
+// Botão limpar filtros
+$('#btnLimparFiltros').click(function() {
+    $('#filtro_status_orcamento').val('');
+    $('#filtro_cliente').val(null).trigger('change'); // Para Select2
+    $('#filtro_numero').val('');
+    $('#filtro_data_orcamento_de').val('');
+    $('#filtro_data_orcamento_ate').val('');
+    $('#filtro_data_evento_de').val('');
+    $('#filtro_data_evento_ate').val('');
+    carregarOrcamentosDisponiveis();
+});
+// Botão limpar filtros
+$('#btnLimparFiltros').click(function() {
+    $('#filtro_status_orcamento').val('');
+    $('#filtro_cliente').val('');
+    $('#filtro_numero').val('');
+    $('#filtro_data_orcamento_de').val('');
+    $('#filtro_data_orcamento_ate').val('');
+    $('#filtro_data_evento_de').val('');
+    $('#filtro_data_evento_ate').val('');
+    carregarOrcamentosDisponiveis();
+});
 
     $('#btnCarregarOrcamento').click(function() {
         var orcamentoId = $('#orcamento_id').val();
@@ -1123,37 +1492,98 @@ $(document).ready(function() {
     });
 
     function preencherFormularioComOrcamento(orcamento, itens) {
-        // Preencher campos básicos
-        $('#cliente_id').val(orcamento.cliente_id).trigger('change');
-        $('#data_evento').val(orcamento.data_evento ? formatarData(orcamento.data_evento) : '');
-        $('#hora_evento').val(orcamento.hora_evento || '');
-        $('#local_evento').val(orcamento.local_evento || '');
-        $('#data_entrega').val(orcamento.data_entrega ? formatarData(orcamento.data_entrega) : '');
-        $('#hora_entrega').val(orcamento.hora_entrega || '');
-        $('#data_retirada_prevista').val(orcamento.data_devolucao_prevista ? formatarData(orcamento.data_devolucao_prevista) : '');
-        $('#hora_devolucao').val(orcamento.hora_devolucao || '');
-        $('#turno_entrega').val(orcamento.turno_entrega || '');
-        $('#turno_devolucao').val(orcamento.turno_devolucao || '');
-        $('#tipo').val(orcamento.tipo || 'locacao');
-        $('#observacoes_gerais').val(orcamento.observacoes || '');
-        $('#condicoes_pagamento').val(orcamento.condicoes_pagamento || '');
+    // Preencher campos básicos
+    $('#cliente_id').val(orcamento.cliente_id).trigger('change');
+    $('#data_evento').val(orcamento.data_evento ? formatarData(orcamento.data_evento) : '');
+    $('#hora_evento').val(orcamento.hora_evento || '');
+    $('#local_evento').val(orcamento.local_evento || '');
+    $('#data_entrega').val(orcamento.data_entrega ? formatarData(orcamento.data_entrega) : '');
+    $('#hora_entrega').val(orcamento.hora_entrega || '');
+    $('#data_retirada_prevista').val(orcamento.data_devolucao_prevista ? formatarData(orcamento.data_devolucao_prevista) : '');
+    $('#hora_devolucao').val(orcamento.hora_devolucao || '');
+    $('#turno_entrega').val(orcamento.turno_entrega || '');
+    $('#turno_devolucao').val(orcamento.turno_devolucao || '');
+    $('#tipo').val(orcamento.tipo || 'locacao');
+    $('#observacoes_gerais').val(orcamento.observacoes || '');
+    $('#condicoes_pagamento').val(orcamento.condicoes_pagamento || '');
 
-        // Preencher taxas
-        if (orcamento.taxa_domingo_feriado > 0) {
-            $('#aplicar_taxa_domingo').prop('checked', true);
-            $('#taxa_domingo_feriado').val(formatCurrency(orcamento.taxa_domingo_feriado));
-        }
-
-        // Limpar e preencher itens
-        $('#tabela_itens_pedido tbody').empty();
-        if (itens && itens.length > 0) {
-            $.each(itens, function(i, item) {
-                adicionarLinhaItemTabela(item, item.tipo_linha);
-            });
-        }
-
-        calcularTotaisPedido();
+    // Preencher TODAS as taxas
+    if (orcamento.taxa_domingo_feriado > 0) {
+        $('#aplicar_taxa_domingo').prop('checked', true);
+        $('#taxa_domingo_feriado').val(formatCurrency(orcamento.taxa_domingo_feriado));
     }
+    if (orcamento.taxa_madrugada > 0) {
+        $('#aplicar_taxa_madrugada').prop('checked', true);
+        $('#taxa_madrugada').val(formatCurrency(orcamento.taxa_madrugada));
+    }
+    if (orcamento.taxa_horario_especial > 0) {
+        $('#aplicar_taxa_horario_especial').prop('checked', true);
+        $('#taxa_horario_especial').val(formatCurrency(orcamento.taxa_horario_especial));
+    }
+    if (orcamento.taxa_hora_marcada > 0) {
+        $('#aplicar_taxa_hora_marcada').prop('checked', true);
+        $('#taxa_hora_marcada').val(formatCurrency(orcamento.taxa_hora_marcada));
+    }
+    if (orcamento.frete_terreo > 0) {
+        $('#aplicar_frete_terreo').prop('checked', true);
+        $('#frete_terreo').val(formatCurrency(orcamento.frete_terreo));
+    }
+    if (orcamento.frete_elevador > 0) {
+        $('#aplicar_frete_elevador').prop('checked', true);
+        $('#frete_elevador').val(formatCurrency(orcamento.frete_elevador));
+    }
+    if (orcamento.frete_escadas > 0) {
+        $('#aplicar_frete_escadas').prop('checked', true);
+        $('#frete_escadas').val(formatCurrency(orcamento.frete_escadas));
+    }
+    if (orcamento.desconto > 0) {
+        $('#aplicar_desconto_geral').prop('checked', true);
+        $('#desconto_total').val(formatCurrency(orcamento.desconto)).prop('disabled', false);
+    }
+    if (orcamento.ajuste_manual == 1) {
+        $('#ajuste_manual_valor_final').prop('checked', true);
+        $('#motivo_ajuste').val(orcamento.motivo_ajuste || '');
+        $('#campo_motivo_ajuste').show();
+    }
+
+    // Limpar e preencher itens
+    $('#tabela_itens_pedido tbody').empty();
+    itemIndex = 0; // Reset do contador
+    if (itens && itens.length > 0) {
+        $.each(itens, function(i, item) {
+            // Converter dados do orçamento para formato do pedido
+            var itemPedido = {
+                id: item.produto_id,
+                nome_produto: item.nome_produto_manual || item.nome_produto,
+                preco_locacao: item.preco_unitario,
+                quantidade: item.quantidade,
+                desconto: item.desconto,
+                observacoes: item.observacoes,
+                foto_path_completo: null // Será carregado se necessário
+            };
+            adicionarLinhaItemTabela(itemPedido, item.tipo_linha);
+            
+            // Ajustar valores após adicionar
+            var $ultimaLinha = $('#tabela_itens_pedido tbody tr:last');
+            if (item.tipo_linha === 'PRODUTO') {
+                $ultimaLinha.find('.quantidade_item').val(item.quantidade);
+                $ultimaLinha.find('.item-valor-unitario').val(formatCurrency(item.preco_unitario).replace('R$ ', ''));
+                $ultimaLinha.find('.desconto_item').val(formatCurrency(item.desconto).replace('R$ ', ''));
+                if (item.observacoes) {
+                    $ultimaLinha.find('.observacoes_item_input').val(item.observacoes).show();
+                    $ultimaLinha.find('.observacoes_item_label').show();
+                }
+            } else if (item.tipo_linha === 'CABECALHO_SECAO') {
+                $ultimaLinha.find('.nome_titulo_secao').val(item.nome_produto_manual);
+            }
+        });
+    }
+
+    calcularTotaisPedido();
+    
+    // Feedback visual
+    toastr.success('Dados do orçamento carregados com sucesso!', 'Sucesso');
+}
 
     function limparFormulario() {
         $('#cliente_id').val('').trigger('change');
@@ -1161,16 +1591,22 @@ $(document).ready(function() {
         calcularTotaisPedido();
     }
 
-    function calcularTotaisPedido() {
-        var subtotalGeralItens = 0;
-        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
-            subtotalGeralItens += calcularSubtotalItem($(this));
-        });
+   function calcularTotaisPedido() {
+    var subtotalGeralItens = 0;
+    $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+        subtotalGeralItens += calcularSubtotalItem($(this));
+    });
 
-        var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
-        var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
+    var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
+    var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
+    var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
+    var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
+    var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
+    var freteTerreo = unformatCurrency($('#frete_terreo').val());
+    var freteElevador = unformatCurrency($('#frete_elevador').val());
+    var freteEscadas = unformatCurrency($('#frete_escadas').val());
 
-        var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo;
+    var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
 
         // Calcular saldo
         var valorPago = unformatCurrency($('#valor_pago').val());
@@ -1258,8 +1694,8 @@ $(document).ready(function() {
         });
     }
 
-    // Eventos para recalcular saldo
-    $('#valor_pago, #valor_sinal').on('change keyup', calcularTotaisPedido);
+   // Eventos para recalcular saldo e taxas
+$('#valor_pago, #valor_sinal, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas').on('change keyup', calcularTotaisPedido);
 
     // Habilitar/desabilitar botão carregar orçamento
     $('#orcamento_id').change(function() {

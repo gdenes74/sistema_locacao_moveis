@@ -1,153 +1,155 @@
 <?php
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-header('Content-Type: application/json');
-
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/database.php';
-require_once __DIR__ . '/../../models/Orcamento.php';
 require_once __DIR__ . '/../../models/Pedido.php';
+require_once __DIR__ . '/../../models/Orcamento.php';
+require_once __DIR__ . '/../../models/NumeracaoSequencial.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Verificar se é uma requisição POST
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Método não permitido']);
-    exit;
-}
-
-// Verificar se o ID do orçamento foi fornecido
-if (!isset($_POST['orcamento_id']) || !filter_var($_POST['orcamento_id'], FILTER_VALIDATE_INT)) {
-    echo json_encode(['success' => false, 'message' => 'ID do orçamento inválido']);
-    exit;
-}
-
-$orcamento_id = (int)$_POST['orcamento_id'];
+header('Content-Type: application/json; charset=utf-8');
 
 try {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        throw new Exception('Método não permitido');
+    }
+
+    if (empty($_POST['orcamento_id'])) {
+        throw new Exception('ID do orçamento é obrigatório');
+    }
+
+    $orcamento_id = (int)$_POST['orcamento_id'];
+
     $database = new Database();
     $db = $database->getConnection();
     
     $orcamentoModel = new Orcamento($db);
     $pedidoModel = new Pedido($db);
-    
-    // Iniciar transação para garantir atomicidade de todo o processo
-    $db->beginTransaction(); 
-    
-    // 1. Buscar dados do orçamento
+    $numeracaoModel = new NumeracaoSequencial($db);
+
+    $db->beginTransaction();
+
+    // Buscar dados do orçamento
     $orcamento = $orcamentoModel->getById($orcamento_id);
     if (!$orcamento) {
         throw new Exception('Orçamento não encontrado');
     }
-    
-    // 2. Verificar o status do orçamento e agir de acordo
-    if ($orcamento['status'] === 'recusado' || $orcamento['status'] === 'expirado') {
-        throw new Exception('Orçamentos recusados ou expirados não podem ser convertidos em pedidos.');
-    }
-    if ($orcamento['status'] === 'convertido') {
-        throw new Exception('Este orçamento já foi convertido em pedido.');
-    }
 
-    // 3. Verificar se já existe pedido para este orçamento (duplicação)
-    $stmt_check = $db->prepare("SELECT id, numero FROM pedidos WHERE orcamento_id = ?");
+    // Verificar se já foi convertido
+    $stmt_check = $db->prepare("SELECT id FROM pedidos WHERE orcamento_id = ?");
     $stmt_check->execute([$orcamento_id]);
-    $pedido_existente = $stmt_check->fetch(PDO::FETCH_ASSOC);
-    if ($pedido_existente) {
-        throw new Exception('Já existe um pedido para este orçamento: #' . $pedido_existente['numero']);
+    if ($stmt_check->fetchColumn()) {
+        throw new Exception('Este orçamento já foi convertido em pedido');
     }
-    
-    // 4. Buscar itens do orçamento para validação
-    $itens_orcamento = $orcamentoModel->getItens($orcamento_id);
-    if (empty($itens_orcamento)) {
-        throw new Exception('Orçamento não possui itens para converter');
-    }
-    
-    // 4.1. Verificar se tem pelo menos um produto (não só seções)
-    $tem_produtos = false;
-    foreach ($itens_orcamento as $item) {
-        if ($item['tipo_linha'] === 'PRODUTO') {
-            $tem_produtos = true;
-            break;
-        }
-    }
-    if (!$tem_produtos) {
-        throw new Exception('Orçamento não possui produtos para converter');
-    }
-    
-    // 5. Atualizar status do orçamento para 'aprovado' se estiver pendente, antes de converter
-    // Isso garante que o orçamento passa por um estado de 'aprovado' antes de 'convertido'
-    if ($orcamento['status'] === 'pendente') {
-        $stmt_update_orc_aprovado = $db->prepare("UPDATE orcamentos SET status = 'aprovado' WHERE id = ?");
-        $stmt_update_orc_aprovado->execute([$orcamento_id]);
-    }
-    // O status agora é 'aprovado' ou já era 'aprovado'.
-    
-    // 6. Criar o pedido utilizando o método do modelo Pedido
-    // Este método já busca os dados do orçamento, cria o pedido e copia os itens corretamente.
-    $pedido_id = $pedidoModel->criarDePedidoOrcamento($orcamento_id);
 
+    // Buscar itens do orçamento
+    $itens = $orcamentoModel->getItens($orcamento_id);
+    if ($itens === false) {
+        throw new Exception('Erro ao buscar itens do orçamento');
+    }
+
+    // Criar pedido com MESMO número do orçamento
+    $pedidoModel->numero = $orcamento['numero'];
+    $pedidoModel->codigo = str_replace('ORC-', 'PED-', $orcamento['codigo']);
+    $pedidoModel->cliente_id = $orcamento['cliente_id'];
+    $pedidoModel->orcamento_id = $orcamento_id;
+    $pedidoModel->data_pedido = date('Y-m-d');
+    $pedidoModel->data_evento = $orcamento['data_evento'];
+    $pedidoModel->hora_evento = $orcamento['hora_evento'];
+    $pedidoModel->data_entrega = $orcamento['data_entrega'];
+    $pedidoModel->hora_entrega = $orcamento['hora_entrega'];
+    $pedidoModel->turno_entrega = $orcamento['turno_entrega'];
+    $pedidoModel->data_retirada_prevista = $orcamento['data_devolucao_prevista'];
+    $pedidoModel->hora_devolucao = $orcamento['hora_devolucao'];
+    $pedidoModel->turno_devolucao = $orcamento['turno_devolucao'];
+    $pedidoModel->local_evento = $orcamento['local_evento'];
+    $pedidoModel->tipo = $orcamento['tipo'];
+    $pedidoModel->status = 'confirmado'; // Status inicial de pedido
+    $pedidoModel->desconto = $orcamento['desconto'];
+    $pedidoModel->taxa_domingo_feriado = $orcamento['taxa_domingo_feriado'];
+    $pedidoModel->taxa_madrugada = $orcamento['taxa_madrugada'];
+    $pedidoModel->taxa_horario_especial = $orcamento['taxa_horario_especial'];
+    $pedidoModel->taxa_hora_marcada = $orcamento['taxa_hora_marcada'];
+    $pedidoModel->frete_terreo = $orcamento['frete_terreo'];
+    $pedidoModel->frete_elevador = $orcamento['frete_elevador'];
+    $pedidoModel->frete_escadas = $orcamento['frete_escadas'];
+    $pedidoModel->ajuste_manual = $orcamento['ajuste_manual'];
+    $pedidoModel->motivo_ajuste = $orcamento['motivo_ajuste'];
+    $pedidoModel->observacoes = $orcamento['observacoes'];
+    $pedidoModel->condicoes_pagamento = $orcamento['condicoes_pagamento'];
+    $pedidoModel->usuario_id = $_SESSION['usuario_id'] ?? 1;
+
+    // Campos específicos de pedidos (zerados inicialmente)
+    $pedidoModel->valor_sinal = 0.00;
+    $pedidoModel->valor_pago = 0.00;
+    $pedidoModel->valor_multas = 0.00;
+    $pedidoModel->data_pagamento_sinal = null;
+    $pedidoModel->data_pagamento_final = null;
+
+    // Salvar pedido
+    $pedido_id = $pedidoModel->create();
     if (!$pedido_id) {
-        throw new Exception('Erro desconhecido ao criar o pedido.');
+        throw new Exception('Erro ao criar pedido');
     }
-    
-    // 7. Atualizar status final do orçamento para "convertido"
-    $stmt_update_orc = $db->prepare("UPDATE orcamentos SET status = 'convertido' WHERE id = ?");
-    $stmt_update_orc->execute([$orcamento_id]);
-    
-    // 8. Atualizar histórico de numeração sequencial
-    try {
-        $stmt_update_historico = $db->prepare("
-            UPDATE numeracao_sequencial 
-            SET tipo = 'pedido', 
-                pedido_id = :pedido_id, 
-                data_conversao = NOW() 
-            WHERE numero = :numero AND orcamento_id = :orcamento_id
-        ");
-        $stmt_update_historico->bindParam(':pedido_id', $pedido_id);
-        $stmt_update_historico->bindParam(':numero', $orcamento['numero']);
-        $stmt_update_historico->bindParam(':orcamento_id', $orcamento_id);
-        $stmt_update_historico->execute();
-        
-        // Se não existir registro, cria um
-        if ($stmt_update_historico->rowCount() === 0) {
-            $stmt_insert_historico = $db->prepare("
-                INSERT INTO numeracao_sequencial 
-                (numero, tipo, orcamento_id, pedido_id, data_atribuicao, data_conversao) 
-                VALUES (:numero, 'pedido', :orcamento_id, :pedido_id, NOW(), NOW())
-            ");
-            $stmt_insert_historico->bindParam(':numero', $orcamento['numero']);
-            $stmt_insert_historico->bindParam(':orcamento_id', $orcamento_id);
-            $stmt_insert_historico->bindParam(':pedido_id', $pedido_id);
-            $stmt_insert_historico->execute();
+
+    // Copiar itens do orçamento para o pedido
+    if (!empty($itens)) {
+        $itens_pedido = [];
+        foreach ($itens as $item) {
+            $itens_pedido[] = [
+                'produto_id' => $item['produto_id'],
+                'nome_produto_manual' => $item['nome_produto_manual'],
+                'quantidade' => $item['quantidade'],
+                'preco_unitario' => $item['preco_unitario'],
+                'desconto' => $item['desconto'],
+                'preco_final' => $item['preco_final'],
+                'tipo' => $item['tipo'],
+                'observacoes' => $item['observacoes'],
+                'tipo_linha' => $item['tipo_linha'],
+                'ordem' => $item['ordem']
+            ];
         }
-        
-    } catch (Exception $e) {
-        error_log("Aviso: Erro ao atualizar histórico de numeração: " . $e->getMessage());
-        // Não jogamos a exceção para não dar rollback no pedido já criado, apenas logamos
+
+        if (!$pedidoModel->salvarItens($pedido_id, $itens_pedido)) {
+            throw new Exception('Erro ao copiar itens do orçamento');
+        }
     }
-    
-    // Confirmar transação
+
+    // Recalcular valores do pedido
+    $pedidoModel->id = $pedido_id;
+    if (!$pedidoModel->recalcularValores($pedido_id)) {
+        throw new Exception('Erro ao recalcular valores do pedido');
+    }
+
+    // Atualizar status do orçamento para 'convertido'
+    $stmt_update = $db->prepare("UPDATE orcamentos SET status = 'convertido' WHERE id = ?");
+    if (!$stmt_update->execute([$orcamento_id])) {
+        throw new Exception('Erro ao atualizar status do orçamento');
+    }
+
     $db->commit();
-    
+
+    // MUDANÇA PRINCIPAL: Redirecionar para EDIT em vez de SHOW
     echo json_encode([
-        'success' => true, 
-        'message' => 'Pedido gerado com sucesso!',
+        'success' => true,
+        'message' => 'Orçamento convertido com sucesso! Faça os ajustes necessários no pedido.',
         'pedido_id' => $pedido_id,
         'pedido_numero' => $pedidoModel->numero,
-        'pedido_codigo' => $pedidoModel->codigo
+        'redirect_to' => 'edit' // Flag para indicar redirecionamento para edit
     ]);
-    
+
 } catch (Exception $e) {
-    if ($db->inTransaction()) {
+    if ($db && $db->inTransaction()) {
         $db->rollBack();
     }
     
-    error_log("Erro ao converter orçamento em pedido: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    error_log("Erro na conversão de orçamento para pedido: " . $e->getMessage());
+    
+    echo json_encode([
+        'success' => false,
+        'message' => $e->getMessage()
+    ]);
 }
 ?>
