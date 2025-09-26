@@ -219,6 +219,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'carregar_orcamento') {
 
         $itens = $orcamentoModel->getItens($orcamento_id);
 
+        // CORREÇÃO: Preparar fotos dos itens do orçamento
+        $base_url_config = rtrim(BASE_URL, '/');
+        foreach ($itens as &$item_processado) {
+            if (!empty($item_processado['foto_path']) && $item_processado['foto_path'] !== "null" && trim($item_processado['foto_path']) !== "") {
+                $foto_path_limpo = ltrim($item_processado['foto_path'], '/');
+                $item_processado['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
+            } else {
+                $item_processado['foto_path_completo'] = null;
+            }
+        }
+        unset($item_processado); // Limpa a referência do loop
+
         echo json_encode([
             'success' => true,
             'orcamento' => $orcamento,
@@ -424,6 +436,83 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         $_SESSION['error_message'] = "Ocorreu um erro: " . $e->getMessage();
         error_log("[EXCEÇÃO NO PROCESSAMENTO DO PEDIDO]: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+    }
+}
+// --- Bloco AJAX para buscar produtos ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $termo = isset($_GET['termo']) ? trim($_GET['termo']) : '';
+        $categoria_principal_id = isset($_GET['categoria_id']) ? (int) $_GET['categoria_id'] : 0;
+
+        if (empty($termo) && $categoria_principal_id === 0) {
+            echo json_encode([]);
+            exit;
+        }
+
+        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path
+                FROM produtos p";
+
+        $conditions = [];
+        $executeParams = [];
+
+        if (!empty($termo)) {
+            $conditions[] = "(p.nome_produto LIKE ? OR p.codigo LIKE ?)";
+            $executeParams[] = "%" . $termo . "%";
+            $executeParams[] = "%" . $termo . "%";
+        }
+
+        if ($categoria_principal_id > 0) {
+            $sqlSubcategorias = "SELECT id FROM subcategorias WHERE categoria_id = ?";
+            $stmtSub = $db->prepare($sqlSubcategorias);
+            $stmtSub->execute([$categoria_principal_id]);
+            $subcategoriasIds = $stmtSub->fetchAll(PDO::FETCH_COLUMN);
+
+            if (!empty($subcategoriasIds)) {
+                $placeholders = implode(',', array_fill(0, count($subcategoriasIds), '?'));
+                $conditions[] = "p.subcategoria_id IN ({$placeholders})";
+                $executeParams = array_merge($executeParams, $subcategoriasIds);
+            } else {
+                echo json_encode([]);
+                exit;
+            }
+        }
+
+        if (!empty($conditions)) {
+            $sql .= " WHERE " . implode(' AND ', $conditions);
+        } else {
+            echo json_encode([]);
+            exit;
+        }
+
+        $sql .= " ORDER BY p.nome_produto LIMIT 15";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($executeParams);
+        $produtos_ajax = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $base_url_config = rtrim(BASE_URL, '/');
+
+        foreach ($produtos_ajax as &$produto_item) {
+            if (!empty($produto_item['foto_path']) && $produto_item['foto_path'] !== "null" && trim($produto_item['foto_path']) !== "") {
+                $foto_path_limpo = ltrim($produto_item['foto_path'], '/');
+                $produto_item['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
+            } else {
+                $produto_item['foto_path_completo'] = null;
+            }
+        }
+        unset($produto_item);
+
+        echo json_encode($produtos_ajax);
+        exit;
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        $errorQueryDebug = isset($sql) ? $sql : 'SQL não disponível na captura da exceção.';
+        $errorParamsDebug = isset($executeParams) ? json_encode($executeParams) : 'Parâmetros não disponíveis.';
+        error_log("Erro AJAX buscar_produtos: " . $e->getMessage() . " | Query: " . $errorQueryDebug . " | Params: " . $errorParamsDebug);
+        echo json_encode(['error' => 'Ocorreu um erro interno ao buscar produtos.']);
+        exit;
     }
 }
 
@@ -1139,24 +1228,7 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-                                <div class="form-group row align-items-center">
-                                    <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_desconto_geral" id="aplicar_desconto_geral"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="desconto_total">
-                                    </div>
-                                    <label for="aplicar_desconto_geral" class="col-sm-5 col-form-label pr-1">
-                                        Desconto Geral (-)
-                                    </label>
-                                    <div class="col-sm-6">
-                                        <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="desconto_total" name="desconto_total" placeholder="0,00" value=""
-                                                disabled>
-                                        </div>
-                                    </div>
-                                </div>
+                                
                                 <hr>
 
                                 <div class="form-group row mt-3 bg-light p-2 rounded">
@@ -1493,7 +1565,10 @@ $('#btnLimparFiltros').click(function() {
 
     function preencherFormularioComOrcamento(orcamento, itens) {
     // Preencher campos básicos
-    $('#cliente_id').val(orcamento.cliente_id).trigger('change');
+    if (orcamento.cliente_id && orcamento.nome_cliente) {
+    var clienteOption = new Option(orcamento.nome_cliente, orcamento.cliente_id, true, true);
+    $('#cliente_id').empty().append(clienteOption).trigger('change');
+}
     $('#data_evento').val(orcamento.data_evento ? formatarData(orcamento.data_evento) : '');
     $('#hora_evento').val(orcamento.hora_evento || '');
     $('#local_evento').val(orcamento.local_evento || '');
@@ -1553,14 +1628,14 @@ $('#btnLimparFiltros').click(function() {
         $.each(itens, function(i, item) {
             // Converter dados do orçamento para formato do pedido
             var itemPedido = {
-                id: item.produto_id,
-                nome_produto: item.nome_produto_manual || item.nome_produto,
-                preco_locacao: item.preco_unitario,
-                quantidade: item.quantidade,
-                desconto: item.desconto,
-                observacoes: item.observacoes,
-                foto_path_completo: null // Será carregado se necessário
-            };
+    id: item.produto_id,
+    nome_produto: item.nome_produto_catalogo || item.nome_produto_manual || 'Produto não identificado',
+    preco_locacao: item.preco_unitario,
+    quantidade: item.quantidade,
+    desconto: item.desconto,
+    observacoes: item.observacoes,
+    foto_path_completo: item.foto_path_completo || null
+};
             adicionarLinhaItemTabela(itemPedido, item.tipo_linha);
             
             // Ajustar valores após adicionar
@@ -1608,9 +1683,11 @@ $('#btnLimparFiltros').click(function() {
 
     var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
 
-        // Calcular saldo
-        var valorPago = unformatCurrency($('#valor_pago').val());
-        var saldo = Math.max(0, valorFinalCalculado - valorPago);
+        // Calcular saldo (incluindo valor do sinal)
+var valorSinal = unformatCurrency($('#valor_sinal').val());
+var valorPago = unformatCurrency($('#valor_pago').val());
+var totalPago = valorSinal + valorPago;
+var saldo = Math.max(0, valorFinalCalculado - totalPago);
 
         // Atualizar displays
         if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
