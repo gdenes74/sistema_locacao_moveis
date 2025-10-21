@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Funções Auxiliares ---
+// --- Funções Auxiliares (mantidas iguais ao orçamento) ---
 if (!function_exists('formatarDataDiaSemana')) {
     function formatarDataDiaSemana($dataModel)
     {
@@ -31,14 +31,16 @@ if (!function_exists('formatarTurnoHora')) {
     function formatarTurnoHora($turno, $hora)
     {
         $retorno = htmlspecialchars(trim($turno ?? ''));
+        
         if (!empty($hora) && $hora !== '00:00:00') {
             try {
                 $horaFormatada = date('H\H', strtotime($hora));
                 $retorno .= ($retorno ? ' APROX. ' : 'APROX. ') . htmlspecialchars($horaFormatada);
             } catch (Exception $e) {
-                // não faz nada se a hora for inválida
+                // Se a hora for inválida, apenas ignora
             }
         }
+        
         return trim($retorno) ?: '-';
     }
 }
@@ -74,18 +76,19 @@ if (!function_exists('formatarTelefone')) {
     }
 }
 
-if (!function_exists('getSituacaoBadge')) {
-    function getSituacaoBadge($situacao)
+if (!function_exists('formatarStatusPedido')) {
+    function formatarStatusPedido($situacao_pedido)
     {
-        $badges = [
-            'confirmado' => '<span class="badge badge-primary">Confirmado</span>',
-            'em_separacao' => '<span class="badge badge-warning">Em Separação</span>',
-            'entregue' => '<span class="badge badge-success">Entregue</span>',
-            'devolvido_parcial' => '<span class="badge badge-info">Devolvido Parcial</span>',
-            'finalizado' => '<span class="badge badge-dark">Finalizado</span>',
-            'cancelado' => '<span class="badge badge-danger">Cancelado</span>'
+        $statusMap = [
+            'confirmado' => ['class' => 'info', 'icon' => 'check-circle', 'text' => 'CONFIRMADO'],
+            'em_separacao' => ['class' => 'primary', 'icon' => 'cogs', 'text' => 'EM SEPARAÇÃO'],
+            'entregue' => ['class' => 'success', 'icon' => 'truck', 'text' => 'ENTREGUE'],
+            'devolvido_parcial' => ['class' => 'warning', 'icon' => 'undo', 'text' => 'DEVOLVIDO PARCIAL'],
+            'finalizado' => ['class' => 'success', 'icon' => 'check-double', 'text' => 'FINALIZADO'],
+            'cancelado' => ['class' => 'danger', 'icon' => 'times-circle', 'text' => 'CANCELADO']
         ];
-        return $badges[$situacao] ?? '<span class="badge badge-secondary">Indefinido</span>';
+        
+        return $statusMap[$situacao_pedido] ?? ['class' => 'secondary', 'icon' => 'question', 'text' => strtoupper($situacao_pedido)];
     }
 }
 // --- Fim Funções Auxiliares ---
@@ -106,10 +109,27 @@ if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
 }
 
 $id = (int) $_GET['id'];
-if (!$pedidoModel->getById($id)) {
+$pedidoData = $pedidoModel->getById($id);
+
+if (!$pedidoData) {
     $_SESSION['error_message'] = "Pedido não encontrado (ID: {$id}).";
     header('Location: index.php');
     exit;
+}
+
+// Carregar dados do pedido no modelo
+foreach ($pedidoData as $key => $value) {
+    if (property_exists($pedidoModel, $key)) {
+        $pedidoModel->$key = $value;
+    }
+}
+
+// Verificar se veio de orçamento
+$orcamentoOrigem = null;
+if (!empty($pedidoModel->orcamento_id)) {
+    $stmt = $conn->prepare("SELECT numero FROM orcamentos WHERE id = ?");
+    $stmt->execute([$pedidoModel->orcamento_id]);
+    $orcamentoOrigem = $stmt->fetchColumn();
 }
 
 // Preencher dados do cliente
@@ -118,6 +138,15 @@ if (!empty($pedidoModel->cliente_id)) {
 }
 
 $itens = $pedidoModel->getItens($id);
+
+// Calcular valores para exibição
+$saldoDevedor = floatval($pedidoModel->valor_final ?? 0) - floatval($pedidoModel->valor_pago ?? 0);
+
+// Status do pedido
+$statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado');
+
+// Define a variável JavaScript para uso no footer
+$inline_js_setup = "const PEDIDO_ID = " . $id . ";";
 ?>
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
@@ -127,58 +156,32 @@ $itens = $pedidoModel->getItens($id);
             <div class="row mb-2">
                 <div class="col-sm-6">
                     <h1>Pedido #<?= htmlspecialchars($pedidoModel->numero ?? 'N/A') ?></h1>
-                    <div class="mt-2">
-                        <?= getSituacaoBadge($pedidoModel->situacao_pedido ?? 'confirmado') ?>
-                        <?php if (!empty($pedidoModel->orcamento_id)): ?>
-                            <small class="text-muted ml-2">
-                                <i class="fas fa-file-alt"></i> 
-                                Convertido do orçamento #<?= htmlspecialchars($pedidoModel->orcamento_numero ?? $pedidoModel->orcamento_id) ?>
-                            </small>
-                        <?php endif; ?>
-                    </div>
                 </div>
                 <div class="col-sm-6 text-right">
                     <a href="index.php" class="btn btn-secondary btn-sm">
                         <i class="fas fa-arrow-left"></i> Voltar
                     </a>
-                    <?php if ($pedidoModel->situacao_pedido !== 'finalizado' && $pedidoModel->situacao_pedido !== 'cancelado'): ?>
-                        <a href="edit.php?id=<?= htmlspecialchars($pedidoModel->id ?? '') ?>"
-                            class="btn btn-warning btn-sm">
+                    
+                    <?php if ($orcamentoOrigem): ?>
+                        <!-- Link para orçamento origem -->
+                        <a href="../orcamentos/show.php?id=<?= $pedidoModel->orcamento_id ?>" class="btn btn-info btn-sm">
+                            <i class="fas fa-file-alt"></i> Ver Orçamento #<?= $orcamentoOrigem ?>
+                        </a>
+                    <?php endif; ?>
+                    
+                    <?php if ($pedidoModel->situacao_pedido !== 'cancelado' && $pedidoModel->situacao_pedido !== 'finalizado'): ?>
+                        <!-- Botões de ação apenas se não estiver cancelado/finalizado -->
+                        <a href="edit.php?id=<?= htmlspecialchars($pedidoModel->id ?? '') ?>" class="btn btn-warning btn-sm">
                             <i class="fas fa-edit"></i> Editar
                         </a>
-                        <div class="btn-group" role="group">
-                            <button type="button" class="btn btn-info btn-sm dropdown-toggle" 
-                                    data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                <i class="fas fa-exchange-alt"></i> Alterar Situação
-                            </button>
-                            <div class="dropdown-menu">
-                                <?php if ($pedidoModel->situacao_pedido === 'confirmado'): ?>
-                                    <a class="dropdown-item" href="#" onclick="alterarSituacao('em_separacao')">
-                                        <i class="fas fa-tools text-warning"></i> Em Separação
-                                    </a>
-                                <?php endif; ?>
-                                <?php if ($pedidoModel->situacao_pedido === 'em_separacao'): ?>
-                                    <a class="dropdown-item" href="#" onclick="alterarSituacao('entregue')">
-                                        <i class="fas fa-truck text-success"></i> Entregue
-                                    </a>
-                                <?php endif; ?>
-                                <?php if ($pedidoModel->situacao_pedido === 'entregue'): ?>
-                                    <a class="dropdown-item" href="#" onclick="alterarSituacao('devolvido_parcial')">
-                                        <i class="fas fa-undo text-info"></i> Devolvido Parcial
-                                    </a>
-                                <?php endif; ?>
-                                <?php if ($pedidoModel->situacao_pedido === 'devolvido_parcial'): ?>
-                                    <a class="dropdown-item" href="#" onclick="alterarSituacao('finalizado')">
-                                        <i class="fas fa-check-circle text-dark"></i> Finalizado
-                                    </a>
-                                <?php endif; ?>
-                                <div class="dropdown-divider"></div>
-                                <a class="dropdown-item text-danger" href="#" onclick="alterarSituacao('cancelado')">
-                                    <i class="fas fa-times-circle"></i> Cancelar Pedido
-                                </a>
-                            </div>
-                        </div>
                     <?php endif; ?>
+                    
+                    <!-- Status badge -->
+                    <span class="badge badge-<?= $statusInfo['class'] ?> ml-1">
+                        <i class="fas fa-<?= $statusInfo['icon'] ?>"></i> <?= $statusInfo['text'] ?>
+                    </span>
+                    
+                    <!-- Botões de impressão sempre disponíveis -->
                     <button onclick="imprimirCliente();" class="btn btn-primary btn-sm">
                         <i class="fas fa-print"></i> Imprimir p/ Cliente
                     </button>
@@ -238,14 +241,22 @@ $itens = $pedidoModel->getItens($id);
                             <strong>Nº: <?= htmlspecialchars($pedidoModel->numero ?? 'N/A') ?></strong><br>
                             <small>Data:
                                 <?= isset($pedidoModel->data_pedido) ? date('d/m/Y', strtotime($pedidoModel->data_pedido)) : date('d/m/Y') ?></small>
-                            <br><small><strong>Situação:</strong> <?= ucfirst(str_replace('_', ' ', $pedidoModel->situacao_pedido ?? 'confirmado')) ?></small>
+                            
+                            <?php if ($orcamentoOrigem): ?>
+                                <br><small><strong>Origem:</strong> Orçamento #<?= $orcamentoOrigem ?></small>
+                            <?php endif; ?>
+                            
+                            <!-- Status do pedido -->
+                            <br><span class="badge badge-<?= $statusInfo['class'] ?> mt-1">
+                                <i class="fas fa-<?= $statusInfo['icon'] ?>"></i> <?= $statusInfo['text'] ?>
+                            </span>
                         </div>
                     </div>
                     <hr>
 
                     <!-- INFORMAÇÕES DO CLIENTE E EVENTO -->
                     <div class="row mb-3">
-                        <div class="col-8">
+                        <div class="col-12">
                             <strong>Cliente:</strong>
                             <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?><br>
                             <?php if (!empty($clienteModel->telefone)): ?>
@@ -254,46 +265,178 @@ $itens = $pedidoModel->getItens($id);
                             <?php if (!empty($clienteModel->cpf_cnpj)): ?>
                                 <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?><br>
                             <?php endif; ?>
+                            
+                            <!-- Data do Evento -->
                             <strong>Data do evento:</strong>
-                            <?= formatarDataDiaSemana($pedidoModel->data_evento ?? null) ?><br>
+                            <?php 
+                            $dataEventoCompleta = '';
+                            if (!empty($pedidoModel->data_evento)) {
+                                $dataEventoCompleta = formatarDataDiaSemana($pedidoModel->data_evento);
+                                if (!empty($pedidoModel->hora_evento) && $pedidoModel->hora_evento !== '00:00:00') {
+                                    try {
+                                        $horaEventoFormatada = date('H\H', strtotime($pedidoModel->hora_evento));
+                                        $dataEventoCompleta .= ' às ' . $horaEventoFormatada;
+                                    } catch (Exception $e) {
+                                        // Ignora erro de hora
+                                    }
+                                }
+                            } else {
+                                $dataEventoCompleta = '-';
+                            }
+                            echo $dataEventoCompleta;
+                            ?><br>
+                            
                             <strong>Local de Entrega:</strong>
-                            <?= htmlspecialchars($pedidoModel->local_evento ?: '-') ?>
+                            <?= htmlspecialchars($pedidoModel->local_evento ?: '-') ?><br>
+                            
+                            <!-- Data da Entrega -->
+                            <strong>Data da Entrega:</strong>
+                            <?php 
+                            $dataEntregaCompleta = '';
+                            if (!empty($pedidoModel->data_entrega)) {
+                                $dataEntregaCompleta = formatarDataDiaSemana($pedidoModel->data_entrega);
+                                $turnoHoraEntrega = formatarTurnoHora($pedidoModel->turno_entrega ?? null, $pedidoModel->hora_entrega ?? null);
+                                if ($turnoHoraEntrega !== '-') {
+                                    $dataEntregaCompleta .= ' - ' . $turnoHoraEntrega;
+                                }
+                            } else {
+                                $dataEntregaCompleta = '-';
+                            }
+                            echo $dataEntregaCompleta;
+                            ?><br>
+                            
+                            <!-- Data da Coleta -->
+                            <strong>Data da Coleta:</strong>
+                            <?php 
+                            $dataColetaCompleta = '';
+                            if (!empty($pedidoModel->data_devolucao_prevista)) {
+                                $dataColetaCompleta = formatarDataDiaSemana($pedidoModel->data_devolucao_prevista);
+                                $turnoHoraColeta = formatarTurnoHora($pedidoModel->turno_devolucao ?? null, $pedidoModel->hora_devolucao ?? null);
+                                if ($turnoHoraColeta !== '-') {
+                                    $dataColetaCompleta .= ' - ' . $turnoHoraColeta;
+                                }
+                            } else {
+                                $dataColetaCompleta = '-';
+                            }
+                            echo $dataColetaCompleta;
+                            ?>
                         </div>
-                        <div class="col-4 text-right">
-                            <!-- Informações de pagamento -->
-                            <?php if (!empty($pedidoModel->valor_sinal) && $pedidoModel->valor_sinal > 0): ?>
-                                <div class="info-pagamento">
-                                    <small><strong>Sinal:</strong> R$ <?= formatarValor($pedidoModel->valor_sinal) ?></small><br>
-                                    <small><strong>Pago:</strong> R$ <?= formatarValor($pedidoModel->valor_pago ?? 0) ?></small><br>
-                                    <?php 
-                                    $saldo = ($pedidoModel->valor_final ?? 0) - ($pedidoModel->valor_pago ?? 0);
-                                    if ($saldo > 0): ?>
-                                        <small><strong>Saldo:</strong> R$ <?= formatarValor($saldo) ?></small>
+                    </div>
+
+                    <!-- BARRA DE CONTROLE FINANCEIRO -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card card-financeiro-barra">
+                                <div class="card-header bg-info text-white">
+                                    <h5 class="mb-0"><i class="fas fa-money-bill-wave"></i> Controle Financeiro do Pedido</h5>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="row align-items-center">
+                                        <!-- Valor Total -->
+                                        <div class="col-md-2 text-center border-right">
+                                            <div class="financeiro-item">
+                                                <small class="text-muted d-block">VALOR TOTAL</small>
+                                                <h4 class="text-primary mb-0">R$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></h4>
+                                            </div>
+                                        </div>
+                                        
+                                                                                <!-- Sinal (se houver) -->
+                                        <?php if (!empty($pedidoModel->valor_sinal) && $pedidoModel->valor_sinal > 0): ?>
+                                            <div class="col-md-2 text-center border-right">
+                                                <div class="financeiro-item">
+                                                    <small class="text-muted d-block">SINAL PAGO</small>
+                                                    <h5 class="text-info mb-0">R$ <?= formatarValor($pedidoModel->valor_sinal, true) ?></h5>
+                                                    <?php if (!empty($pedidoModel->data_pagamento_sinal)): ?>
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_sinal)) ?>
+                                                        </small>
+                                                    <?php endif; ?>
+                                                </div>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Total Pago -->
+                                        <div class="col-md-2 text-center border-right">
+                                            <div class="financeiro-item">
+                                                <small class="text-muted d-block">TOTAL PAGO</small>
+                                                <h5 class="text-success mb-0">R$ <?= formatarValor($pedidoModel->valor_pago ?? 0, true) ?></h5>
+                                                <?php if (!empty($pedidoModel->data_pagamento_final)): ?>
+                                                    <small class="text-muted">
+                                                        <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_final)) ?>
+                                                    </small>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Multas (se houver) -->
+                                        <?php if (!empty($pedidoModel->valor_multas) && $pedidoModel->valor_multas > 0): ?>
+                                            <div class="col-md-2 text-center border-right">
+                                                <div class="financeiro-item">
+                                                    <small class="text-muted d-block">MULTAS/EXTRAS</small>
+                                                    <h5 class="text-warning mb-0">R$ <?= formatarValor($pedidoModel->valor_multas, true) ?></h5>
+                                                </div>
+                                            </div>
+                                        <?php endif; ?>
+                                        
+                                        <!-- Saldo Devedor -->
+                                        <div class="col-md-2 text-center border-right">
+                                            <div class="financeiro-item">
+                                                <small class="text-muted d-block">SALDO DEVEDOR</small>
+                                                <h4 class="<?= $saldoDevedor > 0 ? 'text-danger' : 'text-success' ?> mb-0">
+                                                    R$ <?= formatarValor($saldoDevedor, true) ?>
+                                                </h4>
+                                                <?php if ($saldoDevedor <= 0): ?>
+                                                    <small class="text-success">
+                                                        <i class="fas fa-check-circle"></i> Quitado
+                                                    </small>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Status do Pagamento -->
+                                        <div class="col-md-2 text-center">
+                                            <div class="financeiro-item">
+                                                <small class="text-muted d-block">STATUS</small>
+                                                <?php if ($saldoDevedor <= 0): ?>
+                                                    <span class="badge badge-success badge-status">
+                                                        <i class="fas fa-check-double"></i><br>PAGO
+                                                    </span>
+                                                <?php elseif ($pedidoModel->valor_pago > 0): ?>
+                                                    <span class="badge badge-warning badge-status">
+                                                        <i class="fas fa-clock"></i><br>PARCIAL
+                                                    </span>
+                                                <?php else: ?>
+                                                    <span class="badge badge-danger badge-status">
+                                                        <i class="fas fa-exclamation-triangle"></i><br>PENDENTE
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Condições de Pagamento (se houver) -->
+                                    <?php if (!empty($pedidoModel->condicoes_pagamento)): ?>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <div class="alert alert-info mb-0">
+                                                    <strong><i class="fas fa-file-contract"></i> Condições de Pagamento:</strong><br>
+                                                    <?= nl2br(htmlspecialchars($pedidoModel->condicoes_pagamento)) ?>
+                                                </div>
+                                            </div>
+                                        </div>
                                     <?php endif; ?>
                                 </div>
-                            <?php endif; ?>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- DATAS DE LOGÍSTICA -->
-                    <div class="row mb-2">
-                        <div class="col-12">
-                            <strong>Data da Entrega:</strong>
-                            <?= formatarTurnoHora($pedidoModel->turno_entrega ?? null, $pedidoModel->hora_evento ?? null) ?><br>
-                            <strong>Data da Coleta:</strong>
-                            <?= formatarTurnoHora($pedidoModel->turno_devolucao ?? null, $pedidoModel->hora_devolucao ?? null) ?>
-                        </div>
-                    </div>
-
-                    <!-- OBSERVAÇÕES DE TAXAS -->
+                    <!-- OBSERVAÇÕES DE TAXAS (igual ao orçamento) -->
                     <div class="row mb-3 obs-taxas-regras">
                         <div class="col-12">
                             <small># DOMINGO/FERIADO após as 8h e antes das 12h Taxa R$ 250,00</small><br>
                             <small># MADRUGADA após as 4:30h e antes das 8:30h Taxa R$ 800,00</small><br>
-                            <small># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$
-                                500,00</small><br>
-                            <small># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$
-                                200,00</small><br>
+                            <small># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$ 500,00</small><br>
+                            <small># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$ 200,00</small><br>
                             <small># Infelizmente não dispomos de entregas ou coletas no período das 24h as 5h</small>
                         </div>
                     </div>
@@ -320,11 +463,11 @@ $itens = $pedidoModel->getItens($id);
                             ?>
                         </div>
                         <div class="col-6 text-right font-weight-bold">
-                            PEDIDO <?= htmlspecialchars(strtoupper($pedidoModel->tipo ?? 'Locação')) ?>
+                            PEDIDO CONFIRMADO <?= htmlspecialchars(strtoupper($pedidoModel->tipo ?? 'Locação')) ?>
                         </div>
                     </div>
 
-                    <!-- TABELA DE ITENS -->
+                    <!-- TABELA DE ITENS (igual ao orçamento) -->
                     <div class="table-responsive mb-3">
                         <table class="table table-sm table-bordered table-itens-pedido">
                             <thead>
@@ -357,10 +500,8 @@ $itens = $pedidoModel->getItens($id);
                                         // Determina o nome do produto/serviço
                                         $nomeItem = '';
                                         if (!empty($item['nome_produto_manual'])) {
-                                            // Item digitado manualmente
                                             $nomeItem = $item['nome_produto_manual'];
                                         } elseif (!empty($item['nome_produto_catalogo'])) {
-                                            // Item do catálogo
                                             $nomeItem = $item['nome_produto_catalogo'];
                                         } else {
                                             $nomeItem = 'Item não identificado';
@@ -371,8 +512,7 @@ $itens = $pedidoModel->getItens($id);
                                             ?>
                                             <tr class="titulo-secao">
                                                 <td colspan="<?= $temDesconto ? '5' : '4' ?>" class="font-weight-bold bg-light">
-                                                    <span
-                                                        class="titulo-secao-texto"><?= htmlspecialchars(strtoupper($nomeItem)) ?></span>
+                                                    <span class="titulo-secao-texto"><?= htmlspecialchars(strtoupper($nomeItem)) ?></span>
                                                 </td>
                                             </tr>
                                         <?php else:
@@ -380,14 +520,11 @@ $itens = $pedidoModel->getItens($id);
                                             $quantidadeItem = isset($item['quantidade']) ? floatval($item['quantidade']) : 0;
                                             $precoUnitarioItem = isset($item['preco_unitario']) ? floatval($item['preco_unitario']) : 0;
                                             $descontoItem = isset($item['desconto']) ? floatval($item['desconto']) : 0;
-
-                                            // Usa o preco_final que já vem calculado do banco
                                             $itemSubtotal = isset($item['preco_final']) ? floatval($item['preco_final']) : 0;
                                             $subtotalItensPIX += $itemSubtotal;
                                             ?>
                                             <tr>
-                                                <td class="text-center"><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?>
-                                                </td>
+                                                <td class="text-center"><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></td>
                                                 <td>
                                                     <?php if (!empty($item['foto_path'])): ?>
                                                         <img src="<?= BASE_URL ?>/<?= ltrim($item['foto_path'], '/') ?>"
@@ -403,7 +540,7 @@ $itens = $pedidoModel->getItens($id);
                                                         <?php endif; ?>
                                                     </div>
                                                 </td>
-                                                                                                <td class="text-right">R$ <?= formatarValor($precoUnitarioItem) ?></td>
+                                                <td class="text-right">R$ <?= formatarValor($precoUnitarioItem) ?></td>
                                                 <?php if ($temDesconto): ?>
                                                     <td class="text-right">
                                                         <?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?>
@@ -417,8 +554,7 @@ $itens = $pedidoModel->getItens($id);
                                 else:
                                     ?>
                                     <tr>
-                                        <td colspan="<?= $temDesconto ? '5' : '4' ?>" class="text-center text-muted">Nenhum
-                                            item adicionado.</td>
+                                        <td colspan="<?= $temDesconto ? '5' : '4' ?>" class="text-center text-muted">Nenhum item adicionado.</td>
                                     </tr>
                                 <?php endif; ?>
 
@@ -427,8 +563,7 @@ $itens = $pedidoModel->getItens($id);
                                 $totalItensExibidos = is_array($itens) ? count($itens) : 0;
                                 $totalLinhasVisuais = 8;
                                 $linhasAdicionais = $totalLinhasVisuais - $totalItensExibidos;
-                                if ($linhasAdicionais < 0)
-                                    $linhasAdicionais = 0;
+                                if ($linhasAdicionais < 0) $linhasAdicionais = 0;
 
                                 for ($i = 0; $i < $linhasAdicionais; $i++):
                                     ?>
@@ -436,26 +571,22 @@ $itens = $pedidoModel->getItens($id);
                                         <td>&nbsp;</td>
                                         <td>&nbsp;</td>
                                         <td>&nbsp;</td>
-                                        <?php if ($temDesconto): ?>
-                                            <td>&nbsp;</td><?php endif; ?>
+                                        <?php if ($temDesconto): ?><td>&nbsp;</td><?php endif; ?>
                                         <td>&nbsp;</td>
                                     </tr>
                                 <?php endfor; ?>
                             </tbody>
                         </table>
-                    </div>
-
-                    <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
+                    </div>                    <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
                     <div class="row mb-3">
                         <div class="col-7 obs-gerais">
-                            <small># Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da
-                                festa</small><br>
+                            <small># Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa</small><br>
                             <small>&nbsp;&nbsp;desde que não ultrapasse 10% do valor total contratado #</small><br>
                             <small>* Não Inclui Posicionamento dos Móveis no Local *</small>
                         </div>
                         <div class="col-5 text-right">
                             <strong>Sub total p/ PIX ou Depósito</strong>
-                            <strong class="ml-3">R$ <?= formatarValor($subtotalItensPIX) ?></strong>
+                            <strong class="ml-3">R\$ <?= formatarValor($subtotalItensPIX) ?></strong>
                         </div>
                     </div>
                     <hr>
@@ -476,25 +607,25 @@ $itens = $pedidoModel->getItens($id);
                             function exibirTaxa($valor, $valorPadrao = null)
                             {
                                 if (is_numeric($valor) && $valor > 0) {
-                                    return 'R$ ' . formatarValor($valor);
+                                    return 'R\$ ' . formatarValor($valor);
                                 }
                                 return 'a confirmar';
                             }
                             ?>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA DOMINGO E FERIADO R$ 250,00</span>
+                                <span class="text-left-label">TAXA DOMINGO E FERIADO R\$ 250,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_domingo_feriado ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA MADRUGADA R$ 800,00</span>
+                                <span class="text-left-label">TAXA MADRUGADA R\$ 800,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_madrugada ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA HORÁRIO ESPECIAL R$ 500,00</span>
+                                <span class="text-left-label">TAXA HORÁRIO ESPECIAL R\$ 500,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_horario_especial ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA HORA MARCADA R$ 200,00</span>
+                                <span class="text-left-label">TAXA HORA MARCADA R\$ 200,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_hora_marcada ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
@@ -507,29 +638,21 @@ $itens = $pedidoModel->getItens($id);
                             </div>
                             <div class="mb-2">
                                 <span class="text-left-label"><strong>FRETE TÉRREO SEM ESCADAS</strong></span>
-                                <span><strong>R$
-                                        <?= formatarValor($pedidoModel->frete_terreo ?? 0, true) ?></strong></span>
+                                <span><strong>R\$ <?= formatarValor($pedidoModel->frete_terreo ?? 0, true) ?></strong></span>
                             </div>
 
                             <?php if (!empty($pedidoModel->desconto) && $pedidoModel->desconto > 0): ?>
                                 <div class="mb-1 text-danger">
                                     <span class="text-left-label">DESCONTO GERAL</span>
-                                    <span>- R$ <?= formatarValor($pedidoModel->desconto) ?></span>
-                                </div>
-                            <?php endif; ?>
-
-                            <?php if (!empty($pedidoModel->valor_multas) && $pedidoModel->valor_multas > 0): ?>
-                                <div class="mb-1 text-warning">
-                                    <span class="text-left-label">MULTAS/TAXAS EXTRAS</span>
-                                    <span>+ R$ <?= formatarValor($pedidoModel->valor_multas) ?></span>
+                                    <span>- R\$ <?= formatarValor($pedidoModel->desconto) ?></span>
                                 </div>
                             <?php endif; ?>
 
                             <hr style="margin: 0.5rem 0;">
                             <h4><strong>
-                                    <span class="text-left-label">Total p/ PIX ou Depósito</span>
-                                    <span>R$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></span>
-                                </strong></h4>
+                                <span class="text-left-label">Total p/ PIX ou Depósito</span>
+                                <span>R\$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></span>
+                            </strong></h4>
                         </div>
                     </div>
                     <hr>
@@ -538,8 +661,7 @@ $itens = $pedidoModel->getItens($id);
                     <div class="row mt-3">
                         <div class="col-12 text-center info-pix">
                             <strong>PIX SICREDI CNPJ 19.318.614 / 0001-44</strong><br>
-                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e
-                                garantir sua reserva</small>
+                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
                         </div>
                     </div>
 
@@ -563,25 +685,6 @@ $itens = $pedidoModel->getItens($id);
                         </div>
                     <?php endif; ?>
 
-                    <!-- Histórico de Status (apenas para visualização) -->
-                    <?php if ($pedidoModel->situacao_pedido !== 'confirmado'): ?>
-                        <div class="row mt-4 no-print">
-                            <div class="col-12">
-                                <hr>
-                                <h6>Histórico do Pedido:</h6>
-                                <div class="timeline-status">
-                                    <small class="text-muted">
-                                        <i class="fas fa-info-circle"></i> 
-                                        Pedido criado em <?= date('d/m/Y H:i', strtotime($pedidoModel->data_pedido)) ?>
-                                        <?php if (!empty($pedidoModel->orcamento_id)): ?>
-                                            (convertido do orçamento)
-                                        <?php endif; ?>
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-
                 </div>
             </div>
         </div>
@@ -589,7 +692,7 @@ $itens = $pedidoModel->getItens($id);
 </div>
 
 <style>
-    /* Estilos para fotos dos produtos */
+    /* Estilos herdados do orçamento com adaptações para pedido */
     .produto-foto-impressao {
         width: 50px !important;
         height: 50px !important;
@@ -601,6 +704,32 @@ $itens = $pedidoModel->getItens($id);
         float: left !important;
     }
 
+    /* ESTILOS PARA BARRA FINANCEIRA */
+    .card-financeiro-barra {
+        border: 2px solid #17a2b8;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    .financeiro-item {
+        padding: 10px 5px;
+    }
+
+    .financeiro-item h4, .financeiro-item h5 {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .badge-status {
+        font-size: 0.8rem;
+        padding: 8px 12px;
+        text-align: center;
+        line-height: 1.2;
+    }
+
+    .border-right {
+        border-right: 1px solid #dee2e6 !important;
+    }
+
     @media print {
         .produto-foto-impressao {
             width: 40px !important;
@@ -609,6 +738,30 @@ $itens = $pedidoModel->getItens($id);
             border: 1px solid #777 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+        }
+
+        .card-financeiro-barra {
+            border: 2px solid #777 !important;
+            box-shadow: none !important;
+        }
+        
+        .card-financeiro-barra .card-header {
+            background-color: #f8f9fa !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        
+        .border-right {
+            border-right: 1px solid #777 !important;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .border-right {
+            border-right: none !important;
+            border-bottom: 1px solid #dee2e6 !important;
+            margin-bottom: 15px;
         }
     }
 
@@ -646,13 +799,6 @@ $itens = $pedidoModel->getItens($id);
     .info-pedido {
         font-size: 10pt;
         color: #000;
-    }
-
-    .info-pagamento {
-        background-color: #f8f9fa;
-        padding: 8px;
-        border-radius: 4px;
-        border: 1px solid #dee2e6;
     }
 
     .card-pedido-visual strong {
@@ -735,11 +881,16 @@ $itens = $pedidoModel->getItens($id);
         color: #000;
     }
 
-    .timeline-status {
-        padding: 10px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-        border-left: 4px solid #007bff;
+    /* Estilos para badges */
+    .badge {
+        font-size: 0.8em;
+        margin-left: 5px;
+    }
+
+    .btn-group-actions {
+        display: flex;
+        gap: 5px;
+        align-items: center;
     }
 
     @media print {
@@ -753,8 +904,7 @@ $itens = $pedidoModel->getItens($id);
         .no-print,
         .main-sidebar,
         .content-header .btn,
-        .alert,
-        .timeline-status {
+        .alert {
             display: none !important;
         }
 
@@ -814,13 +964,6 @@ $itens = $pedidoModel->getItens($id);
             color: #000 !important;
         }
 
-        .info-pagamento {
-            border: 1px solid #777 !important;
-            background-color: #f8f9fa !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
-
         /* Oculta observações na impressão para cliente */
         .impressao-cliente .observacao-item {
             display: none !important;
@@ -829,131 +972,63 @@ $itens = $pedidoModel->getItens($id);
 </style>
 
 <script>
-    function imprimirCliente() {
-        console.log('Função imprimirCliente chamada');
+// Funções de impressão (iguais ao orçamento)
+function imprimirCliente() {
+    console.log('Função imprimirCliente chamada');
 
-        // Esconde as observações dos itens
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
+    var observacoes = document.querySelectorAll('.observacao-item');
+    console.log('Observações encontradas:', observacoes.length);
 
-        observacoes.forEach(function (el) {
-            el.style.display = 'none';
-        });
+    observacoes.forEach(function (el) {
+        el.style.display = 'none';
+    });
 
-        // Adiciona classe para identificar impressão cliente
-        document.body.classList.add('impressao-cliente');
+    document.body.classList.add('impressao-cliente');
+    window.print();
 
-        // Imprime
-        window.print();
-
-        // Restaura as observações após a impressão
-        setTimeout(function () {
-            observacoes.forEach(function (el) {
-                el.style.display = 'block';
-            });
-            document.body.classList.remove('impressao-cliente');
-            console.log('Observações restauradas');
-        }, 1000);
-    }
-
-    function imprimirProducao() {
-        console.log('Função imprimirProducao chamada');
-
-        // Mostra todas as observações
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
-
+    setTimeout(function () {
         observacoes.forEach(function (el) {
             el.style.display = 'block';
         });
+        document.body.classList.remove('impressao-cliente');
+        console.log('Observações restauradas');
+    }, 1000);
+}
 
-        // Adiciona classe para identificar impressão produção
-        document.body.classList.add('impressao-producao');
+function imprimirProducao() {
+    console.log('Função imprimirProducao chamada');
 
-        // Imprime
-        window.print();
+    var observacoes = document.querySelectorAll('.observacao-item');
+    console.log('Observações encontradas:', observacoes.length);
 
-        setTimeout(function () {
-            document.body.classList.remove('impressao-producao');
-            console.log('Classe impressao-producao removida');
-        }, 1000);
-    }
-
-    function alterarSituacao(novaSituacao) {
-        const pedidoId = <?= $pedidoModel->id ?>;
-        const pedidoNumero = '<?= htmlspecialchars($pedidoModel->numero) ?>';
-        
-        let situacaoTexto = '';
-        let iconClass = '';
-        
-        switch(novaSituacao) {
-            case 'em_separacao':
-                situacaoTexto = 'Em Separação';
-                iconClass = 'warning';
-                break;
-            case 'entregue':
-                situacaoTexto = 'Entregue';
-                iconClass = 'success';
-                break;
-            case 'devolvido_parcial':
-                situacaoTexto = 'Devolvido Parcial';
-                iconClass = 'info';
-                break;
-            case 'finalizado':
-                situacaoTexto = 'Finalizado';
-                iconClass = 'success';
-                break;
-            case 'cancelado':
-                situacaoTexto = 'Cancelado';
-                iconClass = 'error';
-                break;
-        }
-        
-        Swal.fire({
-            title: 'Alterar Situação',
-            text: `Deseja alterar a situação do pedido #${pedidoNumero} para "${situacaoTexto}"?`,
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'Sim, Alterar',
-            cancelButtonText: 'Cancelar'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                $.ajax({
-                    url: 'update_status.php',
-                    type: 'POST',
-                    data: { 
-                        pedido_id: pedidoId,
-                        nova_situacao: novaSituacao
-                    },
-                    success: function(response) {
-                        try {
-                            const data = JSON.parse(response);
-                            if (data.success) {
-                                Swal.fire('Sucesso!', data.message, 'success').then(() => {
-                                    location.reload();
-                                });
-                            } else {
-                                Swal.fire('Erro', data.message, 'error');
-                            }
-                        } catch (e) {
-                            Swal.fire('Erro', 'Resposta inválida do servidor', 'error');
-                        }
-                    },
-                    error: function() {
-                        Swal.fire('Erro', 'Erro de comunicação com o servidor', 'error');
-                    }
-                });
-            }
-        });
-    }
-
-    // Teste se as funções estão carregadas
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('JavaScript carregado com sucesso');
-        console.log('Função imprimirCliente:', typeof imprimirCliente);
-        console.log('Função imprimirProducao:', typeof imprimirProducao);
-        console.log('Função alterarSituacao:', typeof alterarSituacao);
+    observacoes.forEach(function (el) {
+        el.style.display = 'block';
     });
+
+    document.body.classList.add('impressao-producao');
+    window.print();
+
+    setTimeout(function () {
+        document.body.classList.remove('impressao-producao');
+        console.log('Classe impressao-producao removida');
+    }, 1000);
+}
+
+// Teste se as funções estão carregadas
+document.addEventListener('DOMContentLoaded', function () {
+    console.log('JavaScript carregado com sucesso');
+    console.log('Função imprimirCliente:', typeof imprimirCliente);
+    console.log('Função imprimirProducao:', typeof imprimirProducao);
+});
 </script>
 
-<?php include_once __DIR__ . '/../includes/footer.php'; ?>
+<?php
+// Define o JavaScript customizado para o footer
+$custom_js = <<<'JS'
+// JavaScript adicional se necessário
+console.log('Show.php de pedidos carregado com sucesso');
+console.log('PEDIDO_ID:', typeof PEDIDO_ID !== 'undefined' ? PEDIDO_ID : 'não definido');
+JS;
+
+include_once __DIR__ . '/../includes/footer.php';
+?>
