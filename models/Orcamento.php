@@ -73,8 +73,10 @@ class Orcamento {
                     {$this->table} o
                 LEFT JOIN
                     clientes c ON o.cliente_id = c.id
-                WHERE 1=1";
-        $params = [];
+                WHERE 1=1
+            AND o.status != 'convertido'"; // ✅ CORREÇÃO: Esconde orçamentos convertidos
+    $params = [];
+
 
 if (!empty($filtros['pesquisar'])) {
     $searchTerm = "%" . $filtros['pesquisar'] . "%";

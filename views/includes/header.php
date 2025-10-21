@@ -357,6 +357,8 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
     </aside>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.mask/1.14.16/jquery.mask.min.js"></script>
+
     <!-- Content Wrapper. Contains page content -->
     <div class="content-wrapper">
         <!-- O conteúdo específico da página será inserido aqui pela view -->

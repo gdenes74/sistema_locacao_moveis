@@ -1025,38 +1025,70 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
 
                             <div class="col-md-6">
-                                <hr>
-                                <h5 class="text-muted">Taxas Adicionais</h5>
+    <hr>
+    <h5 class="text-muted">Taxas Adicionais</h5>
 
-                                <div class="form-group row align-items-center">
-    <div class="col-sm-1 pl-0 pr-0 text-center">
-        <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada"
-            class="form-check-input taxa-frete-checkbox"
-            data-target-input="taxa_madrugada">
-    </div>
-    <label for="aplicar_taxa_madrugada" class="col-sm-5 col-form-label pr-1">
-        Taxa Madrugada <small
-            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>)</small>
-    </label>
-    <div class="col-sm-6">
-        <div class="input-group input-group-sm">
-            <input type="text"
-                class="form-control money-input text-right taxa-frete-input"
-                id="taxa_madrugada" name="taxa_madrugada"
-                placeholder="a confirmar" value=""
-                data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
-            <div class="input-group-append">
-                <button type="button"
-                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                    data-target-input="taxa_madrugada"
-                    data-target-checkbox="aplicar_taxa_madrugada"
-                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
-                    <i class="fas fa-magic"></i> Usar
-                </button>
+    <!-- Taxa Dom./Feriado -->
+    <div class="form-group row align-items-center">
+        <div class="col-sm-1 pl-0 pr-0 text-center">
+            <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
+                class="form-check-input taxa-frete-checkbox"
+                data-target-input="taxa_domingo_feriado">
+        </div>
+        <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
+            Taxa Dom./Feriado <small
+                class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>)</small>
+        </label>
+        <div class="col-sm-6">
+            <div class="input-group input-group-sm">
+                <input type="text"
+                    class="form-control money-input text-right taxa-frete-input"
+                    id="taxa_domingo_feriado" name="taxa_domingo_feriado"
+                    placeholder="a confirmar" value=""
+                    data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
+                <div class="input-group-append">
+                    <button type="button"
+                        class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                        data-target-input="taxa_domingo_feriado"
+                        data-target-checkbox="aplicar_taxa_domingo"
+                        title="Usar Padrão: R\$<?= htmlspecialchars(number_format($valorPadraoTaxaDomingo, 2, ',', '.')) ?>">
+                        <i class="fas fa-magic"></i> Usar
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-</div>
+
+    <!-- Taxa Madrugada -->
+    <div class="form-group row align-items-center">
+        <div class="col-sm-1 pl-0 pr-0 text-center">
+            <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada"
+                class="form-check-input taxa-frete-checkbox"
+                data-target-input="taxa_madrugada">
+        </div>
+        <label for="aplicar_taxa_madrugada" class="col-sm-5 col-form-label pr-1">
+            Taxa Madrugada <small
+                class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>)</small>
+        </label>
+        <div class="col-sm-6">
+            <div class="input-group input-group-sm">
+                <input type="text"
+                    class="form-control money-input text-right taxa-frete-input"
+                    id="taxa_madrugada" name="taxa_madrugada"
+                    placeholder="a confirmar" value=""
+                    data-valor-padrao="<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+                <div class="input-group-append">
+                    <button type="button"
+                        class="btn btn-xs btn-outline-secondary btn-usar-padrao"
+                        data-target-input="taxa_madrugada"
+                        data-target-checkbox="aplicar_taxa_madrugada"
+                        title="Usar Padrão: R\$<?= htmlspecialchars(number_format($valorPadraoTaxaMadrugada, 2, ',', '.')) ?>">
+                        <i class="fas fa-magic"></i> Usar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 
 <div class="form-group row align-items-center">
     <div class="col-sm-1 pl-0 pr-0 text-center">
@@ -1067,7 +1099,7 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
     <label for="aplicar_taxa_horario_especial" class="col-sm-5 col-form-label pr-1">
         Taxa Hor. Especial <small
-            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>)</small>
+            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaHorarioEspecial, 2, ',', '.')) ?>)</small>
     </label>
     <div class="col-sm-6">
         <div class="input-group input-group-sm">
@@ -1097,7 +1129,7 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
     <label for="aplicar_taxa_hora_marcada" class="col-sm-5 col-form-label pr-1">
         Taxa Hora Marcada <small
-            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>)</small>
+            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoTaxaHoraMarcada, 2, ',', '.')) ?>)</small>
     </label>
     <div class="col-sm-6">
         <div class="input-group input-group-sm">
@@ -1187,7 +1219,7 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
     <label for="aplicar_frete_escadas" class="col-sm-5 col-form-label pr-1">
         Frete Escadas <small
-            class="text-muted">(R\$<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>)</small>
+            class="text-muted">(R$<?= htmlspecialchars(number_format($valorPadraoFreteEscadas, 2, ',', '.')) ?>)</small>
     </label>
     <div class="col-sm-6">
         <div class="input-group input-group-sm">
@@ -1772,7 +1804,7 @@ var saldo = Math.max(0, valorFinalCalculado - totalPago);
     }
 
    // Eventos para recalcular saldo e taxas
-$('#valor_pago, #valor_sinal, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas').on('change keyup', calcularTotaisPedido);
+$('#valor_pago, #valor_sinal, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas').on('change keyup', calcularTotaisPedido);
 
     // Habilitar/desabilitar botão carregar orçamento
     $('#orcamento_id').change(function() {

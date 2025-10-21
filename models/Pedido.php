@@ -126,6 +126,103 @@ class Pedido {
         }
     }
 
+public function create() {
+    if (empty($this->numero)) {
+        error_log("Erro: Propriedade 'numero' não definida em Pedido::create(). Este valor deve ser gerado antes.");
+        return false;
+    }
+    $this->codigo = "PED-" . date('Y') . "-" . str_pad($this->numero, 5, '0', STR_PAD_LEFT);
+
+    try {
+        $queryPedido = "INSERT INTO {$this->table}
+                    (numero, codigo, cliente_id, orcamento_id, data_pedido, data_evento, 
+                     hora_evento, local_evento, data_entrega, hora_entrega, data_devolucao_prevista,
+                     hora_devolucao, turno_entrega, turno_devolucao, tipo, situacao_pedido,
+                     desconto, taxa_domingo_feriado, taxa_madrugada, taxa_horario_especial,
+                     taxa_hora_marcada, frete_elevador, frete_escadas, frete_terreo, valor_final,
+                     ajuste_manual, motivo_ajuste, observacoes, condicoes_pagamento, usuario_id)
+                VALUES
+                    (:numero, :codigo, :cliente_id, :orcamento_id, :data_pedido, :data_evento,
+                     :hora_evento, :local_evento, :data_entrega, :hora_entrega, :data_devolucao_prevista,
+                     :hora_devolucao, :turno_entrega, :turno_devolucao, :tipo, :situacao_pedido,
+                     :desconto, :taxa_domingo_feriado, :taxa_madrugada, :taxa_horario_especial,
+                     :taxa_hora_marcada, :frete_elevador, :frete_escadas, :frete_terreo, :valor_final,
+                     :ajuste_manual, :motivo_ajuste, :observacoes, :condicoes_pagamento, :usuario_id)";
+
+        $stmtPedido = $this->conn->prepare($queryPedido);
+
+        // Sanitize e prepare os dados do objeto
+        $this->data_pedido = !empty($this->data_pedido) ? $this->data_pedido : date('Y-m-d');
+        $this->data_evento = !empty($this->data_evento) ? $this->data_evento : null;
+        $this->hora_evento = !empty($this->hora_evento) ? $this->hora_evento : null;
+        $this->local_evento = !empty($this->local_evento) ? trim($this->local_evento) : null;
+        $this->data_entrega = !empty($this->data_entrega) ? $this->data_entrega : null;
+        $this->hora_entrega = !empty($this->hora_entrega) ? $this->hora_entrega : null;
+        $this->data_devolucao_prevista = !empty($this->data_devolucao_prevista) ? $this->data_devolucao_prevista : null;
+        $this->hora_devolucao = !empty($this->hora_devolucao) ? $this->hora_devolucao : null;
+        $this->turno_entrega = $this->turno_entrega ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->tipo = $this->tipo ?? 'locacao';
+        $this->situacao_pedido = $this->situacao_pedido ?? 'confirmado';
+        $this->desconto = (float)($this->desconto ?? 0.00);
+        $this->taxa_domingo_feriado = (float)($this->taxa_domingo_feriado ?? 0.00);
+        $this->taxa_madrugada = (float)($this->taxa_madrugada ?? 0.00);
+        $this->taxa_horario_especial = (float)($this->taxa_horario_especial ?? 0.00);
+        $this->taxa_hora_marcada = (float)($this->taxa_hora_marcada ?? 0.00);
+        $this->frete_terreo = (float)($this->frete_terreo ?? 0.00);
+        $this->frete_elevador = (float)($this->frete_elevador ?? 0.00);
+        $this->frete_escadas = (float)($this->frete_escadas ?? 0.00);
+        $this->valor_final = (float)($this->valor_final ?? 0.00);
+        $this->ajuste_manual = (bool)($this->ajuste_manual ?? false);
+        $this->motivo_ajuste = !empty($this->motivo_ajuste) ? trim($this->motivo_ajuste) : null;
+        $this->observacoes = !empty($this->observacoes) ? trim($this->observacoes) : null;
+        $this->condicoes_pagamento = !empty($this->condicoes_pagamento) ? trim($this->condicoes_pagamento) : null;
+        $this->usuario_id = $this->usuario_id ?? (isset($_SESSION['usuario_id']) ? (int)$_SESSION['usuario_id'] : 1);
+
+        // Bind dos parâmetros
+        $stmtPedido->bindParam(':numero', $this->numero, PDO::PARAM_INT);
+        $stmtPedido->bindParam(':codigo', $this->codigo);
+        $stmtPedido->bindParam(':cliente_id', $this->cliente_id, PDO::PARAM_INT);
+        $stmtPedido->bindParam(':orcamento_id', $this->orcamento_id, $this->orcamento_id === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+        $stmtPedido->bindParam(':data_pedido', $this->data_pedido);
+        $stmtPedido->bindParam(':data_evento', $this->data_evento);
+        $stmtPedido->bindParam(':hora_evento', $this->hora_evento);
+        $stmtPedido->bindParam(':local_evento', $this->local_evento);
+        $stmtPedido->bindParam(':data_entrega', $this->data_entrega);
+        $stmtPedido->bindParam(':hora_entrega', $this->hora_entrega);
+        $stmtPedido->bindParam(':data_devolucao_prevista', $this->data_devolucao_prevista);
+        $stmtPedido->bindParam(':hora_devolucao', $this->hora_devolucao);
+        $stmtPedido->bindParam(':turno_entrega', $this->turno_entrega);
+        $stmtPedido->bindParam(':turno_devolucao', $this->turno_devolucao);
+        $stmtPedido->bindParam(':tipo', $this->tipo);
+        $stmtPedido->bindParam(':situacao_pedido', $this->situacao_pedido);
+        $stmtPedido->bindParam(':desconto', $this->desconto);
+        $stmtPedido->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
+        $stmtPedido->bindParam(':taxa_madrugada', $this->taxa_madrugada);
+        $stmtPedido->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
+        $stmtPedido->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
+        $stmtPedido->bindParam(':frete_elevador', $this->frete_elevador);
+        $stmtPedido->bindParam(':frete_escadas', $this->frete_escadas);
+        $stmtPedido->bindParam(':frete_terreo', $this->frete_terreo);
+        $stmtPedido->bindParam(':valor_final', $this->valor_final);
+        $stmtPedido->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
+        $stmtPedido->bindParam(':motivo_ajuste', $this->motivo_ajuste);
+        $stmtPedido->bindParam(':observacoes', $this->observacoes);
+        $stmtPedido->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
+        $stmtPedido->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
+
+        if (!$stmtPedido->execute()) {
+            error_log("Erro ao inserir pedido principal: " . print_r($stmtPedido->errorInfo(), true));
+            return false;
+        }
+        $this->id = $this->conn->lastInsertId();
+        return $this->id;
+
+    } catch (PDOException $e) {
+        error_log("Exceção PDO em Pedido::create: " . $e->getMessage());
+        return false;
+    }
+}
     // CRIAR PEDIDO A PARTIR DE ORÇAMENTO (sem transação interna)
     public function criarDePedidoOrcamento($orcamentoId) {
         try {
@@ -231,181 +328,326 @@ class Pedido {
     }
 
     // CREATE (para criar um novo pedido, seja a partir de orçamento ou diretamente)
-    public function create() {
-        if (empty($this->numero)) {
-            $this->numero = $this->gerarProximoNumero();
-            $this->codigo = 'PED-' . str_pad($this->numero, 5, '0', STR_PAD_LEFT);
-        }
-
-        $query = "INSERT INTO {$this->table}
-                  SET numero=:numero, codigo=:codigo, cliente_id=:cliente_id, orcamento_id=:orcamento_id,
-                      data_pedido=:data_pedido, data_validade=:data_validade, data_evento=:data_evento, hora_evento=:hora_evento,
-                      local_evento=:local_evento, data_entrega=:data_entrega, hora_entrega=:hora_entrega,
-                      data_devolucao_prevista=:data_devolucao_prevista, hora_devolucao=:hora_devolucao,
-                      turno_entrega=:turno_entrega, turno_devolucao=:turno_devolucao,
-                      tipo=:tipo, situacao_pedido=:situacao_pedido, valor_total_locacao=:valor_total_locacao,
-                      subtotal_locacao=:subtotal_locacao, valor_total_venda=:valor_total_venda,
-                      subtotal_venda=:subtotal_venda, desconto=:desconto,
-                      taxa_domingo_feriado=:taxa_domingo_feriado, taxa_madrugada=:taxa_madrugada,
-                      taxa_horario_especial=:taxa_horario_especial, taxa_hora_marcada=:taxa_hora_marcada,
-                      frete_elevador=:frete_elevador, frete_escadas=:frete_escadas, frete_terreo=:frete_terreo,
-                      valor_final=:valor_final, ajuste_manual=:ajuste_manual, motivo_ajuste=:motivo_ajuste,
-                      valor_sinal=:valor_sinal, valor_pago=:valor_pago, valor_multas=:valor_multas,
-                      observacoes=:observacoes, condicoes_pagamento=:condicoes_pagamento, usuario_id=:usuario_id";
-
-        try {
-            $stmt = $this->conn->prepare($query);
-
-            // Sanitização e valores padrão
-            $this->data_pedido = $this->data_pedido ?? date('Y-m-d');
-            $this->situacao_pedido = $this->situacao_pedido ?? 'confirmado'; 
-            $this->valor_sinal = (float)($this->valor_sinal ?? 0.00);
-            $this->valor_pago = (float)($this->valor_pago ?? 0.00);
-            $this->valor_multas = (float)($this->valor_multas ?? 0.00);
-
-            // Bind dos parâmetros
-            $stmt->bindParam(':numero', $this->numero);
-            $stmt->bindParam(':codigo', $this->codigo);
-            $stmt->bindParam(':cliente_id', $this->cliente_id);
-            $stmt->bindParam(':orcamento_id', $this->orcamento_id, PDO::PARAM_INT); // Pode ser NULL
-            $stmt->bindParam(':data_pedido', $this->data_pedido);
-            $stmt->bindParam(':data_validade', $this->data_validade);
-            $stmt->bindParam(':data_evento', $this->data_evento);
-            $stmt->bindParam(':hora_evento', $this->hora_evento);
-            $stmt->bindParam(':local_evento', $this->local_evento);
-            $stmt->bindParam(':data_entrega', $this->data_entrega);
-            $stmt->bindParam(':hora_entrega', $this->hora_entrega);
-            $stmt->bindParam(':data_devolucao_prevista', $this->data_devolucao_prevista);
-            $stmt->bindParam(':hora_devolucao', $this->hora_devolucao);
-            $stmt->bindParam(':turno_entrega', $this->turno_entrega);
-            $stmt->bindParam(':turno_devolucao', $this->turno_devolucao);
-            $stmt->bindParam(':tipo', $this->tipo);
-            $stmt->bindParam(':situacao_pedido', $this->situacao_pedido);
-            $stmt->bindParam(':valor_total_locacao', $this->valor_total_locacao);
-            $stmt->bindParam(':subtotal_locacao', $this->subtotal_locacao);
-            $stmt->bindParam(':valor_total_venda', $this->valor_total_venda);
-            $stmt->bindParam(':subtotal_venda', $this->subtotal_venda);
-            $stmt->bindParam(':desconto', $this->desconto);
-            $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
-            $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
-            $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
-            $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
-            $stmt->bindParam(':frete_elevador', $this->frete_elevador);
-            $stmt->bindParam(':frete_escadas', $this->frete_escadas);
-            $stmt->bindParam(':frete_terreo', $this->frete_terreo);
-            $stmt->bindParam(':valor_final', $this->valor_final);
-            $stmt->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
-            $stmt->bindParam(':motivo_ajuste', $this->motivo_ajuste);
-            $stmt->bindParam(':valor_sinal', $this->valor_sinal);
-            $stmt->bindParam(':valor_pago', $this->valor_pago);
-            $stmt->bindParam(':valor_multas', $this->valor_multas);
-            $stmt->bindParam(':observacoes', $this->observacoes);
-            $stmt->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
-            $stmt->bindParam(':usuario_id', $this->usuario_id);
-
-            if ($stmt->execute()) {
-                $this->id = $this->conn->lastInsertId();
-
-                // Atualizar numeração sequencial
-                if ($this->orcamento_id) { // Se veio de um orçamento, atualiza o registro existente
-                    $stmtNum = $this->conn->prepare("UPDATE numeracao_sequencial 
-                                                    SET tipo = 'pedido', pedido_id = :pedido_id, data_conversao = NOW() 
-                                                    WHERE orcamento_id = :orcamento_id AND tipo = 'orcamento'");
-                    $stmtNum->bindParam(':pedido_id', $this->id);
-                    $stmtNum->bindParam(':orcamento_id', $this->orcamento_id);
-                } else { // Se for um pedido novo, insere um novo registro de numeração
-                    $stmtNum = $this->conn->prepare("INSERT INTO numeracao_sequencial (numero, tipo, pedido_id, data_atribuicao) 
-                                                    VALUES (:numero, 'pedido', :pedido_id, NOW())");
-                    $stmtNum->bindParam(':numero', $this->numero);
-                    $stmtNum->bindParam(':pedido_id', $this->id);
-                }
-                $stmtNum->execute();
-                return true;
-            }
-            return false;
-        } catch (PDOException $e) {
-            error_log("Erro em Pedido::create: " . $e->getMessage());
-            return false;
-        }
+    
+    
+public function update() {
+    if (empty($this->id)) {
+        error_log("Erro: Tentativa de atualizar pedido sem ID.");
+        return false;
     }
+
+    $query = "UPDATE {$this->table} SET
+                cliente_id = :cliente_id, data_pedido = :data_pedido, data_evento = :data_evento,
+                hora_evento = :hora_evento, local_evento = :local_evento, data_entrega = :data_entrega,
+                hora_entrega = :hora_entrega, data_devolucao_prevista = :data_devolucao_prevista,
+                hora_devolucao = :hora_devolucao, turno_entrega = :turno_entrega, turno_devolucao = :turno_devolucao,
+                tipo = :tipo, situacao_pedido = :situacao_pedido,
+                desconto = :desconto, taxa_domingo_feriado = :taxa_domingo_feriado,
+                taxa_madrugada = :taxa_madrugada, taxa_horario_especial = :taxa_horario_especial,
+                taxa_hora_marcada = :taxa_hora_marcada, frete_elevador = :frete_elevador,
+                frete_escadas = :frete_escadas, frete_terreo = :frete_terreo,
+                ajuste_manual = :ajuste_manual, motivo_ajuste = :motivo_ajuste, observacoes = :observacoes,
+                condicoes_pagamento = :condicoes_pagamento, usuario_id = :usuario_id,
+                valor_sinal = :valor_sinal, data_pagamento_sinal = :data_pagamento_sinal,
+                valor_pago = :valor_pago, data_pagamento_final = :data_pagamento_final,
+                valor_multas = :valor_multas
+            WHERE id = :id";
+
+    try {
+        $stmt = $this->conn->prepare($query);
+
+        // Sanitização dos dados
+        $this->cliente_id = (int)$this->cliente_id;
+        $this->data_pedido = !empty($this->data_pedido) ? $this->data_pedido : date('Y-m-d');
+        $this->data_evento = !empty($this->data_evento) ? $this->data_evento : null;
+        $this->hora_evento = !empty($this->hora_evento) ? $this->hora_evento : null;
+        $this->local_evento = !empty($this->local_evento) ? trim($this->local_evento) : null;
+        $this->data_entrega = !empty($this->data_entrega) ? $this->data_entrega : null;
+        $this->hora_entrega = !empty($this->hora_entrega) ? $this->hora_entrega : null;
+        $this->data_devolucao_prevista = !empty($this->data_devolucao_prevista) ? $this->data_devolucao_prevista : null;
+        $this->hora_devolucao = !empty($this->hora_devolucao) ? $this->hora_devolucao : null;
+        $this->turno_entrega = $this->turno_entrega ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
+        $this->tipo = $this->tipo ?? 'locacao';
+        $this->situacao_pedido = $this->situacao_pedido ?? 'confirmado';
+        $this->desconto = (float)($this->desconto ?? 0.00);
+        $this->taxa_domingo_feriado = (float)($this->taxa_domingo_feriado ?? 0.00);
+        $this->taxa_madrugada = (float)($this->taxa_madrugada ?? 0.00);
+        $this->taxa_horario_especial = (float)($this->taxa_horario_especial ?? 0.00);
+        $this->taxa_hora_marcada = (float)($this->taxa_hora_marcada ?? 0.00);
+        $this->frete_terreo = (float)($this->frete_terreo ?? 0.00);
+        $this->frete_elevador = (float)($this->frete_elevador ?? 0.00);
+        $this->frete_escadas = (float)($this->frete_escadas ?? 0.00);
+        $this->ajuste_manual = (bool)($this->ajuste_manual ?? false);
+        $this->motivo_ajuste = !empty($this->motivo_ajuste) ? trim($this->motivo_ajuste) : null;
+        $this->observacoes = !empty($this->observacoes) ? trim($this->observacoes) : null;
+        $this->condicoes_pagamento = !empty($this->condicoes_pagamento) ? trim($this->condicoes_pagamento) : null;
+        $this->usuario_id = $this->usuario_id ?? (isset($_SESSION['usuario_id']) ? (int)$_SESSION['usuario_id'] : 1);
+        
+        // CAMPOS ESPECÍFICOS DE PEDIDOS - CORRIGIDO
+        $this->valor_sinal = (float)($this->valor_sinal ?? 0.00);
+        $this->valor_pago = (float)($this->valor_pago ?? 0.00);
+        $this->valor_multas = (float)($this->valor_multas ?? 0.00);
+
+        // Bind dos parâmetros
+        $stmt->bindParam(':id', $this->id, PDO::PARAM_INT);
+        $stmt->bindParam(':cliente_id', $this->cliente_id, PDO::PARAM_INT);
+        $stmt->bindParam(':data_pedido', $this->data_pedido);
+        $stmt->bindParam(':data_evento', $this->data_evento);
+        $stmt->bindParam(':hora_evento', $this->hora_evento);
+        $stmt->bindParam(':local_evento', $this->local_evento);
+        $stmt->bindParam(':data_entrega', $this->data_entrega);
+        $stmt->bindParam(':hora_entrega', $this->hora_entrega);
+        $stmt->bindParam(':data_devolucao_prevista', $this->data_devolucao_prevista);
+        $stmt->bindParam(':hora_devolucao', $this->hora_devolucao);
+        $stmt->bindParam(':turno_entrega', $this->turno_entrega);
+        $stmt->bindParam(':turno_devolucao', $this->turno_devolucao);
+        $stmt->bindParam(':tipo', $this->tipo);
+        $stmt->bindParam(':situacao_pedido', $this->situacao_pedido);
+        $stmt->bindParam(':desconto', $this->desconto);
+        $stmt->bindParam(':taxa_domingo_feriado', $this->taxa_domingo_feriado);
+        $stmt->bindParam(':taxa_madrugada', $this->taxa_madrugada);
+        $stmt->bindParam(':taxa_horario_especial', $this->taxa_horario_especial);
+        $stmt->bindParam(':taxa_hora_marcada', $this->taxa_hora_marcada);
+        $stmt->bindParam(':frete_elevador', $this->frete_elevador);
+        $stmt->bindParam(':frete_escadas', $this->frete_escadas);
+        $stmt->bindParam(':frete_terreo', $this->frete_terreo);
+        $stmt->bindParam(':ajuste_manual', $this->ajuste_manual, PDO::PARAM_BOOL);
+        $stmt->bindParam(':motivo_ajuste', $this->motivo_ajuste);
+        $stmt->bindParam(':observacoes', $this->observacoes);
+        $stmt->bindParam(':condicoes_pagamento', $this->condicoes_pagamento);
+        $stmt->bindParam(':usuario_id', $this->usuario_id, PDO::PARAM_INT);
+        
+        // BIND DOS CAMPOS ESPECÍFICOS DE PEDIDOS - CORRIGIDO
+        $stmt->bindParam(':valor_sinal', $this->valor_sinal);
+        $stmt->bindParam(':data_pagamento_sinal', $this->data_pagamento_sinal);
+        $stmt->bindParam(':valor_pago', $this->valor_pago);
+        $stmt->bindParam(':data_pagamento_final', $this->data_pagamento_final);
+        $stmt->bindParam(':valor_multas', $this->valor_multas);
+
+        if ($stmt->execute()) {
+            return true;
+        } else {
+            error_log("Erro ao atualizar pedido principal (ID: {$this->id}): " . print_r($stmt->errorInfo(), true));
+            return false;
+        }
+    } catch (PDOException $e) {
+        error_log("Exceção PDO em Pedido::update (ID: {$this->id}): " . $e->getMessage());
+        return false;
+    }
+}
 
     // GET ITENS
-    public function getItens($pedidoId) {
-        $query = "SELECT ip.*, p.nome_produto AS nome_produto_catalogo,
-                         p.codigo AS codigo_produto, p.foto_path
-                  FROM {$this->table_itens} ip
-                  LEFT JOIN produtos p ON ip.produto_id = p.id
-                  WHERE ip.pedido_id = :pedido_id
-                  ORDER BY ip.ordem ASC, ip.id ASC";
-        try {
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':pedido_id', $pedidoId);
-            $stmt->execute();
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
-            error_log("Erro em Pedido::getItens: " . $e->getMessage());
-            return false;
-        }
-    }
-
-    // UPDATE SITUAÇÃO
-    public function updateSituacao($id, $novaSituacao) {
-        $query = "UPDATE {$this->table} SET situacao_pedido = :situacao WHERE id = :id";
-        try {
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':situacao', $novaSituacao);
-            $stmt->bindParam(':id', $id, PDO::PARAM_INT);
-            return $stmt->execute();
-        } catch (PDOException $e) {
-            error_log("Erro em Pedido::updateSituacao (ID: {$id}): " . $e->getMessage());
-            return false;
-        }
-    }
-
-    // SALVAR ITENS
-    public function salvarItens($pedidoId, $itens) {
-        try {
-            // Deletar itens existentes
-            $queryDelete = "DELETE FROM {$this->table_itens} WHERE pedido_id = :pedido_id";
-            $stmtDelete = $this->conn->prepare($queryDelete);
-            $stmtDelete->bindParam(':pedido_id', $pedidoId);
-            $stmtDelete->execute();
-
-            // Inserir novos itens
-            $queryInsert = "INSERT INTO {$this->table_itens}
-                            (pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
-                             preco_unitario, desconto, preco_final, observacoes,
-                             tipo_linha, ordem)
-                            VALUES
-                            (:pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
-                             :preco_unitario, :desconto, :preco_final, :observacoes,
-                             :tipo_linha, :ordem)";
-            $stmtInsert = $this->conn->prepare($queryInsert);
-
-            foreach ($itens as $item) {
-                $stmtInsert->bindValue(':pedido_id', $pedidoId, PDO::PARAM_INT);
-                $stmtInsert->bindValue(':produto_id', $item['produto_id'], $item['produto_id'] === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-                $stmtInsert->bindValue(':nome_produto_manual', $item['nome_produto_manual'], $item['nome_produto_manual'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmtInsert->bindValue(':quantidade', $item['quantidade'], PDO::PARAM_INT);
-                $stmtInsert->bindValue(':tipo', $item['tipo'], $item['tipo'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmtInsert->bindValue(':preco_unitario', $item['preco_unitario']);
-                $stmtInsert->bindValue(':desconto', $item['desconto']);
-                $stmtInsert->bindValue(':preco_final', $item['preco_final']);
-                $stmtInsert->bindValue(':observacoes', $item['observacoes'], $item['observacoes'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmtInsert->bindValue(':tipo_linha', $item['tipo_linha']);
-                $stmtInsert->bindValue(':ordem', $item['ordem'], PDO::PARAM_INT);
-
-                if (!$stmtInsert->execute()) {
-                    error_log("Erro ao inserir item de pedido (ID: {$pedidoId}): " . print_r($stmtInsert->errorInfo(), true));
-                    return false;
-                }
+    // GET ITENS - VERSÃO CORRIGIDA E MELHORADA
+public function getItens($pedidoId) {
+    $query = "SELECT ip.*, 
+                     p.nome_produto AS nome_produto_catalogo,
+                     p.codigo AS codigo_produto, 
+                     p.foto_path,
+                     p.descricao_detalhada AS produto_descricao
+              FROM {$this->table_itens} ip
+              LEFT JOIN produtos p ON ip.produto_id = p.id
+              WHERE ip.pedido_id = :pedido_id
+              ORDER BY ip.ordem ASC, ip.id ASC";
+    try {
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':pedido_id', $pedidoId, PDO::PARAM_INT);
+        $stmt->execute();
+        
+        $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Processar cada item para garantir dados consistentes
+        foreach ($itens as &$item) {
+            // Garantir que valores numéricos sejam tratados corretamente
+            $item['quantidade'] = (int)($item['quantidade'] ?? 1);
+            $item['preco_unitario'] = (float)($item['preco_unitario'] ?? 0.00);
+            $item['desconto'] = (float)($item['desconto'] ?? 0.00);
+            $item['preco_final'] = (float)($item['preco_final'] ?? 0.00);
+            $item['ordem'] = (int)($item['ordem'] ?? 1);
+            
+            // Garantir que tipo_linha tenha um valor padrão
+            if (empty($item['tipo_linha'])) {
+                $item['tipo_linha'] = 'PRODUTO';
             }
+            
+            // Garantir que tipo tenha um valor padrão
+            if (empty($item['tipo'])) {
+                $item['tipo'] = 'locacao';
+            }
+            
+            // Limpar valores nulos em strings
+            $item['observacoes'] = $item['observacoes'] ?? '';
+            $item['nome_produto_manual'] = $item['nome_produto_manual'] ?? '';
+            $item['nome_produto_catalogo'] = $item['nome_produto_catalogo'] ?? '';
+            $item['codigo_produto'] = $item['codigo_produto'] ?? '';
+            $item['foto_path'] = $item['foto_path'] ?? '';
+        }
+        unset($item); // Limpar referência
+        
+        return $itens;
+        
+    } catch (PDOException $e) {
+        error_log("Erro em Pedido::getItens (Pedido ID: {$pedidoId}): " . $e->getMessage());
+        return false;
+    }
+}
+
+// UPDATE SITUAÇÃO - VERSÃO MELHORADA
+public function updateSituacao($id, $novaSituacao) {
+    // Validar situações permitidas
+    $situacoesPermitidas = [
+        'confirmado', 'em_separacao', 'entregue', 
+        'devolvido_parcial', 'finalizado', 'cancelado'
+    ];
+    
+    if (!in_array($novaSituacao, $situacoesPermitidas)) {
+        error_log("Situação inválida fornecida: {$novaSituacao}");
+        return false;
+    }
+    
+    $query = "UPDATE {$this->table} SET situacao_pedido = :situacao WHERE id = :id";
+    try {
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':situacao', $novaSituacao, PDO::PARAM_STR);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        
+        if ($stmt->execute()) {
+            // Log da alteração para auditoria
+            error_log("Situação do pedido ID {$id} alterada para: {$novaSituacao}");
             return true;
-        } catch (PDOException $e) {
-            error_log("Erro em Pedido::salvarItens (ID: {$pedidoId}): " . $e->getMessage());
+        } else {
+            error_log("Falha ao atualizar situação do pedido ID {$id}: " . print_r($stmt->errorInfo(), true));
             return false;
         }
+        
+    } catch (PDOException $e) {
+        error_log("Erro em Pedido::updateSituacao (ID: {$id}): " . $e->getMessage());
+        return false;
     }
+}
+
+// SALVAR ITENS - VERSÃO CORRIGIDA E MELHORADA
+public function salvarItens($pedidoId, $itens) {
+    if (empty($pedidoId) || !is_array($itens)) {
+        error_log("Parâmetros inválidos em Pedido::salvarItens - Pedido ID: {$pedidoId}");
+        return false;
+    }
+    
+    try {
+        // Deletar itens existentes
+        $queryDelete = "DELETE FROM {$this->table_itens} WHERE pedido_id = :pedido_id";
+        $stmtDelete = $this->conn->prepare($queryDelete);
+        $stmtDelete->bindParam(':pedido_id', $pedidoId, PDO::PARAM_INT);
+        
+        if (!$stmtDelete->execute()) {
+            error_log("Erro ao deletar itens existentes do pedido ID {$pedidoId}: " . print_r($stmtDelete->errorInfo(), true));
+            return false;
+        }
+        
+        // Se não há itens para inserir, retorna true (deleção bem-sucedida)
+        if (empty($itens)) {
+            return true;
+        }
+
+        // Inserir novos itens
+        $queryInsert = "INSERT INTO {$this->table_itens}
+                        (pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
+                         preco_unitario, desconto, preco_final, observacoes,
+                         tipo_linha, ordem)
+                        VALUES
+                        (:pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
+                         :preco_unitario, :desconto, :preco_final, :observacoes,
+                         :tipo_linha, :ordem)";
+        $stmtInsert = $this->conn->prepare($queryInsert);
+
+        foreach ($itens as $index => $item) {
+            // Validação e sanitização dos dados do item
+            $produtoId = isset($item['produto_id']) && !empty($item['produto_id']) ? (int)$item['produto_id'] : null;
+            $nomeManual = isset($item['nome_produto_manual']) && !empty($item['nome_produto_manual']) ? trim($item['nome_produto_manual']) : null;
+            $quantidade = isset($item['quantidade']) ? max(1, (int)$item['quantidade']) : 1;
+            $tipo = isset($item['tipo']) && !empty($item['tipo']) ? $item['tipo'] : 'locacao';
+            $precoUnitario = isset($item['preco_unitario']) ? (float)$item['preco_unitario'] : 0.00;
+            $desconto = isset($item['desconto']) ? (float)$item['desconto'] : 0.00;
+            $precoFinal = isset($item['preco_final']) ? (float)$item['preco_final'] : ($quantidade * ($precoUnitario - $desconto));
+            $observacoes = isset($item['observacoes']) && !empty($item['observacoes']) ? trim($item['observacoes']) : null;
+            $tipoLinha = isset($item['tipo_linha']) && !empty($item['tipo_linha']) ? $item['tipo_linha'] : 'PRODUTO';
+            $ordem = isset($item['ordem']) ? (int)$item['ordem'] : ($index + 1);
+            
+            // Validação específica para tipo de linha
+            if (!in_array($tipoLinha, ['PRODUTO', 'CABECALHO_SECAO'])) {
+                error_log("Tipo de linha inválido no item {$index}: {$tipoLinha}");
+                $tipoLinha = 'PRODUTO';
+            }
+            
+            // Para cabeçalhos de seção, garantir que valores sejam zerados
+            if ($tipoLinha === 'CABECALHO_SECAO') {
+                $produtoId = null;
+                $quantidade = 0;
+                $precoUnitario = 0.00;
+                $desconto = 0.00;
+                $precoFinal = 0.00;
+                $tipo = null;
+            }
+            
+            // Bind dos valores
+            $stmtInsert->bindValue(':pedido_id', $pedidoId, PDO::PARAM_INT);
+            $stmtInsert->bindValue(':produto_id', $produtoId, $produtoId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+            $stmtInsert->bindValue(':nome_produto_manual', $nomeManual, $nomeManual === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            $stmtInsert->bindValue(':quantidade', $quantidade, PDO::PARAM_INT);
+            $stmtInsert->bindValue(':tipo', $tipo, $tipo === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            $stmtInsert->bindValue(':preco_unitario', $precoUnitario, PDO::PARAM_STR);
+            $stmtInsert->bindValue(':desconto', $desconto, PDO::PARAM_STR);
+            $stmtInsert->bindValue(':preco_final', $precoFinal, PDO::PARAM_STR);
+            $stmtInsert->bindValue(':observacoes', $observacoes, $observacoes === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+            $stmtInsert->bindValue(':tipo_linha', $tipoLinha, PDO::PARAM_STR);
+            $stmtInsert->bindValue(':ordem', $ordem, PDO::PARAM_INT);
+
+            if (!$stmtInsert->execute()) {
+                $errorInfo = $stmtInsert->errorInfo();
+                error_log("Erro ao inserir item {$index} do pedido ID {$pedidoId}: " . print_r($errorInfo, true));
+                error_log("Dados do item problemático: " . print_r($item, true));
+                return false;
+            }
+        }
+        
+        // Log de sucesso
+        $totalItens = count($itens);
+        error_log("Sucesso: {$totalItens} itens salvos para o pedido ID {$pedidoId}");
+        return true;
+        
+    } catch (PDOException $e) {
+        error_log("Exceção PDO em Pedido::salvarItens (Pedido ID: {$pedidoId}): " . $e->getMessage());
+        error_log("Stack trace: " . $e->getTraceAsString());
+        return false;
+    }
+}
+
+// MÉTODO AUXILIAR PARA DELETAR TODOS OS ITENS - MELHORADO
+public function removerTodosItens($pedido_id) {
+    if (empty($pedido_id)) {
+        error_log("ID do pedido não fornecido em deletarTodosItens");
+        return false;
+    }
+    
+    $query = "DELETE FROM {$this->table_itens} WHERE pedido_id = :pedido_id";
+    try {
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':pedido_id', $pedido_id, PDO::PARAM_INT);
+        
+        if ($stmt->execute()) {
+            $itensRemovidos = $stmt->rowCount();
+            error_log("Removidos {$itensRemovidos} itens do pedido ID {$pedido_id}");
+            return true;
+        } else {
+            error_log("Falha ao deletar itens do pedido ID {$pedido_id}: " . print_r($stmt->errorInfo(), true));
+            return false;
+        }
+        
+    } catch (PDOException $e) {
+        error_log("Erro em Pedido::deletarTodosItens (Pedido ID: {$pedido_id}): " . $e->getMessage());
+        return false;
+    }
+}
 
     // GERAR PRÓXIMO NÚMERO
     public function gerarProximoNumero() {

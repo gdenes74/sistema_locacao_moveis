@@ -50,6 +50,7 @@ try {
         throw new Exception('Erro ao buscar itens do orçamento');
     }
 
+    
     // Criar pedido com MESMO número do orçamento
     $pedidoModel->numero = $orcamento['numero'];
     $pedidoModel->codigo = str_replace('ORC-', 'PED-', $orcamento['codigo']);
