@@ -42,10 +42,15 @@ class Produto {
                 case 'preco_locacao':
                 case 'preco_venda':
                 case 'preco_custo':
-                    // Converte valores monetários para float
+                    // Tratamento mais robusto para valores monetários
                     if (is_string($value)) {
-                        $value = str_replace('.', '', $value); // Remove ponto (milhar)
-                        $value = str_replace(',', '.', $value); // Troca vírgula por ponto (decimal)
+                        // Remove "R$" e espaços
+                        $value = str_replace('R$', '', $value);
+                        $value = trim($value);
+                        // Remove pontos (separador de milhares)
+                        $value = str_replace('.', '', $value);
+                        // Troca vírgula por ponto (separador decimal)
+                        $value = str_replace(',', '.', $value);
                     }
                     $this->$name = floatval($value);
                     break;
@@ -53,7 +58,7 @@ class Produto {
                 case 'disponivel_locacao':
                     $this->$name = ($value == '1' || $value === true) ? 1 : 0;
                     break;
-                default:
+                                default:
                     $this->$name = ($value !== null && !is_array($value)) ? trim($value) : $value;
             }
         }
@@ -82,29 +87,27 @@ class Produto {
         $bindParams = [];
 
         // Filtro por nome (LIKE em múltiplos termos)
-        // ... dentro do método listarTodos() ...
-if (!empty($filtros['pesquisar'])) {
-    $termos = explode(" ", trim($filtros['pesquisar']));
-    $itemConditions = []; // Renomeado para clareza, para cada item (nome OU código)
-    foreach ($termos as $i => $termo) {
-        if (!empty($termo)) {
-            $placeholderNome = ":termoNome{$i}";
-            $placeholderCodigo = ":termoCodigo{$i}";
-            
-            // Condição para buscar o termo no NOME OU no CÓDIGO
-            $itemConditions[] = "(p.nome_produto LIKE {$placeholderNome} OR p.codigo LIKE {$placeholderCodigo})";
-            
-            $bindParams[$placeholderNome] = "%{$termo}%";
-            $bindParams[$placeholderCodigo] = "%{$termo}%";
+        if (!empty($filtros['pesquisar'])) {
+            $termos = explode(" ", trim($filtros['pesquisar']));
+            $itemConditions = []; // Renomeado para clareza, para cada item (nome OU código)
+            foreach ($termos as $i => $termo) {
+                if (!empty($termo)) {
+                    $placeholderNome = ":termoNome{$i}";
+                    $placeholderCodigo = ":termoCodigo{$i}";
+                    
+                    // Condição para buscar o termo no NOME OU no CÓDIGO
+                    $itemConditions[] = "(p.nome_produto LIKE {$placeholderNome} OR p.codigo LIKE {$placeholderCodigo})";
+                    
+                    $bindParams[$placeholderNome] = "%{$termo}%";
+                    $bindParams[$placeholderCodigo] = "%{$termo}%";
+                }
+            }
+            if (!empty($itemConditions)) {
+                // Se houver múltiplos termos na pesquisa (ex: "toalha azul"), eles devem TODOS estar presentes (AND)
+                // mas cada termo pode ser encontrado OU no nome OU no código.
+                $whereConditions[] = "(" . implode(" AND ", $itemConditions) . ")";
+            }
         }
-    }
-    if (!empty($itemConditions)) {
-        // Se houver múltiplos termos na pesquisa (ex: "toalha azul"), eles devem TODOS estar presentes (AND)
-        // mas cada termo pode ser encontrado OU no nome OU no código.
-        $whereConditions[] = "(" . implode(" AND ", $itemConditions) . ")";
-    }
-}
-// ... resto do método listarTodos() ...
 
         // Filtro por ID da Categoria
         if (!empty($filtros['categoria_id'])) {
@@ -219,9 +222,9 @@ if (!empty($filtros['pesquisar'])) {
         $stmt->bindValue(':cor', $this->cor ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':material', $this->material ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':quantidade_total', (int)$this->quantidade_total, PDO::PARAM_INT);
-        $stmt->bindValue(':preco_locacao', !empty($this->preco_locacao) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_locacao))) : 0.00, PDO::PARAM_STR);
-        $stmt->bindValue(':preco_venda', !empty($this->preco_venda) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_venda))) : 0.00, PDO::PARAM_STR);
-        $stmt->bindValue(':preco_custo', !empty($this->preco_custo) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_custo))) : 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_locacao', $this->preco_locacao ?? 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_venda', $this->preco_venda ?? 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_custo', $this->preco_custo ?? 0.00, PDO::PARAM_STR);
         $stmt->bindValue(':disponivel_venda', (int)$this->disponivel_venda, PDO::PARAM_INT);
         $stmt->bindValue(':disponivel_locacao', (int)$this->disponivel_locacao, PDO::PARAM_INT);
         $stmt->bindValue(':foto_path', $this->foto_path ?? null, PDO::PARAM_STR);
@@ -281,7 +284,7 @@ if (!empty($filtros['pesquisar'])) {
 
         $stmt = $this->conn->prepare($query);
 
-        // Bind dos parâmetros com sanitização
+        // Bind dos parâmetros
         $stmt->bindValue(':id', (int)$this->id, PDO::PARAM_INT);
         $stmt->bindValue(':subcategoria_id', (int)$this->subcategoria_id, PDO::PARAM_INT);
         $stmt->bindValue(':codigo', $this->codigo ?? null, PDO::PARAM_STR);
@@ -291,9 +294,9 @@ if (!empty($filtros['pesquisar'])) {
         $stmt->bindValue(':cor', $this->cor ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':material', $this->material ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':quantidade_total', (int)$this->quantidade_total, PDO::PARAM_INT);
-        $stmt->bindValue(':preco_locacao', !empty($this->preco_locacao) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_locacao))) : 0.00, PDO::PARAM_STR);
-        $stmt->bindValue(':preco_venda', !empty($this->preco_venda) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_venda))) : 0.00, PDO::PARAM_STR);
-        $stmt->bindValue(':preco_custo', !empty($this->preco_custo) ? floatval(str_replace(',', '.', str_replace('.', '', $this->preco_custo))) : 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_locacao', $this->preco_locacao ?? 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_venda', $this->preco_venda ?? 0.00, PDO::PARAM_STR);
+        $stmt->bindValue(':preco_custo', $this->preco_custo ?? 0.00, PDO::PARAM_STR);
         $stmt->bindValue(':disponivel_venda', (int)$this->disponivel_venda, PDO::PARAM_INT);
         $stmt->bindValue(':disponivel_locacao', (int)$this->disponivel_locacao, PDO::PARAM_INT);
         $stmt->bindValue(':foto_path', $this->foto_path ?? null, PDO::PARAM_STR);
@@ -335,3 +338,4 @@ if (!empty($filtros['pesquisar'])) {
         }
     }
 }
+?>

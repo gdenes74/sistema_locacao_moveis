@@ -1,4 +1,5 @@
 <?php
+
 // Incluir arquivos essenciais
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../config/database.php';
@@ -77,15 +78,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $produto->material = isset($_POST['material']) ? trim($_POST['material']) : null;
     $produto->quantidade_total = isset($_POST['quantidade_total']) ? (int)$_POST['quantidade_total'] : 0;
     
-    // Tratamento especial para os campos de preço
+    // Tratamento especial para os campos de preço - CORRIGIDO
     if (isset($_POST['preco_locacao'])) {
-        $produto->preco_locacao = $_POST['preco_locacao'];
+        $valor = $_POST['preco_locacao'];
+        // Remove R$ e espaços
+        $valor = str_replace('R$', '', $valor);
+        $valor = trim($valor);
+        // Remove pontos (separador de milhares)
+        $valor = str_replace('.', '', $valor);
+        // Troca vírgula por ponto (separador decimal)
+        $valor = str_replace(',', '.', $valor);
+        $produto->preco_locacao = floatval($valor);
     }
+
     if (isset($_POST['preco_venda'])) {
-        $produto->preco_venda = $_POST['preco_venda'];
+        $valor = $_POST['preco_venda'];
+        // Remove R$ e espaços
+        $valor = str_replace('R$', '', $valor);
+        $valor = trim($valor);
+        // Remove pontos (separador de milhares)
+        $valor = str_replace('.', '', $valor);
+        // Troca vírgula por ponto (separador decimal)
+        $valor = str_replace(',', '.', $valor);
+        $produto->preco_venda = floatval($valor);
     }
+
     if (isset($_POST['preco_custo'])) {
-        $produto->preco_custo = $_POST['preco_custo'];
+        $valor = $_POST['preco_custo'];
+        // Remove R$ e espaços
+        $valor = str_replace('R$', '', $valor);
+        $valor = trim($valor);
+        // Remove pontos (separador de milhares)
+        $valor = str_replace('.', '', $valor);
+        // Troca vírgula por ponto (separador decimal)
+        $valor = str_replace(',', '.', $valor);
+        $produto->preco_custo = floatval($valor);
     }
     
     // Checkboxes
@@ -415,6 +442,16 @@ $(document).ready(function() {
         thousands: '.',
         decimal: ',',
         affixesStay: false
+    });
+    
+    // Remove a máscara antes de enviar o formulário - CORRIGIDO
+    $('form').on('submit', function(e) {
+        $('.money').each(function() {
+            var unmaskedValue = $(this).maskMoney('unmasked')[0];
+            console.log('Valor original:', $(this).val(), 'Valor sem máscara:', unmaskedValue);
+            $(this).val(unmaskedValue);
+        });
+        // Não previne o envio, apenas remove as máscaras
     });
     
     // Inicializa o plugin para o input de arquivo personalizado
