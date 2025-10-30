@@ -686,12 +686,13 @@ public function removerTodosItens($pedido_id) {
         }
     }
 
-    // RECALCULAR VALORES
+        // VERSÃO DE DEPURAÇÃO "NUCLEAR" - VAI PARAR NA TELA
+        // VERSÃO FINAL E CORRIGIDA
     public function recalcularValores($pedidoId) {
         if (empty($pedidoId)) return false;
 
         try {
-            // Somar totais dos itens
+            // Somar totais dos itens da tabela itens_pedido
             $sqlSubtotal = "SELECT
                                 COALESCE(SUM(CASE WHEN tipo = 'locacao' THEN preco_final ELSE 0 END), 0) as subtotal_locacao,
                                 COALESCE(SUM(CASE WHEN tipo = 'venda' THEN preco_final ELSE 0 END), 0) as subtotal_venda
@@ -701,12 +702,13 @@ public function removerTodosItens($pedido_id) {
             $stmtSubtotal->bindParam(':pedido_id', $pedidoId, PDO::PARAM_INT);
             $stmtSubtotal->execute();
             $subtotais = $stmtSubtotal->fetch(PDO::FETCH_ASSOC);
-            $subtotalLocacao = $subtotais['subtotal_locacao'] ?? 0.00;
-            $subtotalVenda = $subtotais['subtotal_venda'] ?? 0.00;
+            $subtotalLocacao = (float)($subtotais['subtotal_locacao'] ?? 0.00);
+            $subtotalVenda = (float)($subtotais['subtotal_venda'] ?? 0.00);
 
-            // Buscar taxas e fretes
+            // Buscar taxas, pagamentos e outros valores da tabela principal pedidos
             $sqlValores = "SELECT desconto, taxa_domingo_feriado, taxa_madrugada, taxa_horario_especial,
-                                  taxa_hora_marcada, frete_terreo, frete_elevador, frete_escadas
+                                  taxa_hora_marcada, frete_terreo, frete_elevador, frete_escadas,
+                                  valor_sinal, valor_pago, valor_multas
                            FROM {$this->table} WHERE id = :id";
             $stmtValores = $this->conn->prepare($sqlValores);
             $stmtValores->bindParam(':id', $pedidoId, PDO::PARAM_INT);
@@ -715,30 +717,40 @@ public function removerTodosItens($pedido_id) {
             if (!$valores) return false;
 
             // Calcular valor final
-            $somaTaxasFretes = ($valores['taxa_domingo_feriado'] ?? 0) +
-                               ($valores['taxa_madrugada'] ?? 0) +
-                               ($valores['taxa_horario_especial'] ?? 0) +
-                               ($valores['taxa_hora_marcada'] ?? 0) +
-                               ($valores['frete_terreo'] ?? 0) +
-                               ($valores['frete_elevador'] ?? 0) +
-                               ($valores['frete_escadas'] ?? 0);
-            $descontoGeral = $valores['desconto'] ?? 0.00;
+            $somaTaxasFretes = (float)($valores['taxa_domingo_feriado'] ?? 0) +
+                               (float)($valores['taxa_madrugada'] ?? 0) +
+                               (float)($valores['taxa_horario_especial'] ?? 0) +
+                               (float)($valores['taxa_hora_marcada'] ?? 0) +
+                               (float)($valores['frete_terreo'] ?? 0) +
+                               (float)($valores['frete_elevador'] ?? 0) +
+                               (float)($valores['frete_escadas'] ?? 0);
+            $descontoGeral = (float)($valores['desconto'] ?? 0.00);
             $valorFinal = ($subtotalLocacao + $subtotalVenda + $somaTaxasFretes) - $descontoGeral;
 
-            // Atualizar pedido
+            // --- LÓGICA DO TRIGGER MOVIDA PARA CÁ ---
+            // Calcular saldo
+            $valorMultas = (float)($valores['valor_multas'] ?? 0.00);
+            $valorSinal = (float)($valores['valor_sinal'] ?? 0.00);
+            $valorPago = (float)($valores['valor_pago'] ?? 0.00);
+            $saldoCalculado = ($valorFinal + $valorMultas) - ($valorSinal + $valorPago);
+            $saldoCalculado = max(0, $saldoCalculado); // Garante que o saldo não seja negativo
+
+            // Atualizar todos os valores calculados no pedido
             $sqlUpdate = "UPDATE {$this->table} SET
                             subtotal_locacao = :subtotal_locacao,
                             valor_total_locacao = :valor_total_locacao,
                             subtotal_venda = :subtotal_venda,
                             valor_total_venda = :valor_total_venda,
-                            valor_final = :valor_final
+                            valor_final = :valor_final,
+                            saldo_calculado = :saldo_calculado
                           WHERE id = :id";
             $stmtUpdate = $this->conn->prepare($sqlUpdate);
-            $stmtUpdate->bindParam(':subtotal_locacao', $subtotalLocacao);
-            $stmtUpdate->bindParam(':valor_total_locacao', $subtotalLocacao); // Assumindo que valor_total_locacao é o subtotal
-            $stmtUpdate->bindParam(':subtotal_venda', $subtotalVenda);
-            $stmtUpdate->bindParam(':valor_total_venda', $subtotalVenda);     // Assumindo que valor_total_venda é o subtotal
-            $stmtUpdate->bindParam(':valor_final', $valorFinal);
+            $stmtUpdate->bindValue(':subtotal_locacao', $subtotalLocacao);
+            $stmtUpdate->bindValue(':valor_total_locacao', $subtotalLocacao);
+            $stmtUpdate->bindValue(':subtotal_venda', $subtotalVenda);
+            $stmtUpdate->bindValue(':valor_total_venda', $subtotalVenda);
+            $stmtUpdate->bindValue(':valor_final', $valorFinal);
+            $stmtUpdate->bindValue(':saldo_calculado', $saldoCalculado); // SALDO INCLUÍDO
             $stmtUpdate->bindParam(':id', $pedidoId, PDO::PARAM_INT);
 
             return $stmtUpdate->execute();
@@ -748,8 +760,6 @@ public function removerTodosItens($pedido_id) {
             return false;
         }
     }
-
-    // GET BY ID
     public function getById($id) {
         $query = "SELECT p.*, c.nome AS nome_cliente,
                          c.telefone AS cliente_telefone,
