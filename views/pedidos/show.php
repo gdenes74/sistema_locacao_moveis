@@ -31,7 +31,7 @@ if (!function_exists('formatarTurnoHora')) {
     function formatarTurnoHora($turno, $hora)
     {
         $retorno = htmlspecialchars(trim($turno ?? ''));
-        
+
         if (!empty($hora) && $hora !== '00:00:00') {
             try {
                 $horaFormatada = date('H\H', strtotime($hora));
@@ -87,7 +87,7 @@ if (!function_exists('formatarStatusPedido')) {
             'finalizado' => ['class' => 'success', 'icon' => 'check-double', 'text' => 'FINALIZADO'],
             'cancelado' => ['class' => 'danger', 'icon' => 'times-circle', 'text' => 'CANCELADO']
         ];
-        
+
         return $statusMap[$situacao_pedido] ?? ['class' => 'secondary', 'icon' => 'question', 'text' => strtoupper($situacao_pedido)];
     }
 }
@@ -139,8 +139,23 @@ if (!empty($pedidoModel->cliente_id)) {
 
 $itens = $pedidoModel->getItens($id);
 
-// Calcular valores para exibição
-$saldoDevedor = floatval($pedidoModel->valor_final ?? 0) - floatval($pedidoModel->valor_pago ?? 0);
+// ✅ CALCULAR SALDO CORRETO (considerando sinal, valor pago e multas)
+$valorFinal = floatval($pedidoModel->valor_final ?? 0);
+$valorSinal = floatval($pedidoModel->valor_sinal ?? 0);
+$valorPago = floatval($pedidoModel->valor_pago ?? 0);
+$valorMultas = floatval($pedidoModel->valor_multas ?? 0);
+
+$totalJaPago = $valorSinal + $valorPago;
+$valorFinalComMultas = $valorFinal + $valorMultas;
+$saldoDevedor = max(0, $valorFinalComMultas - $totalJaPago);
+
+// Debug para verificar cálculo
+error_log("SHOW.PHP - Valor Final: R$ " . number_format($valorFinal, 2, ',', '.') .
+    " | Sinal: R$ " . number_format($valorSinal, 2, ',', '.') .
+    " | Valor Pago: R$ " . number_format($valorPago, 2, ',', '.') .
+    " | Multas: R$ " . number_format($valorMultas, 2, ',', '.') .
+    " | Total Pago: R$ " . number_format($totalJaPago, 2, ',', '.') .
+    " | Saldo: R$ " . number_format($saldoDevedor, 2, ',', '.'));
 
 // Status do pedido
 $statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado');
@@ -148,6 +163,7 @@ $statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado'
 // Define a variável JavaScript para uso no footer
 $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
 ?>
+
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
 <div class="content-wrapper">
@@ -161,7 +177,6 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                     <a href="index.php" class="btn btn-secondary btn-sm">
                         <i class="fas fa-arrow-left"></i> Voltar
                     </a>
-                    
                     <?php if ($orcamentoOrigem): ?>
                         <!-- Link para orçamento origem -->
                         <a href="../orcamentos/show.php?id=<?= $pedidoModel->orcamento_id ?>" class="btn btn-info btn-sm">
@@ -340,7 +355,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                             </div>
                                         </div>
                                         
-                                                                                <!-- Sinal (se houver) -->
+                                        <!-- Sinal (se houver) -->
                                         <?php if (!empty($pedidoModel->valor_sinal) && $pedidoModel->valor_sinal > 0): ?>
                                             <div class="col-md-2 text-center border-right">
                                                 <div class="financeiro-item">
@@ -359,7 +374,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                         <div class="col-md-2 text-center border-right">
                                             <div class="financeiro-item">
                                                 <small class="text-muted d-block">TOTAL PAGO</small>
-                                                <h5 class="text-success mb-0">R$ <?= formatarValor($pedidoModel->valor_pago ?? 0, true) ?></h5>
+                                                                <h5 class="text-success mb-0">R$ <?= formatarValor($totalJaPago, true) ?></h5>
                                                 <?php if (!empty($pedidoModel->data_pagamento_final)): ?>
                                                     <small class="text-muted">
                                                         <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_final)) ?>
@@ -401,7 +416,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                                     <span class="badge badge-success badge-status">
                                                         <i class="fas fa-check-double"></i><br>PAGO
                                                     </span>
-                                                <?php elseif ($pedidoModel->valor_pago > 0): ?>
+                                                <?php elseif ($totalJaPago > 0): ?>
                                                     <span class="badge badge-warning badge-status">
                                                         <i class="fas fa-clock"></i><br>PARCIAL
                                                     </span>
@@ -577,7 +592,9 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                 <?php endfor; ?>
                             </tbody>
                         </table>
-                    </div>                    <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
+                    </div>
+
+                    <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
                     <div class="row mb-3">
                         <div class="col-7 obs-gerais">
                             <small># Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa</small><br>
@@ -586,7 +603,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                         </div>
                         <div class="col-5 text-right">
                             <strong>Sub total p/ PIX ou Depósito</strong>
-                            <strong class="ml-3">R\$ <?= formatarValor($subtotalItensPIX) ?></strong>
+                            <strong class="ml-3">R$ <?= formatarValor($subtotalItensPIX) ?></strong>
                         </div>
                     </div>
                     <hr>
@@ -607,25 +624,25 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                             function exibirTaxa($valor, $valorPadrao = null)
                             {
                                 if (is_numeric($valor) && $valor > 0) {
-                                    return 'R\$ ' . formatarValor($valor);
+                                    return 'R$ ' . formatarValor($valor);
                                 }
                                 return 'a confirmar';
                             }
                             ?>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA DOMINGO E FERIADO R\$ 250,00</span>
+                                <span class="text-left-label">TAXA DOMINGO E FERIADO R$ 250,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_domingo_feriado ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA MADRUGADA R\$ 800,00</span>
+                                <span class="text-left-label">TAXA MADRUGADA R$ 800,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_madrugada ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA HORÁRIO ESPECIAL R\$ 500,00</span>
+                                <span class="text-left-label">TAXA HORÁRIO ESPECIAL R$ 500,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_horario_especial ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
-                                <span class="text-left-label">TAXA HORA MARCADA R\$ 200,00</span>
+                                <span class="text-left-label">TAXA HORA MARCADA R$ 200,00</span>
                                 <span><?= exibirTaxa($pedidoModel->taxa_hora_marcada ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
@@ -638,20 +655,20 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                             </div>
                             <div class="mb-2">
                                 <span class="text-left-label"><strong>FRETE TÉRREO SEM ESCADAS</strong></span>
-                                <span><strong>R\$ <?= formatarValor($pedidoModel->frete_terreo ?? 0, true) ?></strong></span>
+                                <span><strong>R$ <?= formatarValor($pedidoModel->frete_terreo ?? 0, true) ?></strong></span>
                             </div>
 
                             <?php if (!empty($pedidoModel->desconto) && $pedidoModel->desconto > 0): ?>
                                 <div class="mb-1 text-danger">
                                     <span class="text-left-label">DESCONTO GERAL</span>
-                                    <span>- R\$ <?= formatarValor($pedidoModel->desconto) ?></span>
+                                    <span>- R$ <?= formatarValor($pedidoModel->desconto) ?></span>
                                 </div>
                             <?php endif; ?>
 
                             <hr style="margin: 0.5rem 0;">
                             <h4><strong>
                                 <span class="text-left-label">Total p/ PIX ou Depósito</span>
-                                <span>R\$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></span>
+                                <span>R$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></span>
                             </strong></h4>
                         </div>
                     </div>
@@ -661,7 +678,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                     <div class="row mt-3">
                         <div class="col-12 text-center info-pix">
                             <strong>PIX SICREDI CNPJ 19.318.614 / 0001-44</strong><br>
-                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
+                                                        <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
                         </div>
                     </div>
 
@@ -744,14 +761,14 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
             border: 2px solid #777 !important;
             box-shadow: none !important;
         }
-        
+
         .card-financeiro-barra .card-header {
             background-color: #f8f9fa !important;
             color: #000 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
-        
+
         .border-right {
             border-right: 1px solid #777 !important;
         }
@@ -812,18 +829,14 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
         margin-bottom: 0.5rem;
     }
 
-    .obs-taxas-regras small,
-    .obs-gerais small,
-    .forma-pagamento small,
-    .info-pix small {
+    .obs-taxas-regras small, .obs-gerais small, .forma-pagamento small, .info-pix small {
         font-size: 10pt;
         color: #000;
         display: block;
         line-height: 1.3;
     }
 
-    .table-itens-pedido th,
-    .table-itens-pedido td {
+    .table-itens-pedido th, .table-itens-pedido td {
         padding: 0.25rem 0.5rem;
         vertical-align: middle;
         border: 1px solid #dee2e6;
@@ -901,10 +914,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
             color: #000 !important;
         }
 
-        .no-print,
-        .main-sidebar,
-        .content-header .btn,
-        .alert {
+        .no-print, .main-sidebar, .content-header .btn, .alert {
             display: none !important;
         }
 
@@ -931,8 +941,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
             width: 100% !important;
         }
 
-        .table-itens-pedido th,
-        .table-itens-pedido td {
+        .table-itens-pedido th, .table-itens-pedido td {
             border: 1px solid #777 !important;
             font-size: 10pt !important;
             color: #000 !important;
@@ -972,54 +981,46 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
 </style>
 
 <script>
-// Funções de impressão (iguais ao orçamento)
-function imprimirCliente() {
-    console.log('Função imprimirCliente chamada');
+    // Funções de impressão (iguais ao orçamento)
+    function imprimirCliente() {
+        console.log('Função imprimirCliente chamada');
+        var observacoes = document.querySelectorAll('.observacao-item');
+        console.log('Observações encontradas:', observacoes.length);
+        observacoes.forEach(function (el) {
+            el.style.display = 'none';
+        });
+        document.body.classList.add('impressao-cliente');
+        window.print();
+        setTimeout(function () {
+            observacoes.forEach(function (el) {
+                el.style.display = 'block';
+            });
+            document.body.classList.remove('impressao-cliente');
+            console.log('Observações restauradas');
+        }, 1000);
+    }
 
-    var observacoes = document.querySelectorAll('.observacao-item');
-    console.log('Observações encontradas:', observacoes.length);
-
-    observacoes.forEach(function (el) {
-        el.style.display = 'none';
-    });
-
-    document.body.classList.add('impressao-cliente');
-    window.print();
-
-    setTimeout(function () {
+    function imprimirProducao() {
+        console.log('Função imprimirProducao chamada');
+        var observacoes = document.querySelectorAll('.observacao-item');
+        console.log('Observações encontradas:', observacoes.length);
         observacoes.forEach(function (el) {
             el.style.display = 'block';
         });
-        document.body.classList.remove('impressao-cliente');
-        console.log('Observações restauradas');
-    }, 1000);
-}
+        document.body.classList.add('impressao-producao');
+        window.print();
+        setTimeout(function () {
+            document.body.classList.remove('impressao-producao');
+            console.log('Classe impressao-producao removida');
+        }, 1000);
+    }
 
-function imprimirProducao() {
-    console.log('Função imprimirProducao chamada');
-
-    var observacoes = document.querySelectorAll('.observacao-item');
-    console.log('Observações encontradas:', observacoes.length);
-
-    observacoes.forEach(function (el) {
-        el.style.display = 'block';
+    // Teste se as funções estão carregadas
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('JavaScript carregado com sucesso');
+        console.log('Função imprimirCliente:', typeof imprimirCliente);
+        console.log('Função imprimirProducao:', typeof imprimirProducao);
     });
-
-    document.body.classList.add('impressao-producao');
-    window.print();
-
-    setTimeout(function () {
-        document.body.classList.remove('impressao-producao');
-        console.log('Classe impressao-producao removida');
-    }, 1000);
-}
-
-// Teste se as funções estão carregadas
-document.addEventListener('DOMContentLoaded', function () {
-    console.log('JavaScript carregado com sucesso');
-    console.log('Função imprimirCliente:', typeof imprimirCliente);
-    console.log('Função imprimirProducao:', typeof imprimirProducao);
-});
 </script>
 
 <?php

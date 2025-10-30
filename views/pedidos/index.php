@@ -69,7 +69,7 @@ if (isset($_GET['orderBy']) && !empty($_GET['orderBy'])) {
         'p.data_evento ASC', 'p.data_evento DESC',
         'p.data_entrega ASC', 'p.data_entrega DESC',
         'p.valor_final ASC', 'p.valor_final DESC',
-        'p.situacao_pedido ASC', 'p.situacao_pedido DESC', // ✅ CORRIGIDO
+        'p.situacao_pedido ASC', 'p.situacao_pedido DESC',
         'p.tipo ASC', 'p.tipo DESC'
     ];
 
@@ -81,6 +81,38 @@ if (isset($_GET['orderBy']) && !empty($_GET['orderBy'])) {
 // Buscar dados
 $stmtPedidos = $pedidoModel->listarTodos($filtros, $orderBy);
 $pedidos = $stmtPedidos ? $stmtPedidos->fetchAll(PDO::FETCH_ASSOC) : [];
+
+// ✅ NOVO: Calcular informações financeiras para cada pedido
+foreach ($pedidos as &$ped) {
+    $valorFinalPed = floatval($ped['valor_final'] ?? 0);
+    $valorSinalPed = floatval($ped['valor_sinal'] ?? 0);
+    $valorPagoPed = floatval($ped['valor_pago'] ?? 0);
+    $valorMultasPed = floatval($ped['valor_multas'] ?? 0);
+    
+    $totalJaPagoPed = $valorSinalPed + $valorPagoPed;
+    $valorFinalComMultasPed = $valorFinalPed + $valorMultasPed;
+    $saldoDevedorPed = max(0, $valorFinalComMultasPed - $totalJaPagoPed);
+    
+    // Adicionar campos calculados ao array
+    $ped['total_pago'] = $totalJaPagoPed;
+    $ped['saldo_devedor'] = $saldoDevedorPed;
+    
+    // Determinar status do pagamento
+    if ($saldoDevedorPed <= 0) {
+        $ped['status_pagamento_texto'] = 'PAGO';
+        $ped['status_pagamento_classe'] = 'badge-success';
+        $ped['status_pagamento_icone'] = 'check-double';
+    } elseif ($totalJaPagoPed > 0) {
+        $ped['status_pagamento_texto'] = 'PARCIAL';
+        $ped['status_pagamento_classe'] = 'badge-warning';
+        $ped['status_pagamento_icone'] = 'clock';
+    } else {
+        $ped['status_pagamento_texto'] = 'PENDENTE';
+        $ped['status_pagamento_classe'] = 'badge-danger';
+        $ped['status_pagamento_icone'] = 'exclamation-triangle';
+    }
+}
+unset($ped);
 
 // Buscar clientes para o filtro
 $stmtClientes = $clienteModel->listarTodos();
@@ -249,58 +281,56 @@ include_once __DIR__ . '/../includes/header.php';
                         <table class="table table-hover table-bordered table-striped text-nowrap">
                             <thead>
                                 <tr>
-                                    <th style="width: 60px;">
+                                    <!-- ✅ OTIMIZADO: Larguras reduzidas para caber na tela -->
+                                    <th style="width: 40px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.id ASC' ? 'p.id DESC' : 'p.id ASC')]); ?>">
                                             ID <?php echo sort_icon('p.id', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 80px;">
+                                    <th style="width: 50px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.numero ASC' ? 'p.numero DESC' : 'p.numero ASC')]); ?>">
-                                            Número <?php echo sort_icon('p.numero', $orderBy); ?>
+                                            Nº <?php echo sort_icon('p.numero', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 120px;">
+                                    <th style="width: 70px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.codigo ASC' ? 'p.codigo DESC' : 'p.codigo ASC')]); ?>">
                                             Código <?php echo sort_icon('p.codigo', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th>
+                                    <th style="width: 120px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'c.nome ASC' ? 'c.nome DESC' : 'c.nome ASC')]); ?>">
                                             Cliente <?php echo sort_icon('c.nome', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 100px;">
-                                        <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.data_pedido ASC' ? 'p.data_pedido DESC' : 'p.data_pedido ASC')]); ?>">
-                                            Data Pedido <?php echo sort_icon('p.data_pedido', $orderBy); ?>
-                                        </a>
-                                    </th>
-                                    <th style="width: 100px;">
+                                    <th style="width: 70px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.data_evento ASC' ? 'p.data_evento DESC' : 'p.data_evento ASC')]); ?>">
-                                            Data Evento <?php echo sort_icon('p.data_evento', $orderBy); ?>
+                                            Evento <?php echo sort_icon('p.data_evento', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 100px;">
-                                        <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.data_entrega ASC' ? 'p.data_entrega DESC' : 'p.data_entrega ASC')]); ?>">
-                                            Entrega <?php echo sort_icon('p.data_entrega', $orderBy); ?>
-                                        </a>
-                                    </th>
-                                    <th style="width: 100px;">
+                                    <th style="width: 50px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.tipo ASC' ? 'p.tipo DESC' : 'p.tipo ASC')]); ?>">
                                             Tipo <?php echo sort_icon('p.tipo', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 120px;">
+                                    <th style="width: 80px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.valor_final ASC' ? 'p.valor_final DESC' : 'p.valor_final ASC')]); ?>">
-                                            Valor Final <?php echo sort_icon('p.valor_final', $orderBy); ?>
+                                            Total <?php echo sort_icon('p.valor_final', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 100px;">
-                                        <!-- ✅ CORRIGIDO: p.situacao_pedido -->
+                                    <!-- ✅ NOVA COLUNA: Saldo Devedor -->
+                                    <th style="width: 80px;">
+                                        Saldo
+                                    </th>
+                                    <!-- ✅ NOVA COLUNA: Status Pagamento -->
+                                    <th style="width: 60px;">
+                                        Pagto
+                                    </th>
+                                    <th style="width: 80px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.situacao_pedido ASC' ? 'p.situacao_pedido DESC' : 'p.situacao_pedido ASC')]); ?>">
                                             Situação <?php echo sort_icon('p.situacao_pedido', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 180px;">Ações</th>
+                                    <th style="width: 100px;">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -310,15 +340,18 @@ include_once __DIR__ . '/../includes/header.php';
                                             <td><?php echo htmlspecialchars($ped['id']); ?></td>
                                             <td><?php echo htmlspecialchars($ped['numero'] ?? '-'); ?></td>
                                             <td><?php echo htmlspecialchars($ped['codigo'] ?? '-'); ?></td>
-                                            <td><?php echo htmlspecialchars($ped['nome_cliente'] ?? '-'); ?></td>
-                                            <td><?php echo formatar_data_br($ped['data_pedido']); ?></td>
-                                            <td><?php echo $ped['data_evento'] ? formatar_data_br($ped['data_evento']) : '-'; ?></td>
-                                            <td><?php echo $ped['data_entrega'] ? formatar_data_br($ped['data_entrega']) : '-'; ?></td>
+                                            <td class="cliente-nome" title="<?php echo htmlspecialchars($ped['nome_cliente'] ?? '-'); ?>">
+                                                <?php 
+                                                $nomeCliente = $ped['nome_cliente'] ?? '-';
+                                                echo htmlspecialchars(strlen($nomeCliente) > 15 ? substr($nomeCliente, 0, 12) . '...' : $nomeCliente); 
+                                                ?>
+                                            </td>
+                                            <td><?php echo $ped['data_evento'] ? date('d/m/y', strtotime($ped['data_evento'])) : '-'; ?></td>
                                             <td>
                                                 <?php
-                                                $tipo_texto = 'Desconhecido';
+                                                $tipo_texto = 'N/A';
                                                 switch ($ped['tipo'] ?? '') {
-                                                    case 'locacao': $tipo_texto = 'Locação'; break;
+                                                    case 'locacao': $tipo_texto = 'Loc'; break;
                                                     case 'venda': $tipo_texto = 'Venda'; break;
                                                     case 'misto': $tipo_texto = 'Misto'; break;
                                                 }
@@ -326,6 +359,16 @@ include_once __DIR__ . '/../includes/header.php';
                                                 ?>
                                             </td>
                                             <td><?php echo formatar_moeda_br($ped['valor_final']); ?></td>
+                                            <!-- ✅ NOVA COLUNA: Saldo Devedor -->
+                                            <td class="<?php echo $ped['saldo_devedor'] > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
+                                                <?php echo formatar_moeda_br($ped['saldo_devedor']); ?>
+                                            </td>
+                                            <!-- ✅ NOVA COLUNA: Status Pagamento -->
+                                            <td>
+                                                <span class="badge <?php echo $ped['status_pagamento_classe']; ?>" style="font-size: 9px;">
+                                                    <?php echo $ped['status_pagamento_texto']; ?>
+                                                </span>
+                                            </td>
                                             <td>
                                                 <?php
                                                 // ✅ CORRIGIDO: usar situacao_pedido
@@ -348,7 +391,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                         break;
                                                     case 'devolvido_parcial':
                                                         $situacao_classe = 'badge badge-info';
-                                                        $situacao_texto = 'Devolvido Parcial';
+                                                        $situacao_texto = 'Dev. Parcial';
                                                         break;
                                                     case 'finalizado':
                                                         $situacao_classe = 'badge badge-dark';
@@ -363,66 +406,70 @@ include_once __DIR__ . '/../includes/header.php';
                                                         break;
                                                 }
                                                 ?>
-                                                <span class="<?php echo $situacao_classe; ?>"><?php echo htmlspecialchars($situacao_texto); ?></span>
+                                                <span class="<?php echo $situacao_classe; ?>" style="font-size: 9px;"><?php echo htmlspecialchars($situacao_texto); ?></span>
                                             </td>
                                             <td>
-                                                <div class="btn-group">
-                                                    <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $ped['id']; ?>"
-                                                       class="btn btn-xs btn-info" title="Visualizar Detalhes">
-                                                        <i class="fas fa-eye"></i>
-                                                    </a>
-                                                    <a href="<?php echo BASE_URL; ?>/views/pedidos/edit.php?id=<?php echo $ped['id']; ?>"
-                                                       class="btn btn-xs btn-primary" title="Editar Pedido">
-                                                        <i class="fas fa-edit"></i>
-                                                    </a>
-                                                    <button type="button" class="btn btn-xs btn-secondary btn-imprimir-pedido"
-                                                            data-id="<?= $ped['id'] ?>"
-                                                            data-numero="<?= htmlspecialchars($ped['numero']) ?>"
-                                                            title="Imprimir Pedido">
-                                                        <i class="fas fa-print"></i>
-                                                    </button>
-
-                                                    <!-- ✅ CORRIGIDO: Botões de Situação -->
-                                                    <?php if ($ped['situacao_pedido'] === 'confirmado'): ?>
-                                                        <button type="button" class="btn btn-xs btn-warning btnMudarStatus"
-                                                                data-id="<?php echo $ped['id']; ?>" data-status="em_separacao"
-                                                                title="Marcar como Em Separação">
-                                                            <i class="fas fa-tools"></i>
+                                                <div class="acoes-pedido">
+                                                    <!-- Primeira linha -->
+                                                    <div class="btn-group mb-1">
+                                                        <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $ped['id']; ?>"
+                                                           class="btn btn-xs btn-info" title="Ver">
+                                                            <i class="fas fa-eye"></i>
+                                                        </a>
+                                                        <a href="<?php echo BASE_URL; ?>/views/pedidos/edit.php?id=<?php echo $ped['id']; ?>"
+                                                           class="btn btn-xs btn-primary" title="Editar">
+                                                            <i class="fas fa-edit"></i>
+                                                        </a>
+                                                        <button type="button" class="btn btn-xs btn-secondary btn-imprimir-pedido"
+                                                                data-id="<?= $ped['id'] ?>"
+                                                                data-numero="<?= htmlspecialchars($ped['numero']) ?>"
+                                                                title="Imprimir">
+                                                            <i class="fas fa-print"></i>
                                                         </button>
-                                                    <?php elseif ($ped['situacao_pedido'] === 'em_separacao'): ?>
-                                                        <button type="button" class="btn btn-xs btn-success btnMudarStatus"
-                                                                data-id="<?php echo $ped['id']; ?>" data-status="entregue"
-                                                                title="Marcar como Entregue">
-                                                            <i class="fas fa-truck"></i>
-                                                        </button>
-                                                    <?php elseif ($ped['situacao_pedido'] === 'entregue'): ?>
-                                                        <button type="button" class="btn btn-xs btn-info btnMudarStatus"
-                                                                data-id="<?php echo $ped['id']; ?>" data-status="devolvido_parcial"
-                                                                title="Marcar como Devolvido">
-                                                            <i class="fas fa-undo"></i>
-                                                        </button>
-                                                    <?php endif; ?>
+                                                    </div>
+                                                    
+                                                    <!-- Segunda linha -->
+                                                    <div class="btn-group">
+                                                        <!-- ✅ CORRIGIDO: Botões de Situação -->
+                                                        <?php if ($ped['situacao_pedido'] === 'confirmado'): ?>
+                                                            <button type="button" class="btn btn-xs btn-warning btnMudarStatus"
+                                                                    data-id="<?php echo $ped['id']; ?>" data-status="em_separacao"
+                                                                    title="Separação">
+                                                                <i class="fas fa-tools"></i>
+                                                            </button>
+                                                        <?php elseif ($ped['situacao_pedido'] === 'em_separacao'): ?>
+                                                            <button type="button" class="btn btn-xs btn-success btnMudarStatus"
+                                                                    data-id="<?php echo $ped['id']; ?>" data-status="entregue"
+                                                                    title="Entregue">
+                                                                <i class="fas fa-truck"></i>
+                                                            </button>
+                                                        <?php elseif ($ped['situacao_pedido'] === 'entregue'): ?>
+                                                            <button type="button" class="btn btn-xs btn-info btnMudarStatus"
+                                                                    data-id="<?php echo $ped['id']; ?>" data-status="devolvido_parcial"
+                                                                    title="Devolvido">
+                                                                <i class="fas fa-undo"></i>
+                                                            </button>
+                                                        <?php endif; ?>
 
-                                                    <button type="button" class="btn btn-xs btn-danger" title="Excluir Pedido"
-                                                            onclick="confirmDelete(<?php echo $ped['id']; ?>, '<?php echo htmlspecialchars(addslashes($ped['codigo'] ?? $ped['numero'] ?? $ped['id'])); ?>')">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
+                                                        <button type="button" class="btn btn-xs btn-danger" title="Excluir"
+                                                                onclick="confirmDelete(<?php echo $ped['id']; ?>, '<?php echo htmlspecialchars(addslashes($ped['codigo'] ?? $ped['numero'] ?? $ped['id'])); ?>')">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
 
-                                                    <button type="button" class="btn btn-xs btn-default" title="Mais Detalhes"
-                                                            data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
-                                                            data-content="
-                                                            <strong>Local:</strong> <?php echo htmlspecialchars($ped['local_evento'] ?? '-'); ?><br>
-                                                            <strong>Hora Evento:</strong> <?php echo $ped['hora_evento'] ? substr($ped['hora_evento'], 0, 5) : '-'; ?><br>
-                                                            <strong>Devolução:</strong> <?php echo $ped['data_devolucao_prevista'] ? formatar_data_br($ped['data_devolucao_prevista']) : '-'; ?><br>
-                                                            <strong>Subtotal Locação:</strong> <?php echo formatar_moeda_br($ped['subtotal_locacao']); ?><br>
-                                                            <strong>Subtotal Venda:</strong> <?php echo formatar_moeda_br($ped['subtotal_venda']); ?><br>
-                                                            <strong>Desconto:</strong> <?php echo formatar_moeda_br($ped['desconto']); ?><br>
-                                                            <strong>Sinal:</strong> <?php echo formatar_moeda_br($ped['valor_sinal'] ?? 0); ?><br>
-                                                            <strong>Pago:</strong> <?php echo formatar_moeda_br($ped['valor_pago'] ?? 0); ?><br>
-                                                            <strong>Saldo:</strong> <?php echo formatar_moeda_br(max(0, ($ped['valor_final'] ?? 0) - ($ped['valor_pago'] ?? 0))); ?><br>
-                                                            ">
-                                                        <i class="fas fa-info-circle"></i>
-                                                    </button>
+                                                        <button type="button" class="btn btn-xs btn-default" title="Info"
+                                                                data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
+                                                                data-content="
+                                                                <strong>Local:</strong> <?= htmlspecialchars($ped['local_evento'] ?? '-'); ?><br>
+                                                                <strong>Hora:</strong> <?= $ped['hora_evento'] ? substr($ped['hora_evento'], 0, 5) : '-'; ?><br>
+                                                                <strong>Devolução:</strong> <?= $ped['data_devolucao_prevista'] ? formatar_data_br($ped['data_devolucao_prevista']) : '-'; ?><br>
+                                                                <strong>Sinal:</strong> <?= formatar_moeda_br($ped['valor_sinal'] ?? 0); ?><br>
+                                                                <strong>Pago:</strong> <?= formatar_moeda_br($ped['valor_pago'] ?? 0); ?><br>
+                                                                <strong>Total Pago:</strong> <?= formatar_moeda_br($ped['total_pago']); ?><br>
+                                                                <strong>Saldo:</strong> <?= formatar_moeda_br($ped['saldo_devedor']); ?><br>
+                                                                ">
+                                                            <i class="fas fa-info"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -468,28 +515,10 @@ include_once __DIR__ . '/../includes/header.php';
                                     <div class="card-header">
                                         <h3 class="card-title"><?php echo htmlspecialchars($ped['codigo'] ?? 'PED-' . $ped['id']); ?></h3>
                                         <div class="card-tools">
-                                            <span class="badge
-                                                <?php
-                                                // ✅ CORRIGIDO: usar situacao_pedido
-                                                switch (strtolower($ped['situacao_pedido'] ?? '')) {
-                                                    case 'confirmado': echo 'badge-primary'; break;
-                                                    case 'em_separacao': echo 'badge-warning'; break;
-                                                    case 'entregue': echo 'badge-success'; break;
-                                                    case 'devolvido_parcial': echo 'badge-info'; break;
-                                                    case 'cancelado': echo 'badge-danger'; break;
-                                                    case 'finalizado': echo 'badge-dark'; break;
-                                                    default: echo 'badge-light'; break;
-                                                }
-                                                ?>
-                                            ">
-                                                <?php 
-                                                $situacao_display = $ped['situacao_pedido'] ?? 'desconhecido';
-                                                switch ($situacao_display) {
-                                                    case 'em_separacao': echo 'Em Separação'; break;
-                                                    case 'devolvido_parcial': echo 'Devolvido Parcial'; break;
-                                                    default: echo htmlspecialchars(ucfirst(str_replace('_', ' ', $situacao_display))); break;
-                                                }
-                                                ?>
+                                            <!-- ✅ NOVO: Badge do Status do Pagamento -->
+                                            <span class="badge <?php echo $ped['status_pagamento_classe']; ?>">
+                                                <i class="fas fa-<?php echo $ped['status_pagamento_icone']; ?>"></i>
+                                                <?php echo $ped['status_pagamento_texto']; ?>
                                             </span>
                                         </div>
                                     </div>
@@ -505,8 +534,8 @@ include_once __DIR__ . '/../includes/header.php';
                                                 </p>
                                             </div>
                                             <div class="col-5 text-right">
-                                                <div class="h3"><?php echo formatar_moeda_br($ped['valor_final']); ?></div>
-                                                <div class="text-muted">
+                                                <div class="h4"><?php echo formatar_moeda_br($ped['valor_final']); ?></div>
+                                                <div class="text-muted mb-1">
                                                     <?php
                                                     $tipo_texto = 'Desconhecido';
                                                     switch ($ped['tipo'] ?? '') {
@@ -516,6 +545,10 @@ include_once __DIR__ . '/../includes/header.php';
                                                     }
                                                     echo htmlspecialchars($tipo_texto);
                                                     ?>
+                                                </div>
+                                                <!-- ✅ NOVO: Saldo Devedor no Card -->
+                                                <div class="<?php echo $ped['saldo_devedor'] > 0 ? 'text-danger' : 'text-success'; ?> font-weight-bold">
+                                                    <small>Saldo: <?php echo formatar_moeda_br($ped['saldo_devedor']); ?></small>
                                                 </div>
                                             </div>
                                         </div>
@@ -554,6 +587,248 @@ include_once __DIR__ . '/../includes/header.php';
 
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
 
+<style>
+/* ✅ APROVEITAR TODO O ESPAÇO LATERAL */
+.content-wrapper {
+    margin-left: 0px !important; /* Remover margem da sidebar */
+    padding-left: 15px !important;
+    padding-right: 15px !important;
+}
+
+.container-fluid {
+    max-width: 100% !important; /* Usar toda a largura */
+    padding-left: 5px !important;
+    padding-right: 5px !important;
+}
+
+.table-responsive {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 0 !important;
+}
+
+.card-body {
+    padding: 0.3rem !important; /* Padding mínimo */
+}
+
+/* ✅ CORES MAIS FORTES E LEGÍVEIS */
+.table th, .table td {
+    white-space: nowrap;
+    font-size: 14px !important; /* Aumentei para 14px */
+    padding: 0.5rem 0.6rem !important; /* Mais padding */
+    vertical-align: middle;
+    line-height: 1.4;
+    color: #000000 !important; /* PRETO FORTE */
+    font-weight: 500 !important; /* Texto mais grosso */
+}
+
+.table th {
+    font-size: 14px !important;
+    font-weight: 700 !important; /* Cabeçalho bem grosso */
+    background-color: #e9ecef !important; /* Fundo mais escuro */
+    color: #000000 !important; /* PRETO FORTE */
+    border-bottom: 2px solid #495057 !important;
+}
+
+/* ✅ BADGES COM CORES MAIS FORTES */
+.badge {
+    font-size: 11px !important; /* Maior */
+    padding: 4px 8px !important; /* Mais padding */
+    font-weight: 600 !important; /* Mais grosso */
+    border: 1px solid rgba(0,0,0,0.2) !important; /* Borda para destaque */
+}
+
+.badge-success {
+    background-color: #28a745 !important;
+    color: #ffffff !important;
+}
+
+.badge-warning {
+    background-color: #ffc107 !important;
+    color: #000000 !important;
+}
+
+.badge-danger {
+    background-color: #dc3545 !important;
+    color: #ffffff !important;
+}
+
+.badge-primary {
+    background-color: #007bff !important;
+    color: #ffffff !important;
+}
+
+.badge-info {
+    background-color: #17a2b8 !important;
+    color: #ffffff !important;
+}
+
+.badge-dark {
+    background-color: #343a40 !important;
+    color: #ffffff !important;
+}
+
+/* ✅ BOTÕES MAIORES E MAIS VISÍVEIS */
+.btn-xs {
+    padding: 0.3rem 0.5rem !important; /* Bem maior */
+    font-size: 12px !important; /* Fonte maior */
+    line-height: 1.3;
+    min-width: 32px !important; /* Largura mínima maior */
+    font-weight: 600 !important; /* Texto mais grosso */
+}
+
+/* ✅ CLIENTE COM TEXTO MAIS FORTE */
+.cliente-nome {
+    max-width: 180px !important; /* Bem maior */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px !important;
+    color: #000000 !important; /* PRETO FORTE */
+    font-weight: 600 !important; /* Mais grosso */
+}
+
+/* ✅ ÁREA DE AÇÕES MAIOR */
+.acoes-pedido {
+    display: flex;
+    flex-direction: column;
+    gap: 4px !important; /* Mais espaço */
+    width: 130px !important; /* Bem maior */
+}
+
+.acoes-pedido .btn-group {
+    display: flex;
+    justify-content: space-between;
+    gap: 3px;
+}
+
+.acoes-pedido .btn-group .btn {
+    flex: 1;
+    margin: 0 1px;
+}
+
+/* ✅ LARGURAS OTIMIZADAS PARA TELA CHEIA */
+.table th:nth-child(1), .table td:nth-child(1) { width: 60px !important; } /* ID */
+.table th:nth-child(2), .table td:nth-child(2) { width: 70px !important; } /* Nº */
+.table th:nth-child(3), .table td:nth-child(3) { width: 90px !important; } /* Código */
+.table th:nth-child(4), .table td:nth-child(4) { width: 200px !important; } /* Cliente - BEM MAIOR */
+.table th:nth-child(5), .table td:nth-child(5) { width: 90px !important; } /* Evento */
+.table th:nth-child(6), .table td:nth-child(6) { width: 70px !important; } /* Tipo */
+.table th:nth-child(7), .table td:nth-child(7) { width: 100px !important; } /* Total */
+.table th:nth-child(8), .table td:nth-child(8) { width: 100px !important; } /* Saldo */
+.table th:nth-child(9), .table td:nth-child(9) { width: 80px !important; } /* Pagto */
+.table th:nth-child(10), .table td:nth-child(10) { width: 100px !important; } /* Situação */
+.table th:nth-child(11), .table td:nth-child(11) { width: 140px !important; } /* Ações - MAIOR */
+
+/* ✅ VALORES MONETÁRIOS BEM DESTACADOS */
+.table td:nth-child(7), .table td:nth-child(8) {
+    font-weight: 700 !important; /* Bem grosso */
+    text-align: right !important;
+    color: #000000 !important; /* PRETO FORTE */
+}
+
+/* ✅ SALDO DEVEDOR MUITO DESTACADO */
+.text-danger {
+    color: #dc3545 !important;
+    font-weight: 800 !important; /* Extra grosso */
+    text-shadow: 0 0 1px rgba(220,53,69,0.3) !important; /* Sombra sutil */
+}
+
+.text-success {
+    color: #28a745 !important;
+    font-weight: 700 !important;
+    text-shadow: 0 0 1px rgba(40,167,69,0.3) !important; /* Sombra sutil */
+}
+
+/* ✅ BORDAS MAIS FORTES */
+.table-bordered th, .table-bordered td {
+    border: 1px solid #495057 !important; /* Borda mais escura */
+}
+
+.table thead th {
+    border-bottom: 3px solid #343a40 !important; /* Borda bem forte */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #e9ecef !important;
+}
+
+/* ✅ HOVER MAIS VISÍVEL */
+.table-hover tbody tr:hover {
+    background-color: rgba(0,123,255,0.15) !important; /* Mais forte */
+}
+
+/* ✅ LINKS DE ORDENAÇÃO MAIS FORTES */
+.table th a {
+    color: #000000 !important; /* PRETO FORTE */
+    text-decoration: none !important;
+    font-weight: 700 !important; /* Bem grosso */
+}
+
+.table th a:hover {
+    color: #007bff !important;
+    text-shadow: 0 0 2px rgba(0,123,255,0.5) !important;
+}
+
+/* ✅ ÍCONES DE ORDENAÇÃO MAIS VISÍVEIS */
+.fas.fa-sort, .fas.fa-sort-up, .fas.fa-sort-down {
+    color: #495057 !important;
+    font-weight: 900 !important;
+}
+
+/* ✅ CARD COM MAIS DESTAQUE */
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,.15), 0 2px 8px rgba(0,0,0,.1) !important;
+    border: 1px solid #dee2e6 !important;
+}
+
+.card-header {
+    padding: 0.75rem 1rem !important;
+    background-color: #f8f9fa !important;
+    border-bottom: 2px solid #dee2e6 !important;
+}
+
+.card-title {
+    color: #000000 !important;
+    font-weight: 700 !important;
+}
+
+/* ✅ MELHORAR POPOVERS */
+.popover {
+    max-width: 400px !important;
+    font-size: 13px !important;
+    border: 2px solid #495057 !important;
+}
+
+.popover-body {
+    padding: 12px 16px !important;
+    line-height: 1.5;
+    color: #000000 !important;
+    font-weight: 500 !important;
+}
+
+/* ✅ RESPONSIVIDADE MANTIDA */
+@media (max-width: 1200px) {
+    .table th, .table td {
+        font-size: 13px !important;
+        padding: 0.4rem 0.5rem !important;
+    }
+    
+    .btn-xs {
+        font-size: 11px !important;
+        padding: 0.2rem 0.4rem !important;
+    }
+    
+    .badge {
+        font-size: 10px !important;
+        padding: 3px 6px !important;
+    }
+    
+    .cliente-nome {
+        max-width: 150px !important;
+    }
+}
+</style>
 <script>
 // Função para confirmar exclusão
 function confirmDelete(id, identificador) {
@@ -708,8 +983,7 @@ $(document).on('click', '.btn-imprimir-pedido', function() {
         cancelButtonText: 'Cancelar',
         confirmButtonColor: '#007bff',
         denyButtonColor: '#ffc107',
-        cancelButtonColor: '#6c757d'
-    }).then((result) => {
+        cancelButtonColor: '#6c757d'    }).then((result) => {
         if (result.isConfirmed) {
             // Impressão para cliente
             imprimirPedido(pedidoId, 'cliente');
@@ -727,19 +1001,15 @@ function imprimirPedido(id, tipo) {
     const printWindow = window.open(url, '_blank', 'width=800,height=600,scrollbars=yes');
 
     // Aguarda carregar e imprime
-printWindow.onload = function() {
-    setTimeout(function() {
-        if (tipo === 'cliente') {
-            printWindow.imprimirCliente();
-        } else {
-            printWindow.imprimirProducao();
-        }
-        // Fecha a janela após imprimir
+    printWindow.onload = function() {
         setTimeout(function() {
-            printWindow.close();
-        }, 2000);
-    }, 1000);
-};
+            printWindow.print();
+            // Fecha a janela após imprimir
+            setTimeout(function() {
+                printWindow.close();
+            }, 2000);
+        }, 1000);
+    };
 }
 </script>
 

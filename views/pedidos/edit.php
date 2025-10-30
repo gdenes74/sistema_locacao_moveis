@@ -222,7 +222,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
         $pedidoModel->data_pedido = $data_pedido_dt->format('Y-m-d');
 
-
         // Datas e Horas de Evento, Entrega e Devolução
         $data_evento_dt = !empty($_POST['data_evento']) ? DateTime::createFromFormat('d/m/Y', $_POST['data_evento']) : null;
         $pedidoModel->data_evento = $data_evento_dt ? $data_evento_dt->format('Y-m-d') : null;
@@ -283,12 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             throw new Exception("Falha ao atualizar o cabeçalho do pedido. Verifique os logs.");
         }
 
-        // LÓGICA DOS ITENS
-        // Primeiro, remove todos os itens existentes para o pedido
-        if (!$pedidoModel->removerTodosItens($pedidoId)) {
-            throw new Exception("Falha ao remover itens existentes do pedido antes da atualização.");
-        }
-
+        // 🔥 LÓGICA DOS ITENS CORRIGIDA - SALVAMENTO SEGURO SEM PERDA DE DADOS
         $itens = [];
         if (isset($_POST['tipo_linha']) && is_array($_POST['tipo_linha'])) {
             foreach ($_POST['tipo_linha'] as $index => $tipo_linha_post) {
@@ -334,11 +328,90 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        // Salvar os novos/atualizados itens do pedido
+        // 🛡️ SALVAMENTO SEGURO DOS ITENS - SEM DELETAR ANTES DE CONFIRMAR O SUCESSO
         if (!empty($itens)) {
-            // A função salvarItens() irá agora adicionar os itens, recriando-os
-            if (!$pedidoModel->salvarItens($pedidoId, $itens)) {
-                throw new Exception("Falha ao salvar um ou mais itens do pedido após a atualização. Verifique os logs do servidor.");
+            // Preparar statement para inserir novos itens
+            $stmtInserirItem = $db->prepare("
+    INSERT INTO itens_pedido (
+        pedido_id, produto_id, nome_produto_manual, quantidade, 
+        tipo, preco_unitario, desconto, preco_final, observacoes, 
+        tipo_linha, ordem
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+");
+
+            // Array para armazenar IDs dos itens inseridos com sucesso
+            $itensInseridosComSucesso = [];
+            $todosItensInseridosComSucesso = true;
+            
+            // Tentar inserir cada item
+            foreach ($itens as $item) {
+                try {
+                    $resultadoInsercao = $stmtInserirItem->execute([
+    $pedidoId,
+    $item['produto_id'],
+    $item['nome_produto_manual'],
+    $item['quantidade'],
+    $item['tipo'],
+    $item['preco_unitario'],
+    $item['desconto'],
+    $item['preco_final'],
+    $item['observacoes'],
+    $item['tipo_linha'],
+    $item['ordem']
+]);
+                    
+                    if ($resultadoInsercao) {
+                        $itensInseridosComSucesso[] = $db->lastInsertId();
+                        ;
+                    } else {
+                        $todosItensInseridosComSucesso = false;
+                        error_log("❌ Falha ao inserir item: " . json_encode($item));
+                        break;
+                    }
+                } catch (Exception $e) {
+                    $todosItensInseridosComSucesso = false;
+                    error_log("❌ Exceção ao inserir item: " . $e->getMessage() . " | Item: " . json_encode($item));
+                    break;
+                }
+            }
+            
+            // 🎯 SÓ REMOVE OS ITENS ANTIGOS SE TODOS OS NOVOS FORAM INSERIDOS COM SUCESSO
+            if ($todosItensInseridosComSucesso && !empty($itensInseridosComSucesso)) {
+                try {
+                    // Agora sim, podemos remover os itens antigos com segurança
+                    $stmtRemoverAntigos = $db->prepare("DELETE FROM itens_pedido WHERE pedido_id = ? AND id NOT IN (" . implode(',', array_fill(0, count($itensInseridosComSucesso), '?')) . ")");
+                    $parametrosRemocao = array_merge([$pedidoId], $itensInseridosComSucesso);
+                    
+                    if (!$stmtRemoverAntigos->execute($parametrosRemocao)) {
+                        error_log("⚠️ Aviso: Novos itens salvos, mas falha ao remover itens antigos. Pode haver duplicatas.");
+                    } else {
+                        
+                    }
+                } catch (Exception $e) {
+                    error_log("⚠️ Aviso: Novos itens salvos, mas erro ao remover antigos: " . $e->getMessage());
+                }
+            } else {
+                // Se houve falha, remove os itens que foram inseridos parcialmente
+                if (!empty($itensInseridosComSucesso)) {
+                    try {
+                       $stmtLimpezaParcial = $db->prepare("DELETE FROM itens_pedido WHERE id IN (" . implode(',', array_fill(0, count($itensInseridosComSucesso), '?')) . ")");
+                        $stmtLimpezaParcial->execute($itensInseridosComSucesso);
+                        error_log("🧹 Limpeza de itens parcialmente inseridos realizada.");
+                    } catch (Exception $e) {
+                        error_log("❌ Erro na limpeza de itens parciais: " . $e->getMessage());
+                    }
+                }
+                throw new Exception("Falha ao salvar todos os itens do pedido. Os itens originais foram preservados. Verifique os logs para detalhes.");
+            }
+        } else {
+            // Se não há itens para salvar, remove todos os itens existentes
+            try {
+                $stmtRemoverTodos = $db->prepare("DELETE FROM itens_pedido WHERE pedido_id = ?");
+                $stmtRemoverTodos->execute([$pedidoId]);
+                error_log("ℹ️ Todos os itens do pedido foram removidos (nenhum item enviado no formulário).");
+            } catch (Exception $e) {
+                error_log("❌ Erro ao remover todos os itens: " . $e->getMessage());
+                throw new Exception("Erro ao processar remoção de itens do pedido.");
             }
         }
 
@@ -373,7 +446,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         unset($item_processado);
     }
 }
-
 // Prepara os dados completos do cliente em JSON para o atributo data-
 // Buscar dados completos do cliente
 $stmt_cliente = $db->prepare("SELECT * FROM clientes WHERE id = ?");
@@ -1195,10 +1267,22 @@ include_once __DIR__ . '/../includes/header.php';
 $custom_js = <<<'JS'
 $(document).ready(function() {
     // Suprimir warnings do Select2
-$.fn.select2.defaults.set('theme', 'bootstrap4');
-$.fn.select2.defaults.set('width', '100%');
-// PEDIDO_ID e itemIndex são definidos via PHP antes deste bloco JS
+    $.fn.select2.defaults.set('theme', 'bootstrap4');
+    $.fn.select2.defaults.set('width', '100%');
+    $.fn.select2.defaults.set('escapeMarkup', function (markup) { return markup; });
+       // ✅ DEFINIR itemIndex NO INÍCIO
+    let itemIndex = 0;
+    
+    // Contar itens existentes para inicializar corretamente
+    const linhasExistentes = document.querySelectorAll('#tabela_itens_pedido tbody tr.item-pedido-row');
+    itemIndex = linhasExistentes.length;
+    
+    console.log('itemIndex inicializado:', itemIndex);
+    // PEDIDO_ID e itemIndex são definidos via PHP antes deste bloco JS
     // BASE_URL também foi injetado pelo PHP
+    
+    // 🛡️ PROTEÇÃO GLOBAL CONTRA LOOP INFINITO
+    window.calculandoTotais = false;
     
     // Variável para guardar os dados do cliente atual
     let dadosClienteAtual = null;
@@ -1256,49 +1340,78 @@ $.fn.select2.defaults.set('width', '100%');
         return number.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // ✅ FUNÇÃO CORRIGIDA COM PROTEÇÃO CONTRA LOOP INFINITO
     function calcularTotaisPedido() {
-        var subtotalGeralItens = 0;
-        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
-            if ($(this).data('tipo-linha') !== 'CABECALHO_SECAO') {
-                subtotalGeralItens += calcularSubtotalItem($(this));
+        // 🛡️ PROTEÇÃO CONTRA LOOP INFINITO
+        if (window.calculandoTotais) {
+            console.log('⚠️ Cálculo já em andamento, ignorando chamada duplicada...');
+            return;
+        }
+        window.calculandoTotais = true;
+        
+        try {
+            var subtotalGeralItens = 0;
+            $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+                if ($(this).data('tipo-linha') !== 'CABECALHO_SECAO') {
+                    subtotalGeralItens += calcularSubtotalItem($(this));
+                }
+            });
+
+            // Função para pegar valor apenas se checkbox estiver marcado
+            function getValorSeAtivo(inputId, checkboxId) {
+                const $checkbox = $('#' + checkboxId);
+                if ($checkbox.length > 0 && $checkbox.is(':checked')) {
+                    return unformatCurrency($('#' + inputId).val());
+                }
+                return 0;
             }
-        });
 
-        // Pega valores das taxas e descontos, garantindo que estejam desformatados para cálculo
-        // Função para pegar valor apenas se checkbox estiver marcado
-function getValorSeAtivo(inputId, checkboxId) {
-    const $checkbox = $('#' + checkboxId);
-    if ($checkbox.length > 0 && $checkbox.is(':checked')) {
-        return unformatCurrency($('#' + inputId).val());
-    }
-    return 0;
-}
+            var descontoTotalGeral = getValorSeAtivo('desconto_total', 'aplicar_desconto_geral');
+            var taxaDomingo = getValorSeAtivo('taxa_domingo_feriado', 'aplicar_taxa_domingo');
+            var taxaMadrugada = getValorSeAtivo('taxa_madrugada', 'aplicar_taxa_madrugada');
+            var taxaHorarioEspecial = getValorSeAtivo('taxa_horario_especial', 'aplicar_taxa_horario_especial');
+            var taxaHoraMarcada = getValorSeAtivo('taxa_hora_marcada', 'aplicar_taxa_hora_marcada');
+            var freteTerreo = getValorSeAtivo('frete_terreo', 'aplicar_frete_terreo');
+            var freteElevador = getValorSeAtivo('frete_elevador', 'aplicar_frete_elevador');
+            var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
+            
+            var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
 
-var descontoTotalGeral = getValorSeAtivo('desconto_total', 'aplicar_desconto_geral');
-var taxaDomingo = getValorSeAtivo('taxa_domingo_feriado', 'aplicar_taxa_domingo');
-var taxaMadrugada = getValorSeAtivo('taxa_madrugada', 'aplicar_taxa_madrugada');
-var taxaHorarioEspecial = getValorSeAtivo('taxa_horario_especial', 'aplicar_taxa_horario_especial');
-var taxaHoraMarcada = getValorSeAtivo('taxa_hora_marcada', 'aplicar_taxa_hora_marcada');
-var freteTerreo = getValorSeAtivo('frete_terreo', 'aplicar_frete_terreo');
-var freteElevador = getValorSeAtivo('frete_elevador', 'aplicar_frete_elevador');
-var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
-        var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
+            // ✅ CÁLCULO CORRETO DO SALDO
+            var valorSinal = unformatCurrency($('#valor_sinal').val());
+            var valorPago = unformatCurrency($('#valor_pago').val());
+            var valorMultas = unformatCurrency($('#valor_multas').val());
+            
+            var totalJaPago = valorSinal + valorPago;
+            var valorFinalComMultas = valorFinalCalculado + valorMultas;
+            var saldo = Math.max(0, valorFinalComMultas - totalJaPago);
 
-        // Calcular saldo (incluindo valor do sinal e valor já pago)
-        var valorSinal = unformatCurrency($('#valor_sinal').val());
-        var valorPago = unformatCurrency($('#valor_pago').val());
-        var totalJaPago = valorSinal + valorPago;
-        var saldo = Math.max(0, valorFinalCalculado - totalJaPago);
+            console.log('=== CÁLCULO SALDO ===');
+            console.log('Valor Final:', valorFinalCalculado);
+            console.log('Multas:', valorMultas);
+            console.log('Valor Final + Multas:', valorFinalComMultas);
+            console.log('Sinal:', valorSinal);
+            console.log('Valor Pago:', valorPago);
+            console.log('Total Já Pago:', totalJaPago);
+            console.log('Saldo Final:', saldo);
 
-        // Atualizar displays com formatação
-        if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
-            $('#subtotal_geral_itens').text('A confirmar');
-            $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
-            $('#saldo_display').val('').attr('placeholder', 'A confirmar');
-        } else {
-            $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
-            $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
-            $('#saldo_display').val(formatCurrency(saldo));
+            // Atualizar displays com formatação
+            if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
+                $('#subtotal_geral_itens').text('A confirmar');
+                $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
+                $('#saldo_display').val('').attr('placeholder', 'A confirmar');
+            } else {
+                $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
+                $('#valor_final_display').val(formatCurrency(valorFinalComMultas));
+                $('#saldo_display').val(formatCurrency(saldo));
+            }
+        } catch (error) {
+            console.error('Erro no cálculo de totais:', error);
+        } finally {
+            // 🛡️ LIBERA A PROTEÇÃO APÓS UM PEQUENO DELAY
+            setTimeout(() => {
+                window.calculandoTotais = false;
+            }, 100);
         }
     }
 
@@ -1308,7 +1421,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         var valorUnitario = unformatCurrency($row.find('.item-valor-unitario').val());
         var descontoUnitario = unformatCurrency($row.find('.desconto_item').val());
         var subtotal = quantidade * (valorUnitario - descontoUnitario);
-        $row.find('.subtotal_item_display').text(formatCurrency(subtotal)); // Não precisa do "R$" aqui, pois o formato já está correto
+        $row.find('.subtotal_item_display').text(formatCurrency(subtotal));
         return subtotal;
     }
 
@@ -1320,7 +1433,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
             return;
         }
         $.ajax({
-            url: `edit.php?id=${PEDIDO_ID}&ajax=buscar_produtos`,// Correção da URL
+            url: `edit.php?id=${PEDIDO_ID}&ajax=buscar_produtos`,
             type: 'GET',
             dataType: 'json',
             data: { termo: termoBusca, categoria_id: categoriaSelecionada },
@@ -1345,7 +1458,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
     }
 
     function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
-        itemIndex++; // Incrementa o índice global para novos itens
+        itemIndex++;
         var tipoLinha = tipoLinhaParam;
         var htmlLinha = '';
         var nomeDisplay = dadosItem ? dadosItem.nome_produto : '';
@@ -1369,26 +1482,28 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         
         if (htmlLinha) {
             $('#tabela_itens_pedido tbody').append(htmlLinha);
-            // Reaplicar máscara nos novos campos money-input
-           // $(document.getElementById(`tabela_itens_pedido`)).find(`.item-pedido-row[data-index="${itemIndex}"] .money-input`).mask('#.##0,00', {reverse: true});
+            // ✅ CHAMA CÁLCULO APENAS UMA VEZ, SEM LOOP
             calcularTotaisPedido();
         }
     }
 
-    // Eventos para recalcular saldo e taxas (com debounce para melhor performance em keyup)
-    // Usamos 'change' para garantir que após blur/perda de foco o cálculo seja feito
-    // e 'keyup' para cálculo em tempo real, mas com debounce
+    // ✅ EVENTOS CORRIGIDOS COM DEBOUNCE E SEM LOOPS
     let debounceTimer;
     const calculateDebounced = () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
-            calcularTotaisPedido();
-        }, 300); // 300ms de atraso
+            if (!window.calculandoTotais) {
+                calcularTotaisPedido();
+            }
+        }, 300);
     };
 
-    $('#valor_pago, #valor_sinal, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas, #desconto_total').on('change', calcularTotaisPedido).on('keyup', calculateDebounced);
-
-    // Habilitar/desabilitar botão carregar orçamento (Não aplicável a edit.php, removido)
+    // ✅ EVENTOS PRINCIPAIS COM PROTEÇÃO
+    $('#valor_pago, #valor_sinal, #valor_multas, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas, #desconto_total').on('change', function() {
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
+    }).on('keyup', calculateDebounced);
 
     // --- EVENTOS PARA SEÇÃO DE ITENS ---
     $('#busca_produto, #busca_categoria_produto').on('keyup change', carregarSugestoesProdutos);
@@ -1399,7 +1514,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         // Tratamento para clique na imagem (abrir modal/popup)
         if ($(e.target).closest('.foto-produto-sugestao').length > 0) {
             var fotoUrl = $(this).data('foto-completa');
-            var nomeProduto = $(this).data('nome-produto'); // Usar data-nome-produto
+            var nomeProduto = $(this).data('nome-produto');
             
             if (fotoUrl) {
                 Swal.fire({
@@ -1465,17 +1580,19 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
     $('#tabela_itens_pedido').on('click', '.btn_remover_item', function() {
         $(this).closest('tr').remove();
         atualizarOrdemDosItens();
-        calcularTotaisPedido();
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
         // Se não houver mais itens, adiciona a linha de "nenhum item"
         if ($('#tabela_itens_pedido tbody tr.item-pedido-row').length === 0) {
             $('#tabela_itens_pedido tbody').append('<tr class="no-items-row"><td colspan="6" class="text-center text-muted">Nenhum item adicionado a este pedido ainda.</td></tr>');
         }
     });
+
     // Remove a linha "Nenhum item adicionado" quando um item é adicionado
     $(document).on('click', '#btn_adicionar_item_manual, .item-sugestao-produto, #btn_adicionar_titulo_secao', function() {
         $('#tabela_itens_pedido tbody tr.no-items-row').remove();
     });
-
 
     $('#tabela_itens_pedido').on('click', '.btn_obs_item', function() {
         var $row = $(this).closest('tr');
@@ -1485,9 +1602,13 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         }
     });
 
-    // Eventos para .item-qtd, .item-valor-unitario, .desconto_item
-    $(document).on('change', '.item-qtd, .item-valor-unitario, .desconto_item', calcularTotaisPedido);
-    $(document).on('keyup', '.item-qtd, .item-valor-unitario, .desconto_item', calculateDebounced); // Debounce para keyup
+    // ✅ EVENTOS DE ITENS COM PROTEÇÃO CONTRA LOOP
+    $(document).on('change', '.item-qtd, .item-valor-unitario, .desconto_item', function() {
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
+    });
+    $(document).on('keyup', '.item-qtd, .item-valor-unitario, .desconto_item', calculateDebounced);
 
     // === Lógica para os botões "Usar Padrão" da varinha mágica ===
     $('.btn-usar-padrao').on('click', function() {
@@ -1499,37 +1620,39 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         var valorSugeridoStr = $targetInput.data('valor-padrao');
         if (typeof valorSugeridoStr === 'undefined') { return; }
         
-        var valorNumerico = unformatCurrency(valorSugeridoStr); // Usar unformatCurrency aqui
-        $targetInput.val(formatCurrency(valorNumerico)); // Formatar corretamente
+        var valorNumerico = unformatCurrency(valorSugeridoStr);
+        $targetInput.val(formatCurrency(valorNumerico));
         
         var targetCheckboxId = $button.data('target-checkbox');
         if (targetCheckboxId) { 
             $('#' + targetCheckboxId).prop('checked', true); 
-            // Força a lógica do checkbox a rodar para habilitar o campo
             $('#' + targetCheckboxId).trigger('change'); 
         } else {
-             // Se não tem checkbox, apenas recalcula
-            calcularTotaisPedido();
+            if (!window.calculandoTotais) {
+                calcularTotaisPedido();
+            }
         }
     });
 
-    // === Lógica para checkboxes de taxas/fretes (habilita/desabilita input e seta padrão se vazio) ===
+    // === Lógica para checkboxes de taxas/fretes ===
     $('.taxa-frete-checkbox').on('change', function() {
         var $checkbox = $(this);
         var $targetInput = $('#' + $checkbox.data('target-input'));
         if ($targetInput.length) {
             if ($checkbox.is(':checked')) {
-                $targetInput.prop('disabled', false); // Habilita o campo
-                if (unformatCurrency($targetInput.val()) === 0) { // Se o campo está vazio (zero)
+                $targetInput.prop('disabled', false);
+                if (unformatCurrency($targetInput.val()) === 0) {
                     var valorPadraoStr = $targetInput.data('valor-padrao');
                     if (typeof valorPadraoStr !== 'undefined') {
-                        $targetInput.val(formatCurrency(unformatCurrency(valorPadraoStr))); // Seta o padrão formatado
+                        $targetInput.val(formatCurrency(unformatCurrency(valorPadraoStr)));
                     }
                 }
             } else { 
-                $targetInput.val(formatCurrency(0)).prop('disabled', true); // Zera e desabilita
+                $targetInput.val(formatCurrency(0)).prop('disabled', true);
             }
-            calcularTotaisPedido(); // Recalcula totais
+            if (!window.calculandoTotais) {
+                calcularTotaisPedido();
+            }
         }
     });
 
@@ -1542,7 +1665,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
             allowClear: true,
             minimumInputLength: 0,
             ajax: {
-                url: `edit.php?id=${PEDIDO_ID}&ajax=buscar_clientes`, // Correção da URL
+                url: `edit.php?id=${PEDIDO_ID}&ajax=buscar_clientes`,
                 dataType: 'json',
                 delay: 250,
                 data: function (params) { 
@@ -1563,15 +1686,13 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
             }
         }).on('select2:select', function (e) {
             var data = e.params.data.clienteData;
-            dadosClienteAtual = data; // Atualiza a variável global
-            exibirInfoCliente(data); // Exibe as infos
-            // A lógica de mostrar/esconder o botão "Usar Endereço Cliente" é tratada por exibirInfoCliente
+            dadosClienteAtual = data;
+            exibirInfoCliente(data);
         }).on('select2:unselect select2:clear', function(e) {
-            dadosClienteAtual = null; // Limpa a variável global
-            exibirInfoCliente(null); // Esconde as infos e o botão
+            dadosClienteAtual = null;
+            exibirInfoCliente(null);
         });
 
-        // Força a exibição inicial das informações do cliente se já estiver selecionado
         if (dadosClienteAtual) {
             exibirInfoCliente(dadosClienteAtual);
         }
@@ -1588,7 +1709,7 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
         });
     }
 
-    const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+        const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
     function exibirDiaSemana(inputId, displayId) {
         var dataStr = $(inputId).val();
         var displayEl = $(displayId);
@@ -1625,39 +1746,38 @@ var freteEscadas = getValorSeAtivo('frete_escadas', 'aplicar_frete_escadas');
     }).trigger('change'); 
     
     // Lógica revisada para o botão "Usar Endereço Cliente"
-   $(document).ready(function() {
-    localEventoOriginal = $('#local_evento').val().trim();
-});
-// Variável para guardar o valor original do local do evento
-let localEventoOriginal = '';
+    let localEventoOriginal = '';
 
-// Capturar valor original na carga da página
+    // Capturar valor original na carga da página
+    $(document).ready(function() {
+        localEventoOriginal = $('#local_evento').val().trim();
+    });
 
-$('#btnUsarEnderecoCliente').on('click', function() {
-    if (!dadosClienteAtual) {
-        alert('Por favor, selecione um cliente primeiro.');
-        return;
-    }
-    
-    let enderecoCompleto = (dadosClienteAtual.endereco || '').trim();
-    if (dadosClienteAtual.cidade) {
-        enderecoCompleto += (enderecoCompleto ? ', ' : '') + dadosClienteAtual.cidade.trim();
-    }
-    
-    let $localEventoInput = $('#local_evento');
-    let currentLocalEvento = $localEventoInput.val().trim();
-
-    if (currentLocalEvento === enderecoCompleto) {
-        // Se está mostrando endereço do cliente, volta ao original
-        $localEventoInput.val(localEventoOriginal);
-    } else {
-        // Se não está mostrando endereço do cliente, guarda o atual como original e muda
-        if (currentLocalEvento !== localEventoOriginal && currentLocalEvento !== '') {
-            localEventoOriginal = currentLocalEvento;
+    $('#btnUsarEnderecoCliente').on('click', function() {
+        if (!dadosClienteAtual) {
+            alert('Por favor, selecione um cliente primeiro.');
+            return;
         }
-        $localEventoInput.val(enderecoCompleto);
-    }
-});
+        
+        let enderecoCompleto = (dadosClienteAtual.endereco || '').trim();
+        if (dadosClienteAtual.cidade) {
+            enderecoCompleto += (enderecoCompleto ? ', ' : '') + dadosClienteAtual.cidade.trim();
+        }
+        
+        let $localEventoInput = $('#local_evento');
+        let currentLocalEvento = $localEventoInput.val().trim();
+
+        if (currentLocalEvento === enderecoCompleto) {
+            // Se está mostrando endereço do cliente, volta ao original
+            $localEventoInput.val(localEventoOriginal);
+        } else {
+            // Se não está mostrando endereço do cliente, guarda o atual como original e muda
+            if (currentLocalEvento !== localEventoOriginal && currentLocalEvento !== '') {
+                localEventoOriginal = currentLocalEvento;
+            }
+            $localEventoInput.val(enderecoCompleto);
+        }
+    });
 
     // Desabilitar submit ao pressionar Enter (exceto em textareas e botões)
     $('#formEditarPedido').on('keydown', function(e) {
@@ -1704,17 +1824,18 @@ $('#btnUsarEnderecoCliente').on('click', function() {
 
         if (isChecked) {
             $campoDesconto.prop('disabled', false);
-            $checkboxDesconto.prop('checked', true); // Marca o checkbox de desconto
+            $checkboxDesconto.prop('checked', true);
             $divMotivo.slideDown();
             $inputMotivo.prop('disabled', false);
-            // $campoDesconto.focus(); // Pode ser opcional, dependendo do UX
         } else {
             $campoDesconto.prop('disabled', true);
-            $checkboxDesconto.prop('checked', false); // Desmarca o checkbox de desconto
+            $checkboxDesconto.prop('checked', false);
             $divMotivo.slideUp();
             $inputMotivo.prop('disabled', true).val('');
         }
-        calcularTotaisPedido();
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
     });
 
     // Lógica para o checkbox "Desconto Geral (-)"
@@ -1722,42 +1843,77 @@ $('#btnUsarEnderecoCliente').on('click', function() {
         const isChecked = $(this).is(':checked');
         const $campoDesconto = $('#desconto_total');
         const $ajusteManualSwitch = $('#ajuste_manual_valor_final');
-        const $divMotivo = $('#campo_motivo_ajuste');
-        const $inputMotivo = $('#motivo_ajuste');
 
         if (isChecked) {
             $campoDesconto.prop('disabled', false);
-            // Se o desconto geral é marcado, o ajuste manual deve ser ativado
-            $ajusteManualSwitch.prop('checked', true).trigger('change'); // Força a ativação do ajuste manual e sua lógica
-            // $campoDesconto.focus(); // Pode ser opcional
+            $ajusteManualSwitch.prop('checked', true).trigger('change');
         } else {
-            $campoDesconto.prop('disabled', true).val(formatCurrency(0)); // Zera o valor se desmarcado
-            // Se o desconto geral é desmarcado, o ajuste manual pode ser desativado SE não houver outro motivo para ele
-            // Por simplicidade, vamos desativá-lo se o desconto for a única coisa ativando ele
+            $campoDesconto.prop('disabled', true).val(formatCurrency(0));
             if ($ajusteManualSwitch.is(':checked') && unformatCurrency($campoDesconto.val()) === 0) {
-                $ajusteManualSwitch.prop('checked', false).trigger('change'); // Desativa o ajuste manual e sua lógica
+                $ajusteManualSwitch.prop('checked', false).trigger('change');
             }
         }
-        calcularTotaisPedido();
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
     });
 
-    // Aplicar máscaras de dinheiro nos campos existentes (uma única vez na carga)
-    //$('.money-input').mask('#.##0,00', {reverse: true});
-
-    // Garante que o estado de todos os checkboxes de taxas/fretes e desconto geral
-    // seja processado na carga da página. Isso vai habilitar/desabilitar inputs e formatar valores.
+    // ✅ INICIALIZAÇÃO CORRIGIDA SEM LOOPS
+    // Garante que o estado de todos os checkboxes seja processado na carga da página
+    // MAS SEM TRIGGER QUE CAUSA LOOP!
     $('.taxa-frete-checkbox, #ajuste_manual_valor_final, #aplicar_desconto_geral').each(function() {
-        $(this).trigger('change');
+        var $this = $(this);
+        var isChecked = $this.is(':checked');
+        
+        if ($this.hasClass('taxa-frete-checkbox')) {
+            var $targetInput = $('#' + $this.data('target-input'));
+            if ($targetInput.length) {
+                if (isChecked) {
+                    $targetInput.prop('disabled', false);
+                } else {
+                    $targetInput.prop('disabled', true);
+                }
+            }
+        }
+        
+        if ($this.attr('id') === 'ajuste_manual_valor_final') {
+            const $campoDesconto = $('#desconto_total');
+            const $divMotivo = $('#campo_motivo_ajuste');
+            const $inputMotivo = $('#motivo_ajuste');
+            
+            if (isChecked) {
+                $campoDesconto.prop('disabled', false);
+                $divMotivo.show();
+                $inputMotivo.prop('disabled', false);
+            } else {
+                $campoDesconto.prop('disabled', true);
+                $divMotivo.hide();
+                $inputMotivo.prop('disabled', true);
+            }
+        }
+        
+        if ($this.attr('id') === 'aplicar_desconto_geral') {
+            const $campoDesconto = $('#desconto_total');
+            if (isChecked) {
+                $campoDesconto.prop('disabled', false);
+            } else {
+                $campoDesconto.prop('disabled', true);
+            }
+        }
     });
 
-    // Finalmente, recalcula todos os totais na carga da página
-    calcularTotaisPedido();
+    // ✅ CÁLCULO INICIAL ÚNICO (SEM LOOP)
+    setTimeout(() => {
+        if (!window.calculandoTotais) {
+            calcularTotaisPedido();
+        }
+    }, 500);
 
-    // Salvar Cliente Modal (AJAX) - Mantido como estava
+    // Salvar Cliente Modal (AJAX)
     $('#btnSalvarClienteModal').on('click', function() {
         var formData = $('#formNovoClienteModal').serialize();
         $.ajax({
-            url: `../clientes/processar_novo_cliente.php`, // Correção da URL
+            url: `../clientes/processar_novo_cliente.php`,
             type: 'POST',
             data: formData,
             dataType: 'json',
@@ -1765,7 +1921,6 @@ $('#btnUsarEnderecoCliente').on('click', function() {
                 if (response.success) {
                     toastr.success(response.message, 'Sucesso');
                     $('#modalNovoCliente').modal('hide');
-                    // Adicionar o novo cliente ao select2 e selecioná-lo
                     var newOption = new Option(
                         response.cliente.nome + (response.cliente.cpf_cnpj ? ' - ' + response.cliente.cpf_cnpj : ''), 
                         response.cliente.id, 
@@ -1774,8 +1929,6 @@ $('#btnUsarEnderecoCliente').on('click', function() {
                     );
                     $(newOption).data('clienteData', response.cliente);
                     $('#cliente_id').append(newOption).trigger('change');
-                    
-                    // Limpar formulário do modal
                     $('#formNovoClienteModal')[0].reset();
                 } else {
                     toastr.error(response.message, 'Erro');
@@ -1786,19 +1939,6 @@ $('#btnUsarEnderecoCliente').on('click', function() {
             }
         });
     });
-
-    // Máscaras para o modal de novo cliente
-    //$('#modalNovoCliente').on('shown.bs.modal', function () {
-    //    $('#modal_cliente_cpf_cnpj').mask('000.000.000-00', {
-     //       onKeyPress: function(cpfcnpj, e, field, options) {
-     //           var masks = ['000.000.000-000', '00.000.000/0000-00'];
-    //            var mask = (cpfcnpj.length > 14) ? masks[1] : masks[0];
-    //            $('#modal_cliente_cpf_cnpj').mask(mask, options);
-    //        }
-    //    });
-     //   $('#modal_cliente_telefone').mask('(00) 00000-0000');
-     //   $('#modal_cliente_cep').mask('00000-000');
-    //});
 
     // Limpar busca de produtos
     $('#btnLimparBuscaProduto').on('click', function() {
