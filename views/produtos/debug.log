@@ -1,0 +1,152 @@
+[30-Oct-2025 15:56:03 America/Sao_Paulo] === DEBUG PRODUTO ANTES DO UPDATE ===
+[30-Oct-2025 15:56:03 America/Sao_Paulo] ID: 15
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Quantidade: 1002
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Preço Locação: 'R$ 1,00'
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Preço Venda: 'R$ 1,00'
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Preço Custo: 'R$ 1,00'
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Disponível Venda: 0
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Disponível Locação: 1
+[30-Oct-2025 15:56:03 America/Sao_Paulo] =====================================
+[30-Oct-2025 15:56:03 America/Sao_Paulo] === DEBUG SQL UPDATE ===
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Query: UPDATE produtos
+                  SET
+                    subcategoria_id = :subcategoria_id,
+                    codigo = :codigo,
+                    nome_produto = :nome_produto,
+                    descricao_detalhada = :descricao_detalhada,
+                    dimensoes = :dimensoes,
+                    cor = :cor,
+                    material = :material,
+                    quantidade_total = :quantidade_total,
+                    preco_locacao = :preco_locacao,
+                    preco_venda = :preco_venda,
+                    preco_custo = :preco_custo,
+                    disponivel_venda = :disponivel_venda,
+                    disponivel_locacao = :disponivel_locacao,
+                    foto_path = :foto_path,
+                    observacoes = :observacoes,
+                    ultima_atualizacao = NOW()
+                  WHERE
+                    id = :id
+[30-Oct-2025 15:56:03 America/Sao_Paulo] ID para update: 15
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 15:56:03 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 15:56:03 America/Sao_Paulo] ========================
+[30-Oct-2025 15:56:03 America/Sao_Paulo] [Produto::atualizar] PDOException: SQLSTATE[22007]: Invalid datetime format: 1366 Incorrect decimal value: 'R$ 1,00' for column `sistema_toalhas`.`produtos`.`preco_locacao` at row 1
+[30-Oct-2025 15:56:03 America/Sao_Paulo] [Produto::atualizar] SQL State: 22007
+[30-Oct-2025 15:57:35 America/Sao_Paulo] === DEBUG PRODUTO ANTES DO UPDATE ===
+[30-Oct-2025 15:57:35 America/Sao_Paulo] ID: 15
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Quantidade: 1002
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Preço Locação: 'R$ 2,00'
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Preço Venda: 'R$ 0,00'
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Preço Custo: 'R$ 0,00'
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Disponível Venda: 0
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Disponível Locação: 1
+[30-Oct-2025 15:57:35 America/Sao_Paulo] =====================================
+[30-Oct-2025 15:57:35 America/Sao_Paulo] === DEBUG SQL UPDATE ===
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Query: UPDATE produtos
+                  SET
+                    subcategoria_id = :subcategoria_id,
+                    codigo = :codigo,
+                    nome_produto = :nome_produto,
+                    descricao_detalhada = :descricao_detalhada,
+                    dimensoes = :dimensoes,
+                    cor = :cor,
+                    material = :material,
+                    quantidade_total = :quantidade_total,
+                    preco_locacao = :preco_locacao,
+                    preco_venda = :preco_venda,
+                    preco_custo = :preco_custo,
+                    disponivel_venda = :disponivel_venda,
+                    disponivel_locacao = :disponivel_locacao,
+                    foto_path = :foto_path,
+                    observacoes = :observacoes,
+                    ultima_atualizacao = NOW()
+                  WHERE
+                    id = :id
+[30-Oct-2025 15:57:35 America/Sao_Paulo] ID para update: 15
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 15:57:35 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 15:57:35 America/Sao_Paulo] ========================
+[30-Oct-2025 15:57:35 America/Sao_Paulo] [Produto::atualizar] PDOException: SQLSTATE[22007]: Invalid datetime format: 1366 Incorrect decimal value: 'R$ 2,00' for column `sistema_toalhas`.`produtos`.`preco_locacao` at row 1
+[30-Oct-2025 15:57:35 America/Sao_Paulo] [Produto::atualizar] SQL State: 22007
+[30-Oct-2025 16:02:09 America/Sao_Paulo] === DEBUG PRODUTO ANTES DO UPDATE ===
+[30-Oct-2025 16:02:09 America/Sao_Paulo] ID: 15
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Quantidade: 1002
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Preço Locação: 'R$ 2,00'
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Preço Venda: 'R$ 0,00'
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Preço Custo: 'R$ 0,00'
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Disponível Venda: 0
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Disponível Locação: 1
+[30-Oct-2025 16:02:09 America/Sao_Paulo] =====================================
+[30-Oct-2025 16:02:09 America/Sao_Paulo] === DEBUG SQL UPDATE ===
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Query: UPDATE produtos
+                  SET
+                    subcategoria_id = :subcategoria_id,
+                    codigo = :codigo,
+                    nome_produto = :nome_produto,
+                    descricao_detalhada = :descricao_detalhada,
+                    dimensoes = :dimensoes,
+                    cor = :cor,
+                    material = :material,
+                    quantidade_total = :quantidade_total,
+                    preco_locacao = :preco_locacao,
+                    preco_venda = :preco_venda,
+                    preco_custo = :preco_custo,
+                    disponivel_venda = :disponivel_venda,
+                    disponivel_locacao = :disponivel_locacao,
+                    foto_path = :foto_path,
+                    observacoes = :observacoes,
+                    ultima_atualizacao = NOW()
+                  WHERE
+                    id = :id
+[30-Oct-2025 16:02:09 America/Sao_Paulo] ID para update: 15
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 16:02:09 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 16:02:09 America/Sao_Paulo] ========================
+[30-Oct-2025 16:02:09 America/Sao_Paulo] [Produto::atualizar] PDOException: SQLSTATE[22007]: Invalid datetime format: 1366 Incorrect decimal value: 'R$ 2,00' for column `sistema_toalhas`.`produtos`.`preco_locacao` at row 1
+[30-Oct-2025 16:02:09 America/Sao_Paulo] [Produto::atualizar] SQL State: 22007
+[30-Oct-2025 16:02:16 America/Sao_Paulo] === DEBUG PRODUTO ANTES DO UPDATE ===
+[30-Oct-2025 16:02:16 America/Sao_Paulo] ID: 15
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Quantidade: 1001
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Preço Locação: 'R$ 1,00'
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Preço Venda: 'R$ 0,00'
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Preço Custo: 'R$ 0,00'
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Disponível Venda: 0
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Disponível Locação: 1
+[30-Oct-2025 16:02:16 America/Sao_Paulo] =====================================
+[30-Oct-2025 16:02:16 America/Sao_Paulo] === DEBUG SQL UPDATE ===
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Query: UPDATE produtos
+                  SET
+                    subcategoria_id = :subcategoria_id,
+                    codigo = :codigo,
+                    nome_produto = :nome_produto,
+                    descricao_detalhada = :descricao_detalhada,
+                    dimensoes = :dimensoes,
+                    cor = :cor,
+                    material = :material,
+                    quantidade_total = :quantidade_total,
+                    preco_locacao = :preco_locacao,
+                    preco_venda = :preco_venda,
+                    preco_custo = :preco_custo,
+                    disponivel_venda = :disponivel_venda,
+                    disponivel_locacao = :disponivel_locacao,
+                    foto_path = :foto_path,
+                    observacoes = :observacoes,
+                    ultima_atualizacao = NOW()
+                  WHERE
+                    id = :id
+[30-Oct-2025 16:02:16 America/Sao_Paulo] ID para update: 15
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Nome: guardanapo
+[30-Oct-2025 16:02:16 America/Sao_Paulo] Subcategoria ID: 8
+[30-Oct-2025 16:02:16 America/Sao_Paulo] ========================
+[30-Oct-2025 16:02:16 America/Sao_Paulo] [Produto::atualizar] PDOException: SQLSTATE[22007]: Invalid datetime format: 1366 Incorrect decimal value: 'R$ 1,00' for column `sistema_toalhas`.`produtos`.`preco_locacao` at row 1
+[30-Oct-2025 16:02:16 America/Sao_Paulo] [Produto::atualizar] SQL State: 22007
