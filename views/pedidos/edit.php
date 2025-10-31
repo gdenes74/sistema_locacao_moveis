@@ -838,7 +838,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="valor_pago">Valor Total Pago (R$)</label>
+                                            <label for="valor_pago">Complemento Pago (R\$)</label>
                                             <input type="text" class="form-control money-input text-right"
                                                 id="valor_pago" name="valor_pago" placeholder="0,00"
                                                 value="<?= htmlspecialchars(number_format($pedidoDados['valor_pago'] ?? 0, 2, ',', '.')) ?>">
@@ -846,7 +846,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label for="data_pagamento_final">Data Pagto. Final</label>
+                                            <label for="data_pagamento_final">Data Pagto. Complemento</label>
                                             <div class="input-group">
                                                 <input type="text" class="form-control datepicker"
                                                     id="data_pagamento_final" name="data_pagamento_final"

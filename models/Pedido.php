@@ -43,6 +43,7 @@ class Pedido {
     public $valor_pago;
     public $data_pagamento_final;
     public $valor_multas;
+    public $saldo_calculado;
     public $observacoes;
     public $condicoes_pagamento;
     public $usuario_id;

@@ -139,23 +139,17 @@ if (!empty($pedidoModel->cliente_id)) {
 
 $itens = $pedidoModel->getItens($id);
 
-// ✅ CALCULAR SALDO CORRETO (considerando sinal, valor pago e multas)
+// ✅ CÁLCULO CORRETO DO SALDO
 $valorFinal = floatval($pedidoModel->valor_final ?? 0);
 $valorSinal = floatval($pedidoModel->valor_sinal ?? 0);
-$valorPago = floatval($pedidoModel->valor_pago ?? 0);
+$valorComplemento = floatval($pedidoModel->valor_pago ?? 0);
 $valorMultas = floatval($pedidoModel->valor_multas ?? 0);
 
-$totalJaPago = $valorSinal + $valorPago;
-$valorFinalComMultas = $valorFinal + $valorMultas;
-$saldoDevedor = max(0, $valorFinalComMultas - $totalJaPago);
 
-// Debug para verificar cálculo
-error_log("SHOW.PHP - Valor Final: R$ " . number_format($valorFinal, 2, ',', '.') .
-    " | Sinal: R$ " . number_format($valorSinal, 2, ',', '.') .
-    " | Valor Pago: R$ " . number_format($valorPago, 2, ',', '.') .
-    " | Multas: R$ " . number_format($valorMultas, 2, ',', '.') .
-    " | Total Pago: R$ " . number_format($totalJaPago, 2, ',', '.') .
-    " | Saldo: R$ " . number_format($saldoDevedor, 2, ',', '.'));
+$totalJaPago = $valorSinal + $valorComplemento;
+$saldoBanco = $pedidoModel->saldo_calculado ?? '0';
+$saldoBanco = str_replace(',', '.', $saldoBanco);
+$saldoAPagar = floatval($saldoBanco);
 
 // Status do pedido
 $statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado');
@@ -351,16 +345,16 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                         <div class="col-md-2 text-center border-right">
                                             <div class="financeiro-item">
                                                 <small class="text-muted d-block">VALOR TOTAL</small>
-                                                <h4 class="text-primary mb-0">R$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></h4>
+                                                <h4 class="text-primary mb-0">R$ <?= formatarValor($valorFinal, true) ?></h4>
                                             </div>
                                         </div>
                                         
                                         <!-- Sinal (se houver) -->
-                                        <?php if (!empty($pedidoModel->valor_sinal) && $pedidoModel->valor_sinal > 0): ?>
+                                        <?php if (!empty($valorSinal) && $valorSinal > 0): ?>
                                             <div class="col-md-2 text-center border-right">
                                                 <div class="financeiro-item">
                                                     <small class="text-muted d-block">SINAL PAGO</small>
-                                                    <h5 class="text-info mb-0">R$ <?= formatarValor($pedidoModel->valor_sinal, true) ?></h5>
+                                                    <h5 class="text-info mb-0">R$ <?= formatarValor($valorSinal, true) ?></h5>
                                                     <?php if (!empty($pedidoModel->data_pagamento_sinal)): ?>
                                                         <small class="text-muted">
                                                             <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_sinal)) ?>
@@ -370,11 +364,11 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                             </div>
                                         <?php endif; ?>
                                         
-                                        <!-- Total Pago -->
+                                        <!-- Complemento Pago -->
                                         <div class="col-md-2 text-center border-right">
                                             <div class="financeiro-item">
-                                                <small class="text-muted d-block">TOTAL PAGO</small>
-                                                                <h5 class="text-success mb-0">R$ <?= formatarValor($totalJaPago, true) ?></h5>
+                                                <small class="text-muted d-block">COMPLEMENTO PAGO</small>
+                                                <h5 class="text-success mb-0">R$ <?= formatarValor($valorComplemento, true) ?></h5>
                                                 <?php if (!empty($pedidoModel->data_pagamento_final)): ?>
                                                     <small class="text-muted">
                                                         <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_final)) ?>
@@ -384,23 +378,23 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                         </div>
                                         
                                         <!-- Multas (se houver) -->
-                                        <?php if (!empty($pedidoModel->valor_multas) && $pedidoModel->valor_multas > 0): ?>
+                                        <?php if (!empty($valorMultas) && $valorMultas > 0): ?>
                                             <div class="col-md-2 text-center border-right">
                                                 <div class="financeiro-item">
                                                     <small class="text-muted d-block">MULTAS/EXTRAS</small>
-                                                    <h5 class="text-warning mb-0">R$ <?= formatarValor($pedidoModel->valor_multas, true) ?></h5>
+                                                    <h5 class="text-warning mb-0">R$ <?= formatarValor($valorMultas, true) ?></h5>
                                                 </div>
                                             </div>
                                         <?php endif; ?>
                                         
-                                        <!-- Saldo Devedor -->
+                                        <!-- Saldo A Pagar -->
                                         <div class="col-md-2 text-center border-right">
                                             <div class="financeiro-item">
-                                                <small class="text-muted d-block">SALDO DEVEDOR</small>
-                                                <h4 class="<?= $saldoDevedor > 0 ? 'text-danger' : 'text-success' ?> mb-0">
-                                                    R$ <?= formatarValor($saldoDevedor, true) ?>
+                                                <small class="text-muted d-block">SALDO A PAGAR</small>
+                                                <h4 class="<?= $saldoAPagar > 0 ? 'text-danger' : 'text-success' ?> mb-0">
+                                                    R$ <?= formatarValor($saldoAPagar, true) ?>
                                                 </h4>
-                                                <?php if ($saldoDevedor <= 0): ?>
+                                                <?php if ($saldoAPagar <= 0): ?>
                                                     <small class="text-success">
                                                         <i class="fas fa-check-circle"></i> Quitado
                                                     </small>
@@ -412,7 +406,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                         <div class="col-md-2 text-center">
                                             <div class="financeiro-item">
                                                 <small class="text-muted d-block">STATUS</small>
-                                                <?php if ($saldoDevedor <= 0): ?>
+                                                <?php if ($saldoAPagar <= 0): ?>
                                                     <span class="badge badge-success badge-status">
                                                         <i class="fas fa-check-double"></i><br>PAGO
                                                     </span>
@@ -668,7 +662,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                             <hr style="margin: 0.5rem 0;">
                             <h4><strong>
                                 <span class="text-left-label">Total p/ PIX ou Depósito</span>
-                                <span>R$ <?= formatarValor($pedidoModel->valor_final ?? 0, true) ?></span>
+                                <span>R$ <?= formatarValor($valorFinal, true) ?></span>
                             </strong></h4>
                         </div>
                     </div>
@@ -678,7 +672,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                     <div class="row mt-3">
                         <div class="col-12 text-center info-pix">
                             <strong>PIX SICREDI CNPJ 19.318.614 / 0001-44</strong><br>
-                                                        <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
+                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
                         </div>
                     </div>
 
@@ -927,7 +921,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
             display: none;
         }
 
-        .card-pedido-visual {
+                .card-pedido-visual {
             box-shadow: none !important;
             border: none !important;
             margin-bottom: 0 !important;
