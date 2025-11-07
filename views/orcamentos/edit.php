@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../models/Cliente.php';
 require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/NumeracaoSequencial.php';
 require_once __DIR__ . '/../../models/Orcamento.php';
+require_once __DIR__ . '/../../models/EstoqueMovimentacao.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -18,6 +19,7 @@ $db = $database->getConnection(); // Conexão PDO
 $clienteModel = new Cliente($db);
 $numeracaoModel = new NumeracaoSequencial($db);
 $orcamentoModel = new Orcamento($db);
+$estoqueModel = new EstoqueMovimentacao($db);
 
 // --- 1. BUSCA DOS DADOS PARA EDIÇÃO ---
 if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
@@ -40,16 +42,14 @@ if ($ja_convertido) {
     exit;
 }
 
-// --- 4. BUSCA DOS ITENS DO ORÇAMENTO ---
-$itensOrcamento = $orcamentoModel->getItens($orcamentoId);
-// --- 4. BUSCA DOS ITENS DO ORÇAMENTO ---
+// --- 2. BUSCA DOS ITENS DO ORÇAMENTO ---
 $itensOrcamento = $orcamentoModel->getItens($orcamentoId);
 if ($itensOrcamento === false) {
     $itensOrcamento = []; // Garante que é um array, mesmo em caso de erro
     $_SESSION['error_message'] = "Atenção: não foi possível carregar os itens deste orçamento.";
 }
 
-// Prepara o caminho completo da foto para cada item, igual fazemos no AJAX
+// Prepara o caminho completo da foto para cada item
 $base_url_config = rtrim(BASE_URL, '/');
 foreach ($itensOrcamento as &$item_processado) {
     if (!empty($item_processado['foto_path']) && $item_processado['foto_path'] !== "null" && trim($item_processado['foto_path']) !== "") {
@@ -69,12 +69,11 @@ if ($orcamentoDados === false) {
 
 $page_title = "Editar Orçamento #" . htmlspecialchars($orcamentoDados['numero']);
 
-// Textos padrão para observações e condições (se não existirem no orçamento)
-$textoPadraoObservacoes = !empty($orcamentoDados['observacoes']) ? $orcamentoDados['observacoes'] : "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\\n* Não Inclui Posicionamento dos Móveis no Local.";
-$textoPadraoCondicoes = !empty($orcamentoDados['condicoes_pagamento']) ? $orcamentoDados['condicoes_pagamento'] : "50% na aprovação para reserva em PIX ou Depósito.\\nSaldo em PIX ou Depósito 7 dias antes do evento.\\n* Consulte disponibilidade e preços para pagamento no cartão de crédito.";
+// Textos padrão para observações e condições
+$textoPadraoObservacoes = !empty($orcamentoDados['observacoes']) ? $orcamentoDados['observacoes'] : "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\n* Não Inclui Posicionamento dos Móveis no Local.";
+$textoPadraoCondicoes = !empty($orcamentoDados['condicoes_pagamento']) ? $orcamentoDados['condicoes_pagamento'] : "50% na aprovação para reserva em PIX ou Depósito.\nSaldo em PIX ou Depósito 7 dias antes do evento.\n* Consulte disponibilidade e preços para pagamento no cartão de crédito.";
 
-// CORRIGIDO: Valores padrão FIXOS para as taxas, utilizados no atributo data-valor-padrao dos inputs.
-// Estes valores representam o "default" para a funcionalidade da "varinha mágica".
+// Valores padrão FIXOS para as taxas
 $valorPadraoTaxaDomingo = 250.00;
 $valorPadraoTaxaMadrugada = 800.00;
 $valorPadraoTaxaHorarioEspecial = 500.00;
@@ -83,8 +82,7 @@ $valorPadraoFreteTerreo = 180.00;
 $valorPadraoFreteElevador = 100.00;
 $valorPadraoFreteEscadas = 200.00;
 
-
-// --- 2. Bloco AJAX para buscar clientes ---
+// --- 3. BLOCO AJAX PARA BUSCAR CLIENTES ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -132,7 +130,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
         exit;
     }
 }
-// --- Bloco AJAX para buscar produtos ---
+
+// --- 4. BLOCO AJAX PARA BUSCAR PRODUTOS ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
     header('Content-Type: application/json; charset=utf-8');
     try {
@@ -191,7 +190,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             if (!empty($produto_item['foto_path']) && $produto_item['foto_path'] !== "null" && trim($produto_item['foto_path']) !== "") {
                 $foto_path_limpo = ltrim($produto_item['foto_path'], '/');
                 $produto_item['foto_path_completo'] = $base_url_config . '/' . $foto_path_limpo;
-
             } else {
                 $produto_item['foto_path_completo'] = null;
             }
@@ -211,8 +209,45 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
     }
 }
 
-// --- 3. Lógica de ATUALIZAÇÃO (Processamento do POST) ---
+// --- 5. AJAX PARA VERIFICAR ESTOQUE NO EDIT ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_id = isset($_GET['produto_id']) ? (int)$_GET['produto_id'] : 0;
+        $quantidade = isset($_GET['quantidade']) ? (int)$_GET['quantidade'] : 1;
+        $orcamento_id_atual = isset($_GET['orcamento_id']) ? (int)$_GET['orcamento_id'] : 0;
+        
+        if ($produto_id <= 0) {
+            echo json_encode(['disponivel' => false, 'erro' => 'ID do produto inválido']);
+            exit;
+        }
+        
+        // Considera itens já existentes no orçamento atual
+        $disponivel = $estoqueModel->verificarEstoqueSimples($produto_id, $quantidade);
+        $estoque_total = $estoqueModel->obterEstoqueTotal($produto_id);
+        
+        echo json_encode([
+            'disponivel' => $disponivel,
+            'estoque_disponivel' => $estoque_total,
+            'quantidade_solicitada' => $quantidade
+        ]);
+        exit;
+        
+    } catch (Exception $e) {
+        echo json_encode(['disponivel' => true, 'erro' => $e->getMessage()]);
+        exit;
+    }
+}// --- 6. LÓGICA DE ATUALIZAÇÃO (Processamento do POST) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    // DEBUG: Verificar se os itens estão chegando
+    error_log("=== DEBUG EDIT POST ===");
+    error_log("POST recebido: " . print_r($_POST, true));
+    error_log("Tipo_linha existe? " . (isset($_POST['tipo_linha']) ? 'SIM' : 'NÃO'));
+    if (isset($_POST['tipo_linha'])) {
+        error_log("Quantidade de itens: " . count($_POST['tipo_linha']));
+    }
+    error_log("=======================");
+
     // Validação para garantir que estamos editando o orçamento certo
     if (!isset($_POST['orcamento_id']) || (int)$_POST['orcamento_id'] !== $orcamentoId) {
         $_SESSION['error_message'] = "Erro de submissão: ID do orçamento inconsistente.";
@@ -234,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamentoModel->data_orcamento = $orcamentoDados['data_orcamento'] ?? date('Y-m-d');
 
         // Data de Validade
-        if (isset($_POST['data_validade_calculada_hidden']) && preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $_POST['data_validade_calculada_hidden'])) {
+        if (isset($_POST['data_validade_calculada_hidden']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['data_validade_calculada_hidden'])) {
             $orcamentoModel->data_validade = $_POST['data_validade_calculada_hidden'];
         } else {
             $data_orcamento_dt = new DateTime($orcamentoModel->data_orcamento);
@@ -292,7 +327,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             throw new Exception("Falha ao atualizar o cabeçalho do orçamento. Verifique os logs.");
         }
 
-        // LÓGICA DOS ITENS (será implementada na próxima etapa)
+        // PROCESSAMENTO DOS ITENS
         $itens = [];
         if (isset($_POST['tipo_linha']) && is_array($_POST['tipo_linha'])) {
             foreach ($_POST['tipo_linha'] as $index => $tipo_linha_post) {
@@ -341,11 +376,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
         }
 
-        // Salvar os itens do orçamento (re-implementação da lógica do create)
+        // SALVAMENTO DOS ITENS CORRIGIDO
         if (!empty($itens)) {
-            if (!$orcamentoModel->salvarItens($orcamentoId, $itens)) {
-                throw new Exception("Falha ao salvar um ou mais itens do orçamento. Verifique os logs do servidor.");
+            error_log("=== TENTANDO SALVAR ITENS ===");
+            error_log("Itens para salvar: " . print_r($itens, true));
+            error_log("Quantidade de itens: " . count($itens));
+            
+            try {
+                $resultado = $orcamentoModel->salvarItens($orcamentoId, $itens);
+                
+                error_log("Resultado do salvarItens(): " . ($resultado ? 'TRUE' : 'FALSE'));
+                
+                if (!$resultado) {
+                    throw new Exception("Falha ao salvar itens do orçamento.");
+                }
+                
+                error_log("SUCESSO: Itens salvos!");
+                
+            } catch (Exception $e) {
+                error_log("ERRO ao salvar itens: " . $e->getMessage());
+                throw $e;
             }
+        } else {
+            error_log("AVISO: Nenhum item para salvar (array vazio)");
         }
 
         // Recalcular valores para o orçamento
@@ -363,13 +416,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $db->rollBack();
         }
         $_SESSION['error_message'] = "Ocorreu um erro ao atualizar: " . $e->getMessage();
-        error_log("[EXCEÇÃO NO PROCESSAMENTO DO ORÇAMENTO]: " . $e->getMessage() . "\\n" . $e->getTraceAsString());
+        error_log("[EXCEÇÃO NO PROCESSAMENTO DO ORÇAMENTO]: " . $e->getMessage() . "\n" . $e->getTraceAsString());
         // Recarrega os dados para exibir o formulário com os valores originais em caso de erro
         $orcamentoDados = $orcamentoModel->getById($orcamentoId);
     }
 }
-// ALTERAÇÃO 1: Prepara os dados completos do cliente em JSON para o atributo data-
-// Este bloco DEVE ser adicionado no seu edit.php
+
+// Prepara os dados completos do cliente em JSON para o atributo data-
 $selected_client_full_data = json_encode([
     'id' => $orcamentoDados['cliente_id'],
     'nome' => $orcamentoDados['nome_cliente'],
@@ -379,16 +432,13 @@ $selected_client_full_data = json_encode([
     'endereco' => $orcamentoDados['cliente_endereco'] ?? '',
     'cidade' => $orcamentoDados['cliente_cidade'] ?? '',
     'observacoes' => $orcamentoDados['cliente_observacoes'] ?? '',
-], JSON_UNESCAPED_UNICODE); // JSON_UNESCAPED_UNICODE para caracteres especiais
-// === ALTERAÇÃO CRÍTICA AQUI ===
+], JSON_UNESCAPED_UNICODE);
+
 // Define a variável JavaScript ORCAMENTO_ID que será injetada no footer.php
-// Isso garante que ela esteja disponível globalmente antes do custom_js ser executado.
 $inline_js_setup = "const ORCAMENTO_ID = " . $orcamentoId . ";";
 
 include_once __DIR__ . '/../includes/header.php';
-?>
-
-<div class="content-wrapper">
+?><div class="content-wrapper">
     <section class="content-header">
         <div class="container-fluid">
             <div class="row mb-2">
@@ -408,7 +458,7 @@ include_once __DIR__ . '/../includes/header.php';
 
     <section class="content">
         <div class="container-fluid">
-            <?php include_once __DIR__ . '/../includes/alert_messages.php'; // Inclui as mensagens de alerta ?>
+            <?php include_once __DIR__ . '/../includes/alert_messages.php'; ?>
 
             <form id="formEditarOrcamento" action="edit.php?id=<?= $orcamentoId ?>" method="POST" novalidate>
                 <input type="hidden" name="orcamento_id" value="<?= $orcamentoId ?>">
@@ -421,52 +471,52 @@ include_once __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
                     <div class="card-body">
-    <!-- INÍCIO DA CORREÇÃO DE LAYOUT -->
-    <div class="row mb-3 align-items-end"> <!-- Adicionado align-items-end para alinhar melhor os campos -->
-        <div class="col-md-7">
-            <label for="cliente_id" class="form-label">Cliente <span class="text-danger">*</span></label>
-            <div class="input-group">
-                <select class="form-control select2" id="cliente_id" name="cliente_id" required>
-                    <option value="<?= htmlspecialchars($orcamentoDados['cliente_id']) ?>" selected
-                            data-cliente-full-data='<?= htmlspecialchars($selected_client_full_data, ENT_QUOTES, 'UTF-8') ?>'>
-                        <?= htmlspecialchars($orcamentoDados['nome_cliente']) ?>
-                    </option>
-                </select>
-                <div class="input-group-append">
-                    <button class="btn btn-outline-secondary" type="button" data-toggle="modal" data-target="#modalNovoCliente" title="Novo Cliente"><i class="fas fa-plus"></i></button>
-                </div>
-            </div>
-            <div id="cliente_info_selecionado" class="mt-2 text-muted small"></div>
-        </div>
+                        <div class="row mb-3 align-items-end">
+                            <div class="col-md-7">
+                                <label for="cliente_id" class="form-label">Cliente <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <select class="form-control select2" id="cliente_id" name="cliente_id" required>
+                                        <option value="<?= htmlspecialchars($orcamentoDados['cliente_id']) ?>" selected
+                                                data-cliente-full-data='<?= htmlspecialchars($selected_client_full_data, ENT_QUOTES, 'UTF-8') ?>'>
+                                            <?= htmlspecialchars($orcamentoDados['nome_cliente']) ?>
+                                        </option>
+                                    </select>
+                                    <div class="input-group-append">
+                                        <button class="btn btn-outline-secondary" type="button" data-toggle="modal" data-target="#modalNovoCliente" title="Novo Cliente"><i class="fas fa-plus"></i></button>
+                                    </div>
+                                </div>
+                                <div id="cliente_info_selecionado" class="mt-2 text-muted small"></div>
+                            </div>
 
-        <div class="col-md-3">
-            <label for="data_orcamento" class="form-label">Data Orçam. <span class="text-danger">*</span></label>
-            <div class="input-group">
-                <input type="text" class="form-control" id="data_orcamento" name="data_orcamento"
-                       value="<?= htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_orcamento']))) ?>" required readonly style="background-color: #e9ecef;">
-                <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
-            </div>
-        </div>
+                            <div class="col-md-3">
+                                <label for="data_orcamento" class="form-label">Data Orçam. <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="data_orcamento" name="data_orcamento"
+                                           value="<?= htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_orcamento']))) ?>" required readonly style="background-color: #e9ecef;">
+                                    <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
+                                </div>
+                            </div>
 
-        <div class="col-md-2">
-            <label for="validade_dias" class="form-label">Validade (dias)</label>
-            <?php
-                try {
-                    $d1 = new DateTime($orcamentoDados['data_orcamento']);
-                    $d2 = new DateTime($orcamentoDados['data_validade']);
-                    $diff = $d2->diff($d1)->days;
-                } catch (Exception $e) {
-                    $diff = 7; // Valor padrão em caso de erro
-                }
-            ?>
-            <input type="number" class="form-control" id="validade_dias" name="validade_dias"
-                   value="<?= $diff ?>" min="1" required>
-            <input type="hidden" id="data_validade_calculada_hidden" name="data_validade_calculada_hidden"
-                   value="<?= htmlspecialchars($orcamentoDados['data_validade']) ?>">
-            <small id="data_validade_display" class="form-text text-muted"></small>
-        </div>
-    </div>
-    <hr>
+                            <div class="col-md-2">
+                                <label for="validade_dias" class="form-label">Validade (dias)</label>
+                                <?php
+                                    try {
+                                        $d1 = new DateTime($orcamentoDados['data_orcamento']);
+                                        $d2 = new DateTime($orcamentoDados['data_validade']);
+                                        $diff = $d2->diff($d1)->days;
+                                    } catch (Exception $e) {
+                                        $diff = 7; // Valor padrão em caso de erro
+                                    }
+                                ?>
+                                <input type="number" class="form-control" id="validade_dias" name="validade_dias"
+                                       value="<?= $diff ?>" min="1" required>
+                                <input type="hidden" id="data_validade_calculada_hidden" name="data_validade_calculada_hidden"
+                                       value="<?= htmlspecialchars($orcamentoDados['data_validade']) ?>">
+                                <small id="data_validade_display" class="form-text text-muted"></small>
+                            </div>
+                        </div>
+                        <hr>
+                        
                         <div class="row mb-3">
                             <div class="col-12">
                                 <h5><i class="fas fa-calendar-check mr-2"></i>Detalhes do Evento e Logística</h5>
@@ -498,6 +548,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     </div>
                                 </div>
                             </div>
+                            
                             <div class="col-md-3 mt-md-3">
                                 <label for="data_entrega" class="form-label">Data da Entrega</label>
                                 <div class="input-group">
@@ -523,37 +574,26 @@ include_once __DIR__ . '/../includes/header.php';
                                 </select>
                             </div>
                             <div class="col-md-4">
-    <label for="status_orcamento" class="form-label">Status do Orçamento</label>
-    <select class="form-control" id="status_orcamento" name="status_orcamento"
-            <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
-        <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
-        <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
-        <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
-        <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
-        <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
-        <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
-        <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
-    </select>
-    <?php if ($orcamentoDados['status'] === 'convertido'): ?>
-        <small class="text-danger mt-1 d-block">
-            <i class="fas fa-lock"></i> <strong>ORÇAMENTO BLOQUEADO:</strong> Convertido em pedido - não pode ser editado!
-        </small>
-    <?php endif; ?>
-</div>
-        <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
-        <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
-        <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
-        <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
-        <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
-        <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
-        <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
-    </select>
-    <?php if ($orcamentoDados['status'] === 'convertido'): ?>
-        <small class="text-info mt-1 d-block"><i class="fas fa-info-circle"></i> Este orçamento foi convertido em pedido.</small>
-    <?php endif; ?>
-</div>
+                                <label for="status_orcamento" class="form-label">Status do Orçamento</label>
+                                <select class="form-control" id="status_orcamento" name="status_orcamento"
+                                        <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
+                                    <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
+                                    <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
+                                    <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
+                                    <option value="cancelado" <?= ($orcamentoDados['status'] ?? '') == 'cancelado' ? 'selected' : '' ?>>Cancelado</option>
+                                    <option value="expirado" <?= ($orcamentoDados['status'] ?? '') == 'expirado' ? 'selected' : '' ?>>Expirado</option>
+                                    <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
+                                    <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
+                                </select>
+                                <?php if ($orcamentoDados['status'] === 'convertido'): ?>
+                                    <small class="text-danger mt-1 d-block">
+                                        <i class="fas fa-lock"></i> <strong>ORÇAMENTO BLOQUEADO:</strong> Convertido em pedido - não pode ser editado!
+                                    </small>
+                                <?php endif; ?>
+                            </div>
                         </div>
                         <hr>
+                        
                         <div class="row mb-3">
                             <div class="col-12">
                                 <h5><i class="fas fa-undo-alt mr-2"></i>Detalhes da Devolução/Coleta</h5>
@@ -624,35 +664,12 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="col-md-7">
                                 <label for="busca_produto" class="form-label">Buscar Produto por Nome ou Código:</label>
                                 <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control" id="busca_produto"
-                                        placeholder="Digite para buscar...">
+                                    <input type="text" class="form-control" id="busca_produto" placeholder="Digite para buscar...">
                                     <div class="input-group-append">
-                                        <button class="btn btn-outline-secondary" type="button"
-                                            id="btnLimparBuscaProduto" title="Limpar busca"><i
-                                                class="fas fa-times"></i></button>
+                                        <button class="btn btn-outline-secondary" type="button" id="btnLimparBuscaProduto" title="Limpar busca"><i class="fas fa-times"></i></button>
                                     </div>
                                 </div>
-                                <div id="sugestoes_produtos" class="list-group mt-1"
-                                    style="position: absolute; z-index: 1000; width: calc(100% - 30px); max-height: 260px; overflow-y: auto; display:none; border: 1px solid #ced4da; background-color: white;">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="modal fade" id="modalFotoProduto" tabindex="-1"
-                            aria-labelledby="modalFotoProdutoLabel" aria-hidden="true">
-                            <div class="modal-dialog modal-dialog-centered">
-                                <div class="modal-content bg-light shadow-lg">
-                                    <div class="modal-header py-2">
-                                        <h5 class="modal-title" id="modalFotoProdutoLabelText">Visualizar Imagem</h5>
-                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span
-                                                aria-hidden="true">&times;</span>
-                                        </button>
-                                    </div>
-                                    <div class="modal-body text-center p-0">
-                                        <img id="fotoProdutoAmpliada" src="" alt="Foto do produto" class="img-fluid"
-                                            style="max-height:80vh; object-fit: contain;">
-                                    </div>
-                                </div>
+                                <div id="sugestoes_produtos" class="list-group mt-1" style="position: absolute; z-index: 1000; width: calc(100% - 30px); max-height: 260px; overflow-y: auto; display:none; border: 1px solid #ced4da; background-color: white;"></div>
                             </div>
                         </div>
 
@@ -660,8 +677,7 @@ include_once __DIR__ . '/../includes/header.php';
                             <table class="table table-bordered table-hover" id="tabela_itens_orcamento">
                                 <thead class="thead-light">
                                     <tr>
-                                        <th style="width: 35%;">Produto/Serviço/Seção <span class="text-danger">*</span>
-                                        </th>
+                                        <th style="width: 35%;">Produto/Serviço/Seção <span class="text-danger">*</span></th>
                                         <th style="width: 10%;">Qtd. <span class="text-danger">*</span></th>
                                         <th style="width: 15%;">Vlr. Unit. (R$)</th>
                                         <th style="width: 15%;">Desc. Item (R$)</th>
@@ -670,79 +686,73 @@ include_once __DIR__ . '/../includes/header.php';
                                     </tr>
                                 </thead>
                                 <tbody>
-    <?php if (empty($itensOrcamento)): ?>
-        <tr class="no-items-row">
-            <td colspan="6" class="text-center text-muted">Nenhum item adicionado a este orçamento ainda.</td>
-        </tr>
-    <?php else: ?>
-        <?php foreach ($itensOrcamento as $index => $item): ?>
-            <?php
-                // Prepara variáveis para facilitar a leitura no HTML
-                $itemIndex = $index + 1; // Para o data-index
-                $tipoLinha = htmlspecialchars($item['tipo_linha']);
+                                    <?php if (empty($itensOrcamento)): ?>
+                                        <tr class="no-items-row">
+                                            <td colspan="6" class="text-center text-muted">Nenhum item adicionado a este orçamento ainda.</td>
+                                        </tr>
+                                    <?php else: ?>
+                                        <?php foreach ($itensOrcamento as $index => $item): ?>
+                                            <?php
+                                                $itemIndex = $index + 1;
+                                                $tipoLinha = htmlspecialchars($item['tipo_linha']);
+                                                $nomeDisplay = htmlspecialchars($item['nome_produto_manual'] ?? $item['nome_produto_catalogo'] ?? 'Item sem nome');
+                                                $precoUnitario = number_format($item['preco_unitario'] ?? 0, 2, ',', '.');
+                                                $descontoItem = number_format($item['desconto'] ?? 0, 2, ',', '.');
+                                                $subtotalItem = number_format($item['preco_final'] ?? 0, 2, ',', '.');
+                                            ?>
 
-                // Define o nome a ser exibido (se for manual, usa o manual, senão o do catálogo)
-                $nomeDisplay = htmlspecialchars($item['nome_produto_manual'] ?? $item['nome_produto_catalogo'] ?? 'Item sem nome');
-
-                // Formatação de valores monetários
-                $precoUnitario = number_format($item['preco_unitario'] ?? 0, 2, ',', '.');
-                $descontoItem = number_format($item['desconto'] ?? 0, 2, ',', '.');
-                $subtotalItem = number_format($item['preco_final'] ?? 0, 2, ',', '.');
-            ?>
-
-            <?php if ($tipoLinha === 'CABECALHO_SECAO'): ?>
-                <tr class="item-orcamento-row item-titulo-secao" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #e7f1ff !important;">
-                    <td colspan="5">
-                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
-                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_titulo_secao" value="<?= $nomeDisplay ?>" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);">
-                        <input type="hidden" name="produto_id[]" value="">
-                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
-                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
-                        <input type="hidden" name="quantidade[]" value="0">
-                        <input type="hidden" name="tipo_item[]" value="">
-                        <input type="hidden" name="valor_unitario[]" value="0.00">
-                        <input type="hidden" name="desconto_item[]" value="0.00">
-                        <input type="hidden" name="observacoes_item[]" value="">
-                    </td>
-                    <td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td>
-                </tr>
-            <?php else: // O padrão é ser 'PRODUTO' ?>
-                <?php
-                    $isItemManual = empty($item['produto_id']);
-                    $observacoesEstilo = empty($item['observacoes']) ? 'display:none;' : '';
-                ?>
-                <tr class="item-orcamento-row" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #ffffff !important;">
-                    <td>
-                        <?php if (!empty($item['foto_path_completo'])): ?>
-                            <img src="<?= htmlspecialchars($item['foto_path_completo']) ?>" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
-                        <?php endif; ?>
-                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_produto_display" value="<?= $nomeDisplay ?>" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" <?= !$isItemManual ? 'readonly' : '' ?>>
-                        <input type="hidden" name="produto_id[]" class="produto_id" value="<?= htmlspecialchars($item['produto_id'] ?? '') ?>">
-                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
-                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
-                        <input type="hidden" name="tipo_item[]" value="<?= htmlspecialchars($item['tipo'] ?? 'locacao') ?>">
-                        <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
-                        <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
-                    </td>
-                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 1) ?>" min="1" style="width: 70px;"></td>
-                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $precoUnitario ?>"></td>
-                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $descontoItem ?>"></td>
-                    <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
-                    <td>
-                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
-                        <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
-                        <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
-                    </td>
-                </tr>
-            <?php endif; ?>
-        <?php endforeach; ?>
-    <?php endif; ?>
-</tbody>
+                                            <?php if ($tipoLinha === 'CABECALHO_SECAO'): ?>
+                                                <tr class="item-orcamento-row item-titulo-secao" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #e7f1ff !important;">
+                                                    <td colspan="5">
+                                                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                                                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_titulo_secao" value="<?= $nomeDisplay ?>" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);">
+                                                        <input type="hidden" name="produto_id[]" value="">
+                                                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
+                                                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
+                                                        <input type="hidden" name="quantidade[]" value="0">
+                                                        <input type="hidden" name="tipo_item[]" value="">
+                                                        <input type="hidden" name="valor_unitario[]" value="0.00">
+                                                        <input type="hidden" name="desconto_item[]" value="0.00">
+                                                        <input type="hidden" name="observacoes_item[]" value="">
+                                                    </td>
+                                                    <td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td>
+                                                </tr>
+                                            <?php else: ?>
+                                                <?php
+                                                    $isItemManual = empty($item['produto_id']);
+                                                    $observacoesEstilo = empty($item['observacoes']) ? 'display:none;' : '';
+                                                ?>
+                                                <tr class="item-orcamento-row" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #ffffff !important;">
+                                                    <td>
+                                                        <?php if (!empty($item['foto_path_completo'])): ?>
+                                                            <img src="<?= htmlspecialchars($item['foto_path_completo']) ?>" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
+                                                        <?php endif; ?>
+                                                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_produto_display" value="<?= $nomeDisplay ?>" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" <?= !$isItemManual ? 'readonly' : '' ?>>
+                                                        <input type="hidden" name="produto_id[]" class="produto_id" value="<?= htmlspecialchars($item['produto_id'] ?? '') ?>">
+                                                        <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
+                                                        <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
+                                                        <input type="hidden" name="tipo_item[]" value="<?= htmlspecialchars($item['tipo'] ?? 'locacao') ?>">
+                                                        <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
+                                                        <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
+                                                    </td>
+                                                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 1) ?>" min="1" style="width: 70px;" data-valor-original="<?= htmlspecialchars($item['quantidade'] ?? 1) ?>"></td>
+                                                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $precoUnitario ?>"></td>
+                                                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $descontoItem ?>"></td>
+                                                    <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
+                                                    <td>
+                                                        <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                                                        <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                                                        <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
                                 <tfoot>
                                     <tr>
                                         <td colspan="4" class="text-right"><strong>Subtotal dos Itens:</strong></td>
-                                        <td id="subtotal_geral_itens" class="text-right font-weight-bold">A confirmar
-                                        </td>
+                                        <td id="subtotal_geral_itens" class="text-right font-weight-bold">A confirmar</td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -769,29 +779,21 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="col-md-6">
                                 <div class="form-group">
                                     <label for="observacoes_gerais">Observações Gerais</label>
-                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais"
-                                        rows="3" placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($orcamentoDados['observacoes'] ?? $textoPadraoObservacoes) ?></textarea>
+                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais" rows="3" placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($orcamentoDados['observacoes'] ?? $textoPadraoObservacoes) ?></textarea>
                                 </div>
                                 <div class="form-group">
                                     <label for="condicoes_pagamento">Condições de Pagamento</label>
-                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento"
-                                        rows="3" placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($orcamentoDados['condicoes_pagamento'] ?? $textoPadraoCondicoes) ?></textarea>
+                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento" rows="3" placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($orcamentoDados['condicoes_pagamento'] ?? $textoPadraoCondicoes) ?></textarea>
                                 </div>
                                 <div class="form-group">
                                     <div class="custom-control custom-switch">
-                                        <input type="checkbox" class="custom-control-input"
-                                            id="ajuste_manual_valor_final" name="ajuste_manual_valor_final"
-                                            <?= ($orcamentoDados['ajuste_manual'] ?? 0) ? 'checked' : '' ?>>
-                                        <label class="custom-control-label" for="ajuste_manual_valor_final">Ajustar
-                                            Valor Final
-                                            Manualmente?</label>
+                                        <input type="checkbox" class="custom-control-input" id="ajuste_manual_valor_final" name="ajuste_manual_valor_final" <?= ($orcamentoDados['ajuste_manual'] ?? 0) ? 'checked' : '' ?>>
+                                        <label class="custom-control-label" for="ajuste_manual_valor_final">Ajustar Valor Final Manualmente?</label>
                                     </div>
                                 </div>
                                 <div class="form-group" id="campo_motivo_ajuste" style="display: <?= ($orcamentoDados['ajuste_manual'] ?? 0) ? 'block' : 'none' ?>;">
                                     <label for="motivo_ajuste_valor_final">Motivo do Ajuste Manual</label>
-                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste"
-                                        placeholder="Ex: Desconto especial concedido"
-                                        value="<?= htmlspecialchars($orcamentoDados['motivo_ajuste'] ?? '') ?>">
+                                    <input type="text" class="form-control" id="motivo_ajuste" name="motivo_ajuste" placeholder="Ex: Desconto especial concedido" value="<?= htmlspecialchars($orcamentoDados['motivo_ajuste'] ?? '') ?>">
                                 </div>
                             </div>
 
@@ -800,62 +802,36 @@ include_once __DIR__ . '/../includes/header.php';
                                 <h5 class="text-muted">Taxas Adicionais</h5>
 
                                 <div class="form-group row align-items-center">
-    <div class="col-sm-1 pl-0 pr-0 text-center">
-        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo"
-            class="form-check-input taxa-frete-checkbox"
-            data-target-input="taxa_domingo_feriado"
-            <?= (($orcamentoDados['taxa_domingo_feriado'] ?? 0) > 0) ? 'checked' : '' ?>>
-    </div>
-    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
-        Taxa Dom./Feriado <small
-            class="text-muted">(R\$<?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>)</small>
-    </label>
-    <div class="col-sm-6">
-        <div class="input-group input-group-sm">
-            <input type="text"
-                class="form-control money-input text-right taxa-frete-input"
-                id="taxa_domingo_feriado" name="taxa_domingo_feriado"
-                placeholder="a confirmar"
-                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>"
-                data-valor-padrao="<?= htmlspecialchars($valorPadraoTaxaDomingo) ?>"
-                data-valor-original="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>">
-            <div class="input-group-append">
-                <button type="button"
-                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                    data-target-input="taxa_domingo_feriado"
-                    data-target-checkbox="aplicar_taxa_domingo"
-                    title="Usar Padrão: R\$ <?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>">
-                    <i class="fas fa-magic"></i> Usar
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
+                                    <div class="col-sm-1 pl-0 pr-0 text-center">
+                                        <input type="checkbox" name="aplicar_taxa_domingo" id="aplicar_taxa_domingo" class="form-check-input taxa-frete-checkbox" data-target-input="taxa_domingo_feriado" <?= (($orcamentoDados['taxa_domingo_feriado'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                    </div>
+                                    <label for="aplicar_taxa_domingo" class="col-sm-5 col-form-label pr-1">
+                                        Taxa Dom./Feriado <small class="text-muted">(R$ <?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>)</small>
+                                    </label>
+                                    <div class="col-sm-6">
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="taxa_domingo_feriado" name="taxa_domingo_feriado" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= htmlspecialchars($valorPadraoTaxaDomingo) ?>" data-valor-original="<?= htmlspecialchars(number_format($orcamentoDados['taxa_domingo_feriado'] ?? 0, 2, ',', '.')) ?>">
+                                            <div class="input-group-append">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="taxa_domingo_feriado" data-target-checkbox="aplicar_taxa_domingo" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(250.00, 2, ',', '.')) ?>">
+                                                    <i class="fas fa-magic"></i> Usar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="taxa_madrugada"
-                                            <?= (($orcamentoDados['taxa_madrugada'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_taxa_madrugada" id="aplicar_taxa_madrugada" class="form-check-input taxa-frete-checkbox" data-target-input="taxa_madrugada" <?= (($orcamentoDados['taxa_madrugada'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_taxa_madrugada" class="col-sm-5 col-form-label pr-1">
-                                        Taxa Madrugada <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format(800.00, 2, ',', '.')) ?>)</small>
+                                        Taxa Madrugada <small class="text-muted">(R$ <?= htmlspecialchars(number_format(800.00, 2, ',', '.')) ?>)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="taxa_madrugada" name="taxa_madrugada" placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_madrugada'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoTaxaMadrugada // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="taxa_madrugada" name="taxa_madrugada" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_madrugada'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoTaxaMadrugada ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="taxa_madrugada"
-                                                    data-target-checkbox="aplicar_taxa_madrugada"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(800.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="taxa_madrugada" data-target-checkbox="aplicar_taxa_madrugada" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(800.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -865,30 +841,16 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_taxa_horario_especial"
-                                            id="aplicar_taxa_horario_especial"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="taxa_horario_especial"
-                                            <?= (($orcamentoDados['taxa_horario_especial'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_taxa_horario_especial" id="aplicar_taxa_horario_especial" class="form-check-input taxa-frete-checkbox" data-target-input="taxa_horario_especial" <?= (($orcamentoDados['taxa_horario_especial'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_taxa_horario_especial" class="col-sm-5 col-form-label pr-1">
-                                        Taxa Hor. Especial <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format(500.00, 2, ',', '.')) ?>)</small>
+                                        Taxa Hor. Especial <small class="text-muted">(R$ <?= htmlspecialchars(number_format(500.00, 2, ',', '.')) ?>)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="taxa_horario_especial" name="taxa_horario_especial"
-                                                placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_horario_especial'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoTaxaHorarioEspecial // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="taxa_horario_especial" name="taxa_horario_especial" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_horario_especial'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoTaxaHorarioEspecial ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="taxa_horario_especial"
-                                                    data-target-checkbox="aplicar_taxa_horario_especial"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(500.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="taxa_horario_especial" data-target-checkbox="aplicar_taxa_horario_especial" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(500.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -898,29 +860,16 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_taxa_hora_marcada"
-                                            id="aplicar_taxa_hora_marcada" class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="taxa_hora_marcada"
-                                            <?= (($orcamentoDados['taxa_hora_marcada'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_taxa_hora_marcada" id="aplicar_taxa_hora_marcada" class="form-check-input taxa-frete-checkbox" data-target-input="taxa_hora_marcada" <?= (($orcamentoDados['taxa_hora_marcada'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_taxa_hora_marcada" class="col-sm-5 col-form-label pr-1">
-                                        Taxa Hora Marcada <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>)</small>
+                                        Taxa Hora Marcada <small class="text-muted">(R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="taxa_hora_marcada" name="taxa_hora_marcada"
-                                                placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_hora_marcada'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoTaxaHoraMarcada // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="taxa_hora_marcada" name="taxa_hora_marcada" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['taxa_hora_marcada'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoTaxaHoraMarcada ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="taxa_hora_marcada"
-                                                    data-target-checkbox="aplicar_taxa_hora_marcada"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="taxa_hora_marcada" data-target-checkbox="aplicar_taxa_hora_marcada" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -933,27 +882,16 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_frete_terreo" id="aplicar_frete_terreo"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="frete_terreo"
-                                            <?= (($orcamentoDados['frete_terreo'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_frete_terreo" id="aplicar_frete_terreo" class="form-check-input taxa-frete-checkbox" data-target-input="frete_terreo" <?= (($orcamentoDados['frete_terreo'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_frete_terreo" class="col-sm-5 col-form-label pr-1">
                                         Frete Térreo <small class="text-muted">(Sob consulta)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="frete_terreo" name="frete_terreo" placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['frete_terreo'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoFreteTerreo // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="frete_terreo" name="frete_terreo" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['frete_terreo'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoFreteTerreo ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="frete_terreo"
-                                                    data-target-checkbox="aplicar_frete_terreo"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(180.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="frete_terreo" data-target-checkbox="aplicar_frete_terreo" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(180.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -963,27 +901,16 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_frete_elevador" id="aplicar_frete_elevador"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="frete_elevador"
-                                            <?= (($orcamentoDados['frete_elevador'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_frete_elevador" id="aplicar_frete_elevador" class="form-check-input taxa-frete-checkbox" data-target-input="frete_elevador" <?= (($orcamentoDados['frete_elevador'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_frete_elevador" class="col-sm-5 col-form-label pr-1">
                                         Frete Elevador <small class="text-muted">(Sob consulta)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="frete_elevador" name="frete_elevador" placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['frete_elevador'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoFreteElevador // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="frete_elevador" name="frete_elevador" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['frete_elevador'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoFreteElevador ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="frete_elevador"
-                                                    data-target-checkbox="aplicar_frete_elevador"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(100.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="frete_elevador" data-target-checkbox="aplicar_frete_elevador" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(100.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -993,28 +920,16 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_frete_escadas" id="aplicar_frete_escadas"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="frete_escadas"
-                                            <?= (($orcamentoDados['frete_escadas'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_frete_escadas" id="aplicar_frete_escadas" class="form-check-input taxa-frete-checkbox" data-target-input="frete_escadas" <?= (($orcamentoDados['frete_escadas'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_frete_escadas" class="col-sm-5 col-form-label pr-1">
-                                        Frete Escadas <small
-                                            class="text-muted">(R$<?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>)</small>
+                                        Frete Escadas <small class="text-muted">(R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>)</small>
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="frete_escadas" name="frete_escadas" placeholder="a confirmar"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['frete_escadas'] ?? 0, 2, ',', '.')) ?>"
-                                                data-valor-padrao="<?= $valorPadraoFreteEscadas // Passa o número puro ?>">
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="frete_escadas" name="frete_escadas" placeholder="a confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['frete_escadas'] ?? 0, 2, ',', '.')) ?>" data-valor-padrao="<?= $valorPadraoFreteEscadas ?>">
                                             <div class="input-group-append">
-                                                <button type="button"
-                                                    class="btn btn-xs btn-outline-secondary btn-usar-padrao"
-                                                    data-target-input="frete_escadas"
-                                                    data-target-checkbox="aplicar_frete_escadas"
-                                                    title="Usar Padrão: R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>">
+                                                <button type="button" class="btn btn-xs btn-outline-secondary btn-usar-padrao" data-target-input="frete_escadas" data-target-checkbox="aplicar_frete_escadas" title="Usar Padrão: R$ <?= htmlspecialchars(number_format(200.00, 2, ',', '.')) ?>">
                                                     <i class="fas fa-magic"></i> Usar
                                                 </button>
                                             </div>
@@ -1024,159 +939,87 @@ include_once __DIR__ . '/../includes/header.php';
 
                                 <div class="form-group row align-items-center">
                                     <div class="col-sm-1 pl-0 pr-0 text-center">
-                                        <input type="checkbox" name="aplicar_desconto_geral" id="aplicar_desconto_geral"
-                                            class="form-check-input taxa-frete-checkbox"
-                                            data-target-input="desconto_total"
-                                            <?= (($orcamentoDados['desconto'] ?? 0) > 0) ? 'checked' : '' ?>>
+                                        <input type="checkbox" name="aplicar_desconto_geral" id="aplicar_desconto_geral" class="form-check-input taxa-frete-checkbox" data-target-input="desconto_total" <?= (($orcamentoDados['desconto'] ?? 0) > 0) ? 'checked' : '' ?>>
                                     </div>
                                     <label for="aplicar_desconto_geral" class="col-sm-5 col-form-label pr-1">
                                         Desconto Geral (-)
                                     </label>
                                     <div class="col-sm-6">
                                         <div class="input-group input-group-sm">
-                                            <input type="text"
-                                                class="form-control money-input text-right taxa-frete-input"
-                                                id="desconto_total" name="desconto_total" placeholder="0,00"
-                                                value="<?= htmlspecialchars(number_format($orcamentoDados['desconto'] ?? 0, 2, ',', '.')) ?>"
-                                                <?= (($orcamentoDados['desconto'] ?? 0) > 0) ? '' : 'disabled' ?>>
+                                            <input type="text" class="form-control money-input text-right taxa-frete-input" id="desconto_total" name="desconto_total" placeholder="0,00" value="<?= htmlspecialchars(number_format($orcamentoDados['desconto'] ?? 0, 2, ',', '.')) ?>" <?= (($orcamentoDados['desconto'] ?? 0) > 0) ? '' : 'disabled' ?>>
                                         </div>
                                     </div>
                                 </div>
                                 <hr>
 
                                 <div class="form-group row mt-3 bg-light p-2 rounded">
-                                    <label class="col-sm-6 col-form-label text-lg text-primary">VALOR FINAL
-                                        (R$):</label>
+                                    <label class="col-sm-6 col-form-label text-lg text-primary">VALOR FINAL (R$):</label>
                                     <div class="col-sm-6">
-                                        <input type="text"
-                                            class="form-control form-control-lg text-right font-weight-bold text-primary money-display"
-                                            id="valor_final_display" readonly
-                                            placeholder="A confirmar"
-                                            value="<?= htmlspecialchars(number_format($orcamentoDados['valor_final'] ?? 0, 2, ',', '.')) ?>"
-                                            style="background-color: #e9ecef !important; border: none !important;">
+                                        <input type="text" class="form-control form-control-lg text-right font-weight-bold text-primary money-display" id="valor_final_display" readonly placeholder="A confirmar" value="<?= htmlspecialchars(number_format($orcamentoDados['valor_final'] ?? 0, 2, ',', '.')) ?>" style="background-color: #e9ecef !important; border: none !important;">
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="card-footer text-right">
-    <?php
-    $status_atual = $orcamentoDados['status'] ?? 'pendente';
-    $orcamento_finalizado_ou_irreversivel = in_array($status_atual, ['convertido', 'finalizado', 'recusado', 'expirado', 'cancelado']);
-    ?>
+                        <?php
+                        $status_atual = $orcamentoDados['status'] ?? 'pendente';
+                        $orcamento_finalizado_ou_irreversivel = in_array($status_atual, ['convertido', 'finalizado', 'recusado', 'expirado', 'cancelado']);
+                        ?>
 
-    <?php if (!$orcamento_finalizado_ou_irreversivel): // Mostrar botão de converter se não for um status final ou já convertido ?>
-        <button type="button" class="btn btn-success btn-lg mr-2" id="btnConverterPedido"
-                data-orcamento-id="<?= $orcamentoId ?>"
-                title="Converter este Orçamento em um Pedido">
-            <i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido
-        </button>
-    <?php elseif ($status_atual === 'convertido'): // Se já foi convertido, talvez mostrar um link para o pedido gerado ?>
-        <?php
-        // TODO: Para que este link funcione perfeitamente, você precisaria buscar o ID do pedido gerado
-        // na tabela 'numeracao_sequencial' ou adicionar uma coluna 'pedido_id' em 'orcamentos'.
-        // Por ora, vamos apenas mostrar um texto informativo.
-        // Se a funcionalidade de "ver pedido gerado" for prioritária, podemos ajustar o Orcamento.php
-        // para buscar o pedido_id associado quando o status for 'convertido'.
-        // Por enquanto, o status já impedirá nova conversão e informará ao usuário.
-        ?>
-        <span class="badge badge-info badge-lg mr-2"><i class="fas fa-check-circle"></i> Convertido em Pedido</span>
-    <?php endif; ?>
+                        <?php if (!$orcamento_finalizado_ou_irreversivel): ?>
+                            <button type="button" class="btn btn-success btn-lg mr-2" id="btnConverterPedido" data-orcamento-id="<?= $orcamentoId ?>" title="Converter este Orçamento em um Pedido">
+                                <i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido
+                            </button>
+                        <?php elseif ($status_atual === 'convertido'): ?>
+                            <span class="badge badge-info badge-lg mr-2"><i class="fas fa-check-circle"></i> Convertido em Pedido</span>
+                        <?php endif; ?>
 
-    <a href="index.php" class="btn btn-secondary mr-2">Cancelar</a>
-    <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save mr-1"></i> Salvar Orçamento</button>
-</div>
+                        <a href="index.php" class="btn btn-secondary mr-2">Cancelar</a>
+                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save mr-1"></i> Salvar Orçamento</button>
+                    </div>
                 </div>
-
-                <style>
-                    .form-group.row.align-items-center .col-form-label {
-                        padding-top: calc(0.375rem + 1px);
-                        padding-bottom: calc(0.375rem + 1px);
-                        line-height: 1.5;
-                    }
-
-                    .form-check-input.taxa-frete-checkbox {
-                        margin-top: 0.5rem !important;
-                        margin-left: auto !important;
-                        margin-right: auto !important;
-                        display: block !important;
-                        transform: scale(1.2);
-                    }
-
-                    .input-group-sm .btn-xs {
-                        padding: .2rem .4rem;
-                        font-size: .75rem;
-                        line-height: 1.5;
-                    }
-
-                    .input-group-sm .btn-xs .fas {
-                        margin-right: 3px;
-                    }
-
-                    .btn-group-xs.d-flex .btn {
-                        flex-grow: 1;
-                    }
-
-                    .form-group.row .col-sm-1+.col-form-label {
-                        padding-left: 0;
-                    }
-                </style>
             </form>
         </div>
     </section>
 </div>
 
 <!-- Modal Novo Cliente -->
-<div class="modal fade" id="modalNovoCliente" tabindex="-1" role="dialog" aria-labelledby="modalNovoClienteLabel"
-    aria-hidden="true">
+<div class="modal fade" id="modalNovoCliente" tabindex="-1" role="dialog" aria-labelledby="modalNovoClienteLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg" role="document">
-        <div class="modal-content">
+              <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="modalNovoClienteLabel">Novo Cliente</h5>
-                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span
-                        aria-hidden="true">&times;</span></button>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
             </div>
             <div class="modal-body">
                 <form id="formNovoClienteModal">
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_nome">Nome Completo / Razão Social <span
-                                        class="text-danger">*</span></label><input type="text" class="form-control"
-                                    id="modal_cliente_nome" name="nome" required></div>
+                            <div class="form-group"><label for="modal_cliente_nome">Nome Completo / Razão Social <span class="text-danger">*</span></label><input type="text" class="form-control" id="modal_cliente_nome" name="nome" required></div>
                         </div>
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_cpf_cnpj">CPF/CNPJ</label><input
-                                    type="text" class="form-control" id="modal_cliente_cpf_cnpj" name="cpf_cnpj"></div>
+                            <div class="form-group"><label for="modal_cliente_cpf_cnpj">CPF/CNPJ</label><input type="text" class="form-control" id="modal_cliente_cpf_cnpj" name="cpf_cnpj"></div>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_email">E-mail</label><input type="email"
-                                    class="form-control" id="modal_cliente_email" name="email"></div>
+                            <div class="form-group"><label for="modal_cliente_email">E-mail</label><input type="email" class="form-control" id="modal_cliente_email" name="email"></div>
                         </div>
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_telefone">Telefone <span
-                                        class="text-danger">*</span></label><input type="text"
-                                    class="form-control telefone" id="modal_cliente_telefone" name="telefone" required>
-                            </div>
+                            <div class="form-group"><label for="modal_cliente_telefone">Telefone <span class="text-danger">*</span></label><input type="text" class="form-control telefone" id="modal_cliente_telefone" name="telefone" required></div>
                         </div>
                     </div>
-                    <div class="form-group"><label for="modal_cliente_endereco">Endereço (Rua, Nº, Bairro)</label><input
-                            type="text" class="form-control" id="modal_cliente_endereco" name="endereco"></div>
+                    <div class="form-group"><label for="modal_cliente_endereco">Endereço (Rua, Nº, Bairro)</label><input type="text" class="form-control" id="modal_cliente_endereco" name="endereco"></div>
                     <div class="row">
                         <div class="col-md-8">
-                            <div class="form-group"><label for="modal_cliente_cidade">Cidade</label><input type="text"
-                                    class="form-control" id="modal_cliente_cidade" name="cidade" value="Porto Alegre">
-                            </div>
+                            <div class="form-group"><label for="modal_cliente_cidade">Cidade</label><input type="text" class="form-control" id="modal_cliente_cidade" name="cidade" value="Porto Alegre"></div>
                         </div>
                         <div class="col-md-4">
-                            <div class="form-group"><label for="modal_cliente_cep">CEP</label><input type="text"
-                                    class="form-control cep" id="modal_cliente_cep" name="cep"></div>
+                            <div class="form-group"><label for="modal_cliente_cep">CEP</label><input type="text" class="form-control cep" id="modal_cliente_cep" name="cep"></div>
                         </div>
                     </div>
-                    <div class="form-group"><label for="modal_cliente_observacoes">Observações do
-                            Cliente</label><textarea class="form-control" id="modal_cliente_observacoes"
-                            name="observacoes" rows="2"></textarea></div>
+                    <div class="form-group"><label for="modal_cliente_observacoes">Observações do Cliente</label><textarea class="form-control" id="modal_cliente_observacoes" name="observacoes" rows="2"></textarea></div>
                     <div id="modalClienteFeedback" class="mt-2"></div>
                 </form>
             </div>
@@ -1188,18 +1031,45 @@ include_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<style>
+    .form-group.row.align-items-center .col-form-label {
+        padding-top: calc(0.375rem + 1px);
+        padding-bottom: calc(0.375rem + 1px);
+        line-height: 1.5;
+    }
+
+    .form-check-input.taxa-frete-checkbox {
+        margin-top: 0.5rem !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        display: block !important;
+        transform: scale(1.2);
+    }
+
+    .input-group-sm .btn-xs {
+        padding: .2rem .4rem;
+        font-size: .75rem;
+        line-height: 1.5;
+    }
+
+    .input-group-sm .btn-xs .fas {
+        margin-right: 3px;
+    }
+
+    .btn-group-xs.d-flex .btn {
+        flex-grow: 1;
+    }
+
+    .form-group.row .col-sm-1+.col-form-label {
+        padding-left: 0;
+    }
+</style>
 
 <?php
-// === CÓDIGO JAVASCRIPT COM AS CORREÇÕES FINAIS APLICADAS (SEM JSON) ===
-// ORCAMENTO_ID e BASE_URL devem ser definidos no seu footer.php ou em um escopo global acessível.
-
+// === JAVASCRIPT CORRIGIDO COMPLETO ===
 $custom_js = <<<'JS'
 $(document).ready(function() {
-    // ORCAMENTO_ID é uma constante global definida via PHP no footer, acessível aqui.
-
-    // ▼▼▼ INÍCIO DO BLOCO DE CORREÇÃO (Mantido do seu código original) ▼▼▼
-
-    // Variáveis para guardar os estados atuais, resolvendo os dois problemas
+    // Variáveis para guardar os estados atuais
     let dadosClienteAtual = null;
     let localEventoOriginal = $('#local_evento').val(); // Memoriza o valor original do campo na carga
 
@@ -1220,20 +1090,18 @@ $(document).ready(function() {
         }
     }
 
-    // RESOLUÇÃO DO PROBLEMA #1: Executa a função assim que a página carrega
+    // Executa a função assim que a página carrega
     carregarDadosClienteAtual();
 
     // Se o usuário editar o campo manualmente, o novo valor se torna o "original" para o toggle
     $('#local_evento').on('input', function() {
         localEventoOriginal = $(this).val();
     });
-    
-    // ▲▲▲ FIM DO BLOCO DE CORREÇÃO ▲▲▲
 
     var itemIndex = 0; 
     function unformatCurrency(value) {
         if (value === null || typeof value === 'undefined' || value === '') return 0;
-        if (typeof value !== 'string') value = String(value); // Garante que é string
+        if (typeof value !== 'string') value = String(value);
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
         return isNaN(number) ? 0 : number;
     }
@@ -1251,7 +1119,7 @@ $(document).ready(function() {
             return;
         }
         $.ajax({
-            url: `${BASE_URL}/orcamentos/edit.php?id=${ORCAMENTO_ID}&ajax=buscar_produtos`, // Usando BASE_URL
+            url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_produtos`,
             type: 'GET',
             dataType: 'json',
             data: { termo: termoBusca, categoria_id: categoriaSelecionada },
@@ -1280,11 +1148,13 @@ $(document).ready(function() {
         var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
         var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
         var nomeInputName = "nome_produto_display[]";
+        
         if (tipoLinha === 'PRODUTO') {
-            var quantidadeDefault = 1; var descontoDefault = 0;
+            var quantidadeDefault = 1; 
+            var descontoDefault = 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
             var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
-            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="${quantidadeDefault}" min="1" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R\$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="${quantidadeDefault}" min="1" style="width: 70px;" data-valor-original="${quantidadeDefault}"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R\$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="5"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
@@ -1313,7 +1183,6 @@ $(document).ready(function() {
             subtotalGeralItens += calcularSubtotalItem($(this));
         });
 
-        // Função interna para pegar o valor de uma taxa APENAS se o seu checkbox estiver marcado
         function getValorTaxaSeAtiva(inputId) {
             const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + inputId + '"]');
             if ($checkbox.length > 0 && $checkbox.is(':checked')) {
@@ -1329,13 +1198,10 @@ $(document).ready(function() {
         var freteTerreo = getValorTaxaSeAtiva('frete_terreo');
         var freteElevador = getValorTaxaSeAtiva('frete_elevador');
         var freteEscadas = getValorTaxaSeAtiva('frete_escadas');
-        
-        // O desconto geral também usa essa lógica
         var descontoTotalGeral = getValorTaxaSeAtiva('desconto_total');
 
         var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
 
-        // Atualiza os displays
         if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
             $('#subtotal_geral_itens').text('A confirmar');
             $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
@@ -1345,27 +1211,197 @@ $(document).ready(function() {
         }
     }
 
+    // ✅ VALIDAÇÃO DE ESTOQUE NO EDIT
+    function verificarEstoqueAntes(produto) {
+        var quantidadeJaAdicionada = 0;
+        $('#tabela_itens_orcamento .produto_id').each(function() {
+            if ($(this).val() == produto.id) {
+                var $row = $(this).closest('tr');
+                quantidadeJaAdicionada += parseInt($row.find('.item-qtd').val()) || 0;
+            }
+        });
+        
+        var quantidadeTotal = quantidadeJaAdicionada + 1;
+        
+        $.ajax({
+            url: `edit.php?id=${ORCAMENTO_ID}`,
+            type: 'GET',
+            dataType: 'json',
+            data: { 
+                ajax: 'verificar_estoque',
+                produto_id: produto.id,
+                quantidade: quantidadeTotal,
+                orcamento_id: ORCAMENTO_ID
+            },
+            success: function(response) {
+                if (response.disponivel) {
+                    adicionarLinhaItemTabela(produto, 'PRODUTO');
+                    $('#busca_produto').val('').focus();
+                    $('#sugestoes_produtos').empty().hide();
+                } else {
+                    Swal.fire({
+                        title: 'Estoque Insuficiente!',
+                        text: `Produto: ${produto.nome_produto}\nEstoque disponível: ${response.estoque_disponivel}\nQuantidade solicitada: ${quantidadeTotal}`,
+                        icon: 'warning',
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error("Erro na verificação de estoque:", error);
+                adicionarLinhaItemTabela(produto, 'PRODUTO');
+                $('#busca_produto').val('').focus();
+                $('#sugestoes_produtos').empty().hide();
+            }
+        });
+    }
+
+    function validarEstoqueQuantidade($row) {
+        var produtoId = $row.find('.produto_id').val();
+        var quantidadeAtual = parseInt($row.find('.item-qtd').val()) || 0;
+        
+        if (!produtoId || quantidadeAtual <= 0) return;
+        
+        var chaveValidacao = `${produtoId}_${quantidadeAtual}`;
+        if ($row.data('ultima-validacao') === chaveValidacao) {
+            return;
+        }
+        
+        var quantidadeTotal = 0;
+        $('#tabela_itens_orcamento .produto_id').each(function() {
+            if ($(this).val() == produtoId) {
+                var $outraRow = $(this).closest('tr');
+                if ($outraRow[0] === $row[0]) {
+                    quantidadeTotal += quantidadeAtual;
+                } else {
+                    quantidadeTotal += parseInt($outraRow.find('.item-qtd').val()) || 0;
+                }
+            }
+        });
+        
+        $.ajax({
+            url: `edit.php?id=${ORCAMENTO_ID}`,
+            type: 'GET',
+            dataType: 'json',
+            data: { 
+                ajax: 'verificar_estoque',
+                produto_id: produtoId,
+                quantidade: quantidadeTotal,
+                orcamento_id: ORCAMENTO_ID
+            },
+            success: function(response) {
+                $row.data('ultima-validacao', chaveValidacao);
+                
+                if (!response.disponivel) {
+                    Swal.fire({
+                        title: 'Estoque Insuficiente!',
+                        text: `Estoque disponível: ${response.estoque_disponivel}\nQuantidade solicitada: ${quantidadeTotal}`,
+                        icon: 'warning',
+                        confirmButtonText: 'Entendi'
+                    }).then(() => {
+                        var quantidadeOriginal = $row.find('.item-qtd').data('valor-original') || 1;
+                        $row.find('.item-qtd').val(quantidadeOriginal).focus();
+                        $row.removeData('ultima-validacao');
+                        calcularTotaisOrcamento();
+                    });
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error("Erro na validação de estoque:", error);
+            }
+        });
+    }
+
+    // Event Listeners
     $('#busca_produto, #busca_categoria_produto').on('keyup change', carregarSugestoesProdutos);
-    $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) { e.preventDefault(); if ($(e.target).closest('.foto-produto-sugestao').length > 0) { var fotoUrl = $(this).data('foto-completa'); if (fotoUrl) { Swal.fire({ title: $(this).data('nome'), imageUrl: fotoUrl, imageAlt: 'Foto', imageWidth: '90%', confirmButtonText: 'Fechar' }); } return; } var produtoId = $(this).data('id'); var produtoJaExiste = false; $('#tabela_itens_orcamento .produto_id').each(function() { if ($(this).val() == produtoId) { produtoJaExiste = true; return false; } }); const adicionarItem = () => { var produto = { id: produtoId, nome_produto: $(this).data('nome'), preco_locacao: $(this).data('preco'), foto_path_completo: $(this).data('foto-completa') }; adicionarLinhaItemTabela(produto, 'PRODUTO'); $('#busca_produto').val('').focus(); $('#sugestoes_produtos').empty().hide(); }; if (produtoJaExiste) { Swal.fire({ title: 'Produto Repetido', text: "Deseja adicionar este item novamente?", icon: 'question', showCancelButton: true, confirmButtonText: 'Sim', cancelButtonText: 'Não' }).then((result) => { if (result.isConfirmed) { adicionarItem(); } }); } else { adicionarItem(); } });
+    
+    $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) { 
+        e.preventDefault(); 
+        if ($(e.target).closest('.foto-produto-sugestao').length > 0) { 
+            var fotoUrl = $(this).data('foto-completa'); 
+            if (fotoUrl) { 
+                Swal.fire({ 
+                    title: $(this).data('nome'), 
+                    imageUrl: fotoUrl, 
+                    imageAlt: 'Foto', 
+                    imageWidth: '90%', 
+                    confirmButtonText: 'Fechar' 
+                }); 
+            } 
+            return; 
+        } 
+        var produtoId = $(this).data('id'); 
+        var produtoJaExiste = false; 
+        $('#tabela_itens_orcamento .produto_id').each(function() { 
+            if ($(this).val() == produtoId) { 
+                produtoJaExiste = true; 
+                return false; 
+            } 
+        }); 
+        const adicionarItem = () => { 
+            var produto = { 
+                id: produtoId, 
+                nome_produto: $(this).data('nome'), 
+                preco_locacao: $(this).data('preco'), 
+                foto_path_completo: $(this).data('foto-completa') 
+            }; 
+            verificarEstoqueAntes(produto); 
+        }; 
+        if (produtoJaExiste) { 
+            Swal.fire({ 
+                title: 'Produto Repetido', 
+                text: "Deseja adicionar este item novamente?", 
+                icon: 'question', 
+                showCancelButton: true, 
+                confirmButtonText: 'Sim', 
+                cancelButtonText: 'Não' 
+            }).then((result) => { 
+                if (result.isConfirmed) { 
+                    adicionarItem(); 
+                } 
+            }); 
+        } else { 
+            adicionarItem(); 
+        } 
+    });
+
     $('#btn_adicionar_titulo_secao').click(function() { adicionarLinhaItemTabela(null, 'CABECALHO_SECAO'); });
     $('#btn_adicionar_item_manual').click(function() { adicionarLinhaItemTabela(null, 'PRODUTO'); });
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() { $(this).closest('tr').remove(); atualizarOrdemDosItens(); calcularTotaisOrcamento(); });
-    $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { var $row = $(this).closest('tr'); $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); if ($row.find('.observacoes_item_input').is(':visible')) { $row.find('.observacoes_item_input').focus(); } });
-    
-    // === CONFIGURAÇÃO DOS CAMPOS DE TAXAS E FRETES COM VARINHA MÁGICA (REVISADO SEM JSON) ===
-    
-    // Lista dos IDs dos campos que possuem a lógica de taxa/frete
+        $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { 
+        var $row = $(this).closest('tr'); 
+        $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); 
+        if ($row.find('.observacoes_item_input').is(':visible')) { 
+            $row.find('.observacoes_item_input').focus(); 
+        } 
+    });
+
+    // ✅ EVENTO: Validar quando quantidade muda
+    $('#tabela_itens_orcamento').on('input keyup change blur', '.item-qtd', function(e) {
+        var $input = $(this);
+        var $row = $input.closest('tr');
+        
+        clearTimeout($input.data('validacao-timeout'));
+        
+        $input.data('validacao-timeout', setTimeout(function() {
+            var valorAtual = parseInt($input.val()) || 0;
+            
+            if (valorAtual > 0) {
+                validarEstoqueQuantidade($row);
+            }
+        }, 800));
+    });
+
+    // === CONFIGURAÇÃO DOS CAMPOS DE TAXAS E FRETES ===
     const campoIdsTaxasFretes = [
         'taxa_domingo_feriado', 'taxa_madrugada', 'taxa_horario_especial',
         'taxa_hora_marcada', 'frete_terreo', 'frete_elevador', 'frete_escadas'
     ];
 
-    // Função auxiliar para encontrar o botão "Usar Padrão" associado a um campo de entrada
     function getAssociatedButton($campo) {
         return $campo.closest('.input-group').find('.btn-usar-padrao');
     }
 
-    // Função para atualizar o estado visual do botão da varinha mágica
     function atualizarEstadoVarinha($campo) {
         const $button = getAssociatedButton($campo);
         if (!$button.length) return;
@@ -1381,19 +1417,16 @@ $(document).ready(function() {
         }
     }
 
-    // Função para alternar o valor entre o original/digitado e o padrão
-    function alternarValor($campo) { // Não precisa mais de campoId aqui, lê direto do input
+    function alternarValor($campo) {
         let usandoPadrao = $campo.data('usandoPadrao') === 'true';
-        let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao')); // Lê do data attribute
+        let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao'));
 
         if (usandoPadrao) {
-            // Se estava usando o padrão, volta para o valor original armazenado
             let valorOriginalArmazenado = $campo.data('valorOriginal');
             $campo.val(formatCurrency(valorOriginalArmazenado));
             $campo.data('usandoPadrao', 'false');
         } else {
-            // Se não estava usando o padrão, armazena o valor atual como original e define o valor padrão
-            $campo.data('valorOriginal', unformatCurrency($campo.val())); // Armazena o valor NUMERICO atual como original
+            $campo.data('valorOriginal', unformatCurrency($campo.val()));
             $campo.val(formatCurrency(valorPadraoNumerico));
             $campo.data('usandoPadrao', 'true');
         }
@@ -1401,83 +1434,59 @@ $(document).ready(function() {
         calcularTotaisOrcamento();
     }
 
-    // Função para gerenciar o estado do campo de entrada e do checkbox
-    function toggleCampo($campo, $checkbox) { // Não precisa mais de campoId
+    function toggleCampo($campo, $checkbox) {
         if ($checkbox.is(':checked')) {
-            $campo.prop('disabled', false); // Habilita o campo
+            $campo.prop('disabled', false);
 
-            let valorOriginalArmazenado = $campo.data('valorOriginal'); // Valor que veio do DB ou último manual
-            let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao')); // Valor padrão do data attribute
+            let valorOriginalArmazenado = $campo.data('valorOriginal');
+            let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao'));
             
-            // Prioriza o valor original se ele existe (>0) e não é igual ao padrão
             if (valorOriginalArmazenado > 0 && valorOriginalArmazenado !== valorPadraoNumerico) {
                 $campo.val(formatCurrency(valorOriginalArmazenado));
                 $campo.data('usandoPadrao', 'false');
-            } 
-            // Se o valor original é zero ou igual ao padrão, tenta aplicar o padrão se ele existir
-            else if (valorPadraoNumerico > 0) {
+            } else if (valorPadraoNumerico > 0) {
                 $campo.val(formatCurrency(valorPadraoNumerico));
                 $campo.data('usandoPadrao', 'true');
-            } 
-            // Se nem original, nem padrão são aplicáveis ou são zero, zera o campo
-            else {
+            } else {
                 $campo.val(formatCurrency(0));
                 $campo.data('usandoPadrao', 'false');
             }
-            $campo.focus(); // Coloca foco no campo habilitado
+            $campo.focus();
         } else {
-            // Ao desmarcar o checkbox, salva o valor atual como original APENAS se:
-            // 1. Ele for > 0
-            // 2. E não estiver no modo "usandoPadrao" (significa que o valor é customizado pelo usuário)
-            // 3. E não for igual ao valor padrão (para não salvar o padrão como original se o usuário digitou o padrão)
             const currentValNum = unformatCurrency($campo.val());
-            const valorPadraoNum = unformatCurrency($campo.data('valor-padrao')); // Lê do data attribute
+            const valorPadraoNum = unformatCurrency($campo.data('valor-padrao'));
 
             if (currentValNum > 0 && $campo.data('usandoPadrao') === 'false' && currentValNum !== valorPadraoNum) {
-                 $campo.data('valorOriginal', currentValNum); // Armazena o valor customizado pelo usuário
+                 $campo.data('valorOriginal', currentValNum);
             }
             
-            $campo.prop('disabled', true); // Desabilita o campo
-            $campo.val(formatCurrency(0)); // Zera o valor visivelmente
-            $campo.data('usandoPadrao', 'false'); // Não está usando padrão
+            $campo.prop('disabled', true);
+            $campo.val(formatCurrency(0));
+            $campo.data('usandoPadrao', 'false');
         }
-        atualizarEstadoVarinha($campo); // Atualiza o botão da varinha
-        calcularTotaisOrcamento(); // Recalcula totais
+        atualizarEstadoVarinha($campo);
+        calcularTotaisOrcamento();
     }
 
-    // Inicialização dos campos de taxa/frete e seus eventos
+    // Inicialização dos campos de taxa/frete
     campoIdsTaxasFretes.forEach(function(campoId) {
         const $campo = $('#' + campoId);
-        // Encontra o checkbox associado usando o data-target-input
         const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + campoId + '"]'); 
 
         if ($campo.length) {
-            // Valor inicial do campo conforme veio do PHP (do banco de dados)
             const initialValFromHTML = unformatCurrency($campo.val());
-            // Valor padrão do campo conforme vem do HTML
-            const initialValorPadraoHTML = unformatCurrency($campo.data('valor-padrao'));
-
-            // Armazena o valor inicial (do banco) como o valor original para referência futura.
             $campo.data('valorOriginal', initialValFromHTML); 
-            // Aqui, o 'valorPadrao' para referência será o do HTML
-            // Note: Não precisamos mais de um camposConfig separado para o valorPadrao
-            // $campo.data('valorPadrao', initialValorPadraoHTML); // Removido, pois data('valor-padrao') já existe
-
-            // Aplica formatação inicial ao valor que veio do HTML
             $campo.val(formatCurrency(initialValFromHTML));
 
-            // Listener para digitação manual no campo
             $campo.off('input').on('input', function() {
-                $campo.data('usandoPadrao', 'false'); // Usuário digitou, não está mais no modo padrão
-                atualizarEstadoVarinha($campo); // Atualiza o visual do botão
+                $campo.data('usandoPadrao', 'false');
+                atualizarEstadoVarinha($campo);
             }).off('blur').on('blur', function() {
-                // Re-formatar ao sair do campo e recalcular totais
                 $campo.val(formatCurrency(unformatCurrency($campo.val())));
                 calcularTotaisOrcamento(); 
             });
         }
 
-        // Event listener para o botão "Usar Padrão"
         const $button = getAssociatedButton($campo);
         if ($button.length) {
             $button.off('click').on('click', function() {
@@ -1485,126 +1494,171 @@ $(document).ready(function() {
                 const $targetCampo = $('#' + targetInputId);
                 const targetCheckboxId = $(this).data('target-checkbox');
                 const $targetCheckbox = $('#' + targetCheckboxId);
-                // Se o campo estiver desabilitado, primeiro marca o checkbox e simula o 'change'
+                
                 if ($targetCampo.prop('disabled')) {
                     $targetCheckbox.prop('checked', true);
-                    $targetCheckbox.trigger('change'); // Isso vai habilitar o campo e setar o valor
+                    $targetCheckbox.trigger('change');
                 } else {
-                    // Se o campo já estiver habilitado, apenas alterna o valor
-                    alternarValor($targetCampo); // Passa apenas o campo, pois o valorPadrao é lido do data-attribute
+                    alternarValor($targetCampo);
                 }
             });
         }
 
-        // Event listener para o checkbox
         if ($checkbox.length) {
             $checkbox.off('change').on('change', function() {
-                toggleCampo($campo, $checkbox); // Passa apenas o campo e checkbox
+                toggleCampo($campo, $checkbox);
             });
-            // Sincroniza o estado inicial do campo e checkbox ao carregar a página
-            // Isso garantirá que disabled/enabled e o valor inicial estejam corretos
             toggleCampo($campo, $checkbox);
         }
         
-        // Garante que o estado da varinha é atualizado após todas as inicializações
         atualizarEstadoVarinha($campo);
     });
 
-    // === Lógica SIMPLES para Ajuste Manual do Valor Final ===
+    // === Lógica para Ajuste Manual do Valor Final ===
     $('#ajuste_manual_valor_final').on('change', function() {
         const $motivoAjusteCampo = $('#campo_motivo_ajuste');
         const $descontoGeralCheckbox = $('#aplicar_desconto_geral');
         const $descontoGeralInput = $('#desconto_total');
 
         if ($(this).is(':checked')) {
-            // Quando marca "Ajustar Valor Final Manualmente":
-            // 1. Mostra o campo "Motivo do Ajuste Manual"
             $motivoAjusteCampo.show();
-            
-            // 2. Automaticamente marca o checkbox "Desconto Geral"
             $descontoGeralCheckbox.prop('checked', true);
-            
-            // 3. Automaticamente habilita o campo "Desconto Geral"
             $descontoGeralInput.prop('disabled', false);
             
-            // 4. Se o campo de desconto estiver vazio, coloca 0,00
             if (unformatCurrency($descontoGeralInput.val()) === 0) {
                 $descontoGeralInput.val(formatCurrency(0));
             }
-            
-            // 5. Coloca foco no campo de desconto para o usuário digitar
             $descontoGeralInput.focus();
-            
         } else {
-            // Quando desmarca "Ajustar Valor Final Manualmente":
-            // 1. Esconde o campo "Motivo do Ajuste Manual"
             $motivoAjusteCampo.hide();
-            
-            // 2. Desmarca o checkbox "Desconto Geral"
             $descontoGeralCheckbox.prop('checked', false);
-            
-            // 3. Desabilita o campo "Desconto Geral" e zera
             $descontoGeralInput.prop('disabled', true);
             $descontoGeralInput.val(formatCurrency(0));
         }
-        // Recalcula os totais sempre
         calcularTotaisOrcamento();
-    }).trigger('change'); // Dispara no carregamento para configurar o estado inicial
+    }).trigger('change');
 
-    // === Lógica Específica para Desconto Geral ===
-    // O desconto geral não tem "varinha mágica", então é tratado de forma mais simples.
-    
-    // Listener para o checkbox de desconto geral
+    // === Lógica para Desconto Geral ===
     $('#aplicar_desconto_geral').off('change').on('change', function() {
         const $descontoInput = $('#desconto_total');
         if ($(this).is(':checked')) {
             $descontoInput.prop('disabled', false);
-            // Se o campo está vazio, define um valor inicial de 0.00
             if (unformatCurrency($descontoInput.val()) === 0) {
                  $descontoInput.val(formatCurrency(0)); 
             }
             $descontoInput.focus();
         } else {
             $descontoInput.prop('disabled', true);
-            $descontoInput.val(formatCurrency(0)); // Zera o valor ao desabilitar
+            $descontoInput.val(formatCurrency(0));
         }
-        calcularTotaisOrcamento(); // Recalcula os totais
+        calcularTotaisOrcamento();
     });
 
-    // Listener para formatação e cálculo ao sair do campo de desconto
     $('#desconto_total').off('blur').on('blur', function() {
         $(this).val(formatCurrency(unformatCurrency($(this).val())));
         calcularTotaisOrcamento();
     }).off('input').on('input', function() {
-        // Recalcula em tempo real enquanto digita
         calcularTotaisOrcamento();
     });
 
-    // Sincroniza o estado inicial do desconto geral ao carregar a página
-    // O valor do input já vem do banco via PHP, então apenas habilita/desabilita
     const $descontoInput = $('#desconto_total');
     if ($('#aplicar_desconto_geral').is(':checked')) {
         $descontoInput.prop('disabled', false);
     } else {
         $descontoInput.prop('disabled', true);
-        $descontoInput.val(formatCurrency(0)); // Se não está aplicado, zera visualmente
+        $descontoInput.val(formatCurrency(0));
     }
-    // Formata o valor inicial do desconto
     $descontoInput.val(formatCurrency(unformatCurrency($descontoInput.val())));
-    // FIM DA Lógica Específica para Desconto Geral
 
-    // Listener para mudanças nos itens da tabela que afetam o cálculo
     $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item', calcularTotaisOrcamento);
 
-    // CONTINUAÇÃO DO SEU CÓDIGO JAVASCRIPT EXISTENTE...
-    if (typeof $.fn.select2 === 'function') { $('#cliente_id').select2({ theme: 'bootstrap4', language: 'pt-BR', placeholder: 'Digite para buscar...', allowClear: true, minimumInputLength: 0, ajax: { url: `${BASE_URL}/orcamentos/edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`, dataType: 'json', delay: 250, data: function (params) { return { termo: params.term || '' }; }, processResults: function (data) { return { results: $.map(data, function (cliente) { return { id: cliente.id, text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), clienteData: cliente }; }) }; }, cache: true } }).on('select2:select', function (e) { dadosClienteAtual = e.params.data.clienteData; $(this).find('option:selected').attr('data-cliente-full-data', JSON.stringify(dadosClienteAtual)); }); }
-    if (typeof $.fn.datepicker === 'function') { $('.datepicker').datepicker({ format: 'dd/mm/yyyy', language: 'pt-BR', autoclose: true, todayHighlight: true, orientation: "bottom auto" }); }
-    function calcularDataValidade() { var dataOrcamentoStr = $('#data_orcamento').val(); var validadeDias = parseInt($('#validade_dias').val()); if (dataOrcamentoStr && validadeDias > 0) { var partesData = dataOrcamentoStr.split('/'); if (partesData.length === 3) { var dataOrcamento = new Date(partesData[2], partesData[1] - 1, partesData[0]); if (!isNaN(dataOrcamento.valueOf())) { dataOrcamento.setDate(dataOrcamento.getDate() + validadeDias); var dia = String(dataOrcamento.getDate()).padStart(2, '0'); var mes = String(dataOrcamento.getMonth() + 1).padStart(2, '0'); var ano = dataOrcamento.getFullYear(); $('#data_validade_display').text('Validade: ' + dia + '/' + mes + '/' + ano); $('#data_validade_calculada_hidden').val(ano + '-' + mes + '-' + dia); } } } else { $('#data_validade_display').text(''); $('#data_validade_calculada_hidden').val(''); } }
+    // === INICIALIZAÇÕES GERAIS ===
+    if (typeof $.fn.select2 === 'function') { 
+        $('#cliente_id').select2({ 
+            theme: 'bootstrap4', 
+            language: 'pt-BR', 
+            placeholder: 'Digite para buscar...', 
+            allowClear: true, 
+            minimumInputLength: 0, 
+            ajax: { 
+                url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`, 
+                dataType: 'json', 
+                delay: 250, 
+                data: function (params) { 
+                    return { termo: params.term || '' }; 
+                }, 
+                processResults: function (data) { 
+                    return { 
+                        results: $.map(data, function (cliente) { 
+                            return { 
+                                id: cliente.id, 
+                                text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), 
+                                clienteData: cliente 
+                            }; 
+                        }) 
+                    }; 
+                }, 
+                cache: true 
+            } 
+        }).on('select2:select', function (e) { 
+            dadosClienteAtual = e.params.data.clienteData; 
+            $(this).find('option:selected').attr('data-cliente-full-data', JSON.stringify(dadosClienteAtual)); 
+        }); 
+    }
+
+    if (typeof $.fn.datepicker === 'function') { 
+        $('.datepicker').datepicker({ 
+            format: 'dd/mm/yyyy', 
+            language: 'pt-BR', 
+            autoclose: true, 
+            todayHighlight: true, 
+            orientation: "bottom auto" 
+        }); 
+    }
+
+    function calcularDataValidade() { 
+        var dataOrcamentoStr = $('#data_orcamento').val(); 
+        var validadeDias = parseInt($('#validade_dias').val()); 
+        if (dataOrcamentoStr && validadeDias > 0) { 
+            var partesData = dataOrcamentoStr.split('/'); 
+            if (partesData.length === 3) { 
+                var dataOrcamento = new Date(partesData[2], partesData[1] - 1, partesData[0]); 
+                if (!isNaN(dataOrcamento.valueOf())) { 
+                    dataOrcamento.setDate(dataOrcamento.getDate() + validadeDias); 
+                    var dia = String(dataOrcamento.getDate()).padStart(2, '0'); 
+                    var mes = String(dataOrcamento.getMonth() + 1).padStart(2, '0'); 
+                    var ano = dataOrcamento.getFullYear(); 
+                    $('#data_validade_display').text('Validade: ' + dia + '/' + mes + '/' + ano); 
+                    $('#data_validade_calculada_hidden').val(ano + '-' + mes + '-' + dia); 
+                } 
+            } 
+        } else { 
+            $('#data_validade_display').text(''); 
+            $('#data_validade_calculada_hidden').val(''); 
+        } 
+    }
+
     $('#validade_dias').on('change keyup blur', calcularDataValidade);
-    const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO']; function exibirDiaSemana(inputId, displayId) { var dataStr = $(inputId).val(); if(dataStr) { var partes = dataStr.split('/'); if (partes.length === 3) { var dataObj = new Date(partes[2], partes[1] - 1, partes[0]); if (!isNaN(dataObj.valueOf())) { var diaSemana = diasDaSemana[dataObj.getDay()]; $(displayId).text(diaSemana).addClass('font-weight-bold').removeClass('text-danger text-success').addClass(dataObj.getDay() === 0 || dataObj.getDay() === 6 ? 'text-danger' : 'text-success'); } } } }
-    $('#data_evento, #data_entrega, #data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana('#' + $(this).attr('id'), '#' + $(this).attr('id').replace('data_', 'dia_semana_')); }).trigger('change');
+
+    const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO']; 
+    function exibirDiaSemana(inputId, displayId) { 
+        var dataStr = $(inputId).val(); 
+        if(dataStr) { 
+            var partes = dataStr.split('/'); 
+            if (partes.length === 3) { 
+                var dataObj = new Date(partes[2], partes[1] - 1, partes[0]); 
+                if (!isNaN(dataObj.valueOf())) { 
+                    var diaSemana = diasDaSemana[dataObj.getDay()]; 
+                    $(displayId).text(diaSemana).addClass('font-weight-bold').removeClass('text-danger text-success').addClass(dataObj.getDay() === 0 || dataObj.getDay() === 6 ? 'text-danger' : 'text-success'); 
+                } 
+            } 
+        } 
+    }
+
+    $('#data_evento, #data_entrega, #data_devolucao_prevista').on('change dp.change', function() { 
+        exibirDiaSemana('#' + $(this).attr('id'), '#' + $(this).attr('id').replace('data_', 'dia_semana_')); 
+    }).trigger('change');
     
-    // ▼▼▼ LÓGICA DO BOTÃO "USAR ENDEREÇO" SUBSTITUÍDA PELA VERSÃO CORRIGIDA ▼▼▼
     $('#btnUsarEnderecoCliente').on('click', function() {
         if (!dadosClienteAtual) { carregarDadosClienteAtual(); }
         if (!dadosClienteAtual) { toastr.warning('Não foi possível obter os dados do cliente selecionado.'); return; }
@@ -1620,16 +1674,43 @@ $(document).ready(function() {
         }
     });
 
-    $('#formEditarOrcamento').on('keydown', function(e) { if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) { e.preventDefault(); } });
-    function atualizarOrdemDosItens() { $('#tabela_itens_orcamento tbody tr').each(function(index) { $(this).attr('data-index', index + 1); $(this).find('input[name="ordem[]"]').val(index + 1); }); }
-    $('#tabela_itens_orcamento tbody').sortable({ handle: '.drag-handle', placeholder: 'sortable-placeholder', helper: function(e, ui) { ui.children().each(function() { $(this).width($(this).width()); }); return ui; }, stop: function(event, ui) { atualizarOrdemDosItens(); } }).disableSelection();
+    $('#formEditarOrcamento').on('keydown', function(e) { 
+        if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) { 
+            e.preventDefault(); 
+        } 
+    });
+
+    function atualizarOrdemDosItens() { 
+        $('#tabela_itens_orcamento tbody tr').each(function(index) { 
+            $(this).attr('data-index', index + 1); 
+            $(this).find('input[name="ordem[]"]').val(index + 1); 
+        }); 
+    }
+
+    $('#tabela_itens_orcamento tbody').sortable({ 
+        handle: '.drag-handle', 
+        placeholder: 'sortable-placeholder', 
+        helper: function(e, ui) { 
+            ui.children().each(function() { 
+                $(this).width($(this).width()); 
+            }); 
+            return ui; 
+        }, 
+        stop: function(event, ui) { 
+            atualizarOrdemDosItens(); 
+        } 
+    }).disableSelection();
     
-    // Garante que o cálculo inicial seja feito ao carregar a página
     calcularTotaisOrcamento();
-});
+    
+    $('#tabela_itens_orcamento .item-qtd').each(function() {
+        var valorOriginal = $(this).val();
+        $(this).data('valor-original', valorOriginal);
+    });
+
     // --- Lógica para o botão "Converter para Pedido" ---
     $('#btnConverterPedido').on('click', function(e) {
-        e.preventDefault(); // Impede o envio padrão do formulário, se houver
+        e.preventDefault();
         const orcamentoIdParaConverter = $(this).data('orcamento-id');
 
         Swal.fire({
@@ -1637,13 +1718,12 @@ $(document).ready(function() {
             text: "Deseja realmente converter este Orçamento em um Pedido? Esta ação marcará o Orçamento como 'Convertido'.",
             icon: 'question',
             showCancelButton: true,
-            confirmButtonColor: '#28a745', // Green
-            cancelButtonColor: '#dc3545', // Red
+            confirmButtonColor: '#28a745',
+            cancelButtonColor: '#dc3545',
             confirmButtonText: 'Sim, converter!',
             cancelButtonText: 'Não, cancelar'
         }).then((result) => {
             if (result.isConfirmed) {
-                // Desabilitar o botão para evitar cliques múltiplos
                 $('#btnConverterPedido').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Convertendo...');
                 
                 $.ajax({
@@ -1659,12 +1739,9 @@ $(document).ready(function() {
                                 text: response.message + (response.pedido_numero ? ' Pedido #' + response.pedido_numero + ' criado.' : ''),
                                 confirmButtonText: 'OK'
                             }).then(() => {
-                                // Redirecionar para a página de edição do NOVO pedido
                                 if (response.pedido_id) {
-                                  // Por esta:
-window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
+                                    window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
                                 } else {
-                                    // Se por algum motivo o pedido_id não voltar, apenas recarrega
                                     location.reload(); 
                                 }
                             });
@@ -1674,7 +1751,7 @@ window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_
                                 title: 'Erro!',
                                 text: response.message
                             }).then(() => {
-                                $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido'); // Reabilita e restaura o texto
+                                $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido');
                             });
                         }
                     },
@@ -1685,16 +1762,15 @@ window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_
                             title: 'Erro de Conexão!',
                             text: 'Não foi possível converter o orçamento. Verifique sua conexão ou tente novamente.'
                         }).then(() => {
-                            $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido'); // Reabilita e restaura o texto
+                            $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido');
                         });
                     }
                 });
             }
         });
     });
+});
 JS;
-
-// Este include agora pressupõe que footer.php foi modificado
 
 include_once __DIR__ . '/../includes/footer.php';
 ?>

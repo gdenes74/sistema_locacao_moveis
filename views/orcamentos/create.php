@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../models/Cliente.php';
 require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/NumeracaoSequencial.php';
 require_once __DIR__ . '/../../models/Orcamento.php'; // Model que acabamos de ajustar
+require_once __DIR__ . '/../../models/EstoqueMovimentacao.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -20,7 +21,7 @@ $db = $database->getConnection(); // Conexão PDO
 $clienteModel = new Cliente($db);
 $numeracaoModel = new NumeracaoSequencial($db);
 $orcamentoModel = new Orcamento($db); // Instância do nosso model ajustado
-
+$estoqueModel = new EstoqueMovimentacao($db);
 $numeroFormatado = 'Gerado ao Salvar';
 
 // Textos padrão para observações e condições
@@ -163,6 +164,33 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
         $errorParamsDebug = isset($executeParams) ? json_encode($executeParams) : 'Parâmetros não disponíveis.';
         error_log("Erro AJAX buscar_produtos: " . $e->getMessage() . " | Query: " . $errorQueryDebug . " | Params: " . $errorParamsDebug);
         echo json_encode(['error' => 'Ocorreu um erro interno ao buscar produtos.']);
+        exit;
+    }
+}
+// ✅ AJAX - para verificar estoque
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_id = isset($_GET['produto_id']) ? (int)$_GET['produto_id'] : 0;
+        $quantidade = isset($_GET['quantidade']) ? (int)$_GET['quantidade'] : 1;
+        
+        if ($produto_id <= 0) {
+            echo json_encode(['disponivel' => false, 'erro' => 'ID do produto inválido']);
+            exit;
+        }
+        
+        $disponivel = $estoqueModel->verificarEstoqueSimples($produto_id, $quantidade);
+        $estoque_total = $estoqueModel->obterEstoqueTotal($produto_id);
+        
+        echo json_encode([
+            'disponivel' => $disponivel,
+            'estoque_disponivel' => $estoque_total,
+            'quantidade_solicitada' => $quantidade
+        ]);
+        exit;
+        
+    } catch (Exception $e) {
+        echo json_encode(['disponivel' => true, 'erro' => $e->getMessage()]);
         exit;
     }
 }
@@ -1172,17 +1200,17 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     });
 
     // Função para adicionar o item, será chamada diretamente ou após confirmação
-    const adicionarItem = () => {
-        var produto = {
-            id: produtoId,
-            nome_produto: $(this).data('nome'),
-            preco_locacao: $(this).data('preco'),
-            foto_path_completo: $(this).data('foto-completa')
-        };
-        adicionarLinhaItemTabela(produto, 'PRODUTO');
-        $('#busca_produto').val('').focus();
-        $('#sugestoes_produtos').empty().hide();
+   const adicionarItem = () => {
+    var produto = {
+        id: produtoId,
+        nome_produto: $(this).data('nome'),
+        preco_locacao: $(this).data('preco'),
+        foto_path_completo: $(this).data('foto-completa')
     };
+    
+    // ✅ NOVA VALIDAÇÃO DE ESTOQUE AQUI
+    verificarEstoqueAntes(produto);
+};
 
     if (produtoJaExiste) {
         // Se o produto já existe, PERGUNTA ao invés de bloquear
@@ -1232,8 +1260,139 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     // =========================================================================
     // >>>>> FIM DO CÓDIGO RESTAURADO <<<<<
     // =========================================================================
+function verificarEstoqueAntes(produto) {
+   
+    
+    // Verificar quantos deste produto já estão na tabela
+    var quantidadeJaAdicionada = 0;
+    $('#tabela_itens_orcamento .produto_id').each(function() {
+        if ($(this).val() == produto.id) {
+            var $row = $(this).closest('tr');
+            quantidadeJaAdicionada += parseInt($row.find('.quantidade_item').val()) || 0;
+        }
+    });
+    
+    var quantidadeTotal = quantidadeJaAdicionada + 1; // +1 porque vai adicionar mais um
+    
+    
+    // AJAX para verificar estoque
+    $.ajax({
+        url: 'create.php',
+        type: 'GET',
+        dataType: 'json',
+        data: { 
+            ajax: 'verificar_estoque',
+            produto_id: produto.id,
+            quantidade: quantidadeTotal 
+        },
+        success: function(response) {
+            
+            
+            if (response.disponivel) {
+                
+                // ✅ Estoque OK - pode adicionar
+                adicionarLinhaItemTabela(produto, 'PRODUTO');
+                $('#busca_produto').val('').focus();
+                $('#sugestoes_produtos').empty().hide();
+            } else {
+            
+                // ❌ Estoque insuficiente
+                Swal.fire({
+                    title: 'Estoque Insuficiente!',
+                    text: `Produto: ${produto.nome_produto}\nEstoque disponível: ${response.estoque_disponivel}\nQuantidade solicitada: ${quantidadeTotal}`,
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+        },
+        error: function(xhr, status, error) {
+            
+            // Em caso de erro, permite adicionar (para não travar o sistema)
+            
+            adicionarLinhaItemTabela(produto, 'PRODUTO');
+            $('#busca_produto').val('').focus();
+            $('#sugestoes_produtos').empty().hide();
+        }
+    });
+}
+// ✅ FUNÇÃO MELHORADA: Evita mensagens duplicadas
+function validarEstoqueQuantidade($row) {
+    var produtoId = $row.find('.produto_id').val();
+    var quantidadeAtual = parseInt($row.find('.quantidade_item').val()) || 0;
+    
+    if (!produtoId || quantidadeAtual <= 0) return;
+    
+    // ✅ EVITA VALIDAÇÕES DUPLICADAS
+    var chaveValidacao = `${produtoId}_${quantidadeAtual}`;
+    if ($row.data('ultima-validacao') === chaveValidacao) {
+        return; // Já validou essa combinação
+    }
+    
+    // Calcular quantidade total considerando outras linhas do mesmo produto
+    var quantidadeTotal = 0;
+    $('#tabela_itens_orcamento .produto_id').each(function() {
+        if ($(this).val() == produtoId) {
+            var $outraRow = $(this).closest('tr');
+            if ($outraRow[0] === $row[0]) {
+                quantidadeTotal += quantidadeAtual;
+            } else {
+                quantidadeTotal += parseInt($outraRow.find('.quantidade_item').val()) || 0;
+            }
+        }
+    });
+    
+    $.ajax({
+        url: 'create.php',
+        type: 'GET',
+        dataType: 'json',
+        data: { 
+            ajax: 'verificar_estoque',
+            produto_id: produtoId,
+            quantidade: quantidadeTotal 
+        },
+        success: function(response) {
+            // ✅ MARCA COMO VALIDADO
+            $row.data('ultima-validacao', chaveValidacao);
+            
+            if (!response.disponivel) {
+                // ✅ SÓ MOSTRA UMA VEZ
+                Swal.fire({
+                    title: 'Estoque Insuficiente!',
+                    text: `Estoque disponível: ${response.estoque_disponivel}\nQuantidade solicitada: ${quantidadeTotal}`,
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                }).then(() => {
+                    // Volta para a quantidade anterior (1)
+                    $row.find('.quantidade_item').val(1).focus();
+                    $row.removeData('ultima-validacao'); // Limpa para permitir nova validação
+                    calcularTotaisOrcamento();
+                });
+            }
+        },
+        error: function() {
+            // Em caso de erro, permite alteração
+        }
+    });
+}
 
-
+// ✅ EVENTO INTELIGENTE: Valida automaticamente quando para de digitar
+$('#tabela_itens_orcamento').on('input keyup change blur', '.quantidade_item', function(e) {
+    var $input = $(this);
+    var $row = $input.closest('tr');
+    
+    // Limpa o timeout anterior (se existir)
+    clearTimeout($input.data('validacao-timeout'));
+    
+    // Define um novo timeout para validar após parar de digitar
+    $input.data('validacao-timeout', setTimeout(function() {
+        var valorAtual = parseInt($input.val()) || 0;
+        
+        // Só valida se tiver um valor válido maior que 0
+        if (valorAtual > 0) {
+            validarEstoqueQuantidade($row);
+        }
+    }, 800)); // 800ms = menos de 1 segundo após parar de digitar
+});
     $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item, #desconto_total, .taxa-frete-input', function() {
         calcularTotaisOrcamento();
     });
