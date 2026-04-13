@@ -62,12 +62,12 @@ try {
     $pedidoModel->data_entrega = $orcamento['data_entrega'];
     $pedidoModel->hora_entrega = $orcamento['hora_entrega'];
     $pedidoModel->turno_entrega = $orcamento['turno_entrega'];
-    $pedidoModel->data_retirada_prevista = $orcamento['data_devolucao_prevista'];
+    $pedidoModel->data_devolucao_prevista = $orcamento['data_devolucao_prevista'];
     $pedidoModel->hora_devolucao = $orcamento['hora_devolucao'];
     $pedidoModel->turno_devolucao = $orcamento['turno_devolucao'];
     $pedidoModel->local_evento = $orcamento['local_evento'];
     $pedidoModel->tipo = $orcamento['tipo'];
-    $pedidoModel->status = 'confirmado'; // Status inicial de pedido
+    $pedidoModel->situacao_pedido = 'confirmado'; // Status inicial de pedido
     $pedidoModel->desconto = $orcamento['desconto'];
     $pedidoModel->taxa_domingo_feriado = $orcamento['taxa_domingo_feriado'];
     $pedidoModel->taxa_madrugada = $orcamento['taxa_madrugada'];
