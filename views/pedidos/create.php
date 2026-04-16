@@ -377,8 +377,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         $pedidoModel->local_evento = !empty($_POST['local_evento']) ? trim($_POST['local_evento']) : null;
 
-        $data_devolucao_dt = !empty($_POST['data_retirada_prevista'])
-            ? DateTime::createFromFormat('d/m/Y', $_POST['data_retirada_prevista'])
+        $dataDevolucaoPost = $_POST['data_devolucao_prevista'] ?? ($_POST['data_retirada_prevista'] ?? '');
+        $data_devolucao_dt = !empty($dataDevolucaoPost)
+            ? DateTime::createFromFormat('d/m/Y', $dataDevolucaoPost)
             : null;
         $pedidoModel->data_devolucao_prevista = $data_devolucao_dt ? $data_devolucao_dt->format('Y-m-d') : null;
         $pedidoModel->hora_devolucao = !empty($_POST['hora_devolucao']) ? $_POST['hora_devolucao'] : null;
@@ -773,9 +774,9 @@ include_once __DIR__ . '/../includes/header.php';
                                 <h5><i class="fas fa-undo-alt mr-2"></i>Detalhes da Devolução/Coleta</h5>
                             </div>
                             <div class="col-md-3">
-                                <label for="data_retirada_prevista" class="form-label">Data Devolução (Prev.)</label>
+                                <label for="data_devolucao_prevista" class="form-label">Data Devolução (Prev.)</label>
                                 <div class="input-group">
-                                    <input type="text" class="form-control datepicker" id="data_retirada_prevista" name="data_retirada_prevista" placeholder="DD/MM/AAAA">
+                                    <input type="text" class="form-control datepicker" id="data_devolucao_prevista" name="data_devolucao_prevista" placeholder="DD/MM/AAAA">
                                     <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
                                 </div>
                                 <small id="dia_semana_devolucao" class="form-text text-muted font-weight-bold"></small>
@@ -1401,7 +1402,7 @@ $(document).ready(function() {
         $('#local_evento').val(orcamento.local_evento || '');
         $('#data_entrega').val(orcamento.data_entrega ? formatarData(orcamento.data_entrega) : '');
         $('#hora_entrega').val(orcamento.hora_entrega || '');
-        $('#data_retirada_prevista').val(orcamento.data_devolucao_prevista ? formatarData(orcamento.data_devolucao_prevista) : '');
+        $('#data_devolucao_prevista').val(orcamento.data_devolucao_prevista ? formatarData(orcamento.data_devolucao_prevista) : '');
         $('#hora_devolucao').val(orcamento.hora_devolucao || '');
         $('#turno_entrega').val(orcamento.turno_entrega || 'Manhã/Tarde (Horário Comercial)');
         $('#turno_devolucao').val(orcamento.turno_devolucao || 'Manhã/Tarde (Horário Comercial)');
@@ -1453,29 +1454,34 @@ $(document).ready(function() {
         if (itens && itens.length > 0) {
             $.each(itens, function(i, item) {
                 var itemPedido = {
-                    id: item.produto_id,
+                    id: item.produto_id || '',
                     nome_produto: item.nome_produto_catalogo || item.nome_produto_manual || 'Produto não identificado',
-                    preco_locacao: item.preco_unitario,
-                    quantidade: item.quantidade,
-                    desconto: item.desconto,
-                    observacoes: item.observacoes,
+                    preco_locacao: parseFloat(item.preco_unitario || 0),
+                    quantidade: parseInt(item.quantidade || 1, 10),
+                    desconto: parseFloat(item.desconto || 0),
+                    observacoes: item.observacoes || '',
                     foto_path_completo: item.foto_path_completo || null,
-                    tipo_item_loc_vend: item.tipo || 'locacao'
+                    tipo_item_loc_vend: item.tipo || 'locacao',
+                    nome_produto_manual: item.nome_produto_manual || ''
                 };
 
                 adicionarLinhaItemTabela(itemPedido, item.tipo_linha);
 
                 var $ultimaLinha = $('#tabela_itens_pedido tbody tr:last');
                 if (item.tipo_linha === 'PRODUTO') {
-                    $ultimaLinha.find('.quantidade_item').val(item.quantidade).attr('data-valor-original', item.quantidade);
-                    $ultimaLinha.find('.item-valor-unitario').val(formatCurrency(item.preco_unitario).replace('R$ ', ''));
-                    $ultimaLinha.find('.desconto_item').val(formatCurrency(item.desconto).replace('R$ ', ''));
-                    if (item.observacoes) {
-                        $ultimaLinha.find('.observacoes_item_input').val(item.observacoes).show();
+                    $ultimaLinha.find('.item-qtd').val(itemPedido.quantidade).attr('data-valor-original', itemPedido.quantidade);
+                    $ultimaLinha.find('.item-valor-unitario').val(itemPedido.preco_locacao.toFixed(2).replace('.', ','));
+                    $ultimaLinha.find('.desconto_item').val(itemPedido.desconto.toFixed(2).replace('.', ','));
+                    if (!itemPedido.id) {
+                        $ultimaLinha.find('.nome_produto_display').val(itemPedido.nome_produto).prop('readonly', false);
+                    }
+                    if (itemPedido.observacoes) {
+                        $ultimaLinha.find('.observacoes_item_input').val(itemPedido.observacoes).show();
                         $ultimaLinha.find('.observacoes_item_label').show();
                     }
+                    calcularSubtotalItem($ultimaLinha);
                 } else if (item.tipo_linha === 'CABECALHO_SECAO') {
-                    $ultimaLinha.find('.nome_titulo_secao').val(item.nome_produto_manual);
+                    $ultimaLinha.find('.nome_titulo_secao').val(itemPedido.nome_produto_manual || itemPedido.nome_produto);
                 }
             });
         }
@@ -1539,9 +1545,16 @@ $(document).ready(function() {
         itemIndex++;
         var tipoLinha = tipoLinhaParam;
         var htmlLinha = '';
-        var nomeDisplay = dadosItem ? dadosItem.nome_produto : '';
-        var produtoIdInput = dadosItem ? dadosItem.id : '';
-        var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
+        var nomeDisplay = dadosItem ? (dadosItem.nome_produto || '') : '';
+        var produtoIdInput = dadosItem ? (dadosItem.id || '') : '';
+        var precoUnitarioDefault = 0;
+        if (dadosItem) {
+            if (dadosItem.preco_unitario !== undefined && dadosItem.preco_unitario !== null && dadosItem.preco_unitario !== '') {
+                precoUnitarioDefault = parseFloat(dadosItem.preco_unitario) || 0;
+            } else if (dadosItem.preco_locacao !== undefined && dadosItem.preco_locacao !== null && dadosItem.preco_locacao !== '') {
+                precoUnitarioDefault = parseFloat(dadosItem.preco_locacao) || 0;
+            }
+        }
         var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
         var nomeInputName = "nome_produto_display[]";
 
@@ -1999,7 +2012,7 @@ $(document).ready(function() {
 
     $('#data_evento').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_evento'); }).trigger('change');
     $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
-    $('#data_retirada_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
+    $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
 
     $('#btnUsarEnderecoCliente').on('click', function() {
         var clienteSelecionado = $('#cliente_id').select2('data');
