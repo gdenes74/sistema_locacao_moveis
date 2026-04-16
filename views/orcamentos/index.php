@@ -94,7 +94,8 @@ $status_orcamento_opcoes = [
     ['valor' => 'pendente', 'texto' => 'Pendente'],
     ['valor' => 'aprovado', 'texto' => 'Aprovado'],
     ['valor' => 'recusado', 'texto' => 'Recusado'],
-    ['valor' => 'expirado', 'texto' => 'Expirado']
+    ['valor' => 'expirado', 'texto' => 'Expirado'],
+    ['valor' => 'convertido', 'texto' => 'Convertido em Pedido']
 ];
 
 // Lista de tipos de orçamento para o filtro
@@ -339,6 +340,10 @@ include_once __DIR__ . '/../includes/header.php';
                                                     case 'expirado': 
                                                         $status_classe = 'badge badge-secondary'; 
                                                         break;
+                                                    case 'convertido':
+                                                        $status_texto = 'Convertido em Pedido';
+                                                        $status_classe = 'badge badge-info';
+                                                        break;
                                                 }
                                                 ?>
                                                 <span class="<?php echo $status_classe; ?>"><?php echo htmlspecialchars($status_texto); ?></span>
@@ -349,10 +354,19 @@ include_once __DIR__ . '/../includes/header.php';
            class="btn btn-xs btn-info" title="Visualizar Detalhes">
             <i class="fas fa-eye"></i>
         </a>
-        <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
-           class="btn btn-xs btn-primary" title="Editar Orçamento">
-            <i class="fas fa-edit"></i>
-        </a>
+
+        <?php if (strtolower($orc['status'] ?? '') === 'convertido' && !empty($orc['pedido_id'])): ?>
+            <a href="<?php echo BASE_URL; ?>/views/pedidos/edit.php?id=<?php echo $orc['pedido_id']; ?>" 
+               class="btn btn-xs btn-success" title="Abrir Pedido #<?php echo $orc['pedido_numero']; ?>">
+                <i class="fas fa-file-invoice-dollar"></i>
+            </a>
+        <?php else: ?>
+            <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
+               class="btn btn-xs btn-primary" title="Editar Orçamento">
+                <i class="fas fa-edit"></i>
+            </a>
+        <?php endif; ?>
+
        <button type="button" class="btn btn-xs btn-secondary btn-imprimir-orcamento" 
         data-id="<?= $orc['id'] ?>" 
         data-numero="<?= htmlspecialchars($orc['numero']) ?>"
@@ -361,16 +375,9 @@ include_once __DIR__ . '/../includes/header.php';
 </button>
         
         <?php if (strtolower($orc['status'] ?? '') === 'aprovado'): ?>
-            <?php
-            // Verifica se já existe pedido para este orçamento
-            $stmt_check = $conn->prepare("SELECT id, numero FROM pedidos WHERE orcamento_id = ?");
-            $stmt_check->execute([$orc['id']]);
-            $pedido_existente = $stmt_check->fetch(PDO::FETCH_ASSOC);
-            ?>
-            
-            <?php if ($pedido_existente): ?>
-                <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $pedido_existente['id']; ?>" 
-                   class="btn btn-xs btn-success" title="Ver Pedido #<?php echo $pedido_existente['numero']; ?>">
+            <?php if (!empty($orc['pedido_id'])): ?>
+                <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $orc['pedido_id']; ?>" 
+                   class="btn btn-xs btn-success" title="Ver Pedido #<?php echo $orc['pedido_numero']; ?>">
                     <i class="fas fa-check-circle"></i>
                 </a>
             <?php else: ?>
@@ -380,12 +387,19 @@ include_once __DIR__ . '/../includes/header.php';
                     <i class="fas fa-file-invoice-dollar"></i>
                 </button>
             <?php endif; ?>
+        <?php elseif (strtolower($orc['status'] ?? '') === 'convertido' && !empty($orc['pedido_id'])): ?>
+            <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $orc['pedido_id']; ?>" 
+               class="btn btn-xs btn-success" title="Ver Pedido #<?php echo $orc['pedido_numero']; ?>">
+                <i class="fas fa-check-circle"></i>
+            </a>
         <?php endif; ?>
         
+        <?php if (strtolower($orc['status'] ?? '') !== 'convertido'): ?>
         <button type="button" class="btn btn-xs btn-danger" title="Excluir Orçamento"
                 onclick="confirmDelete(<?php echo $orc['id']; ?>, '<?php echo htmlspecialchars(addslashes($orc['codigo'] ?? $orc['numero'] ?? $orc['id'])); ?>')">
             <i class="fas fa-trash"></i>
         </button>
+        <?php endif; ?>
         
         <button type="button" class="btn btn-xs btn-default" title="Mais Detalhes"
                 data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
@@ -436,6 +450,7 @@ include_once __DIR__ . '/../includes/header.php';
                                         case 'aprovado': echo 'card-success'; break;
                                         case 'recusado': echo 'card-danger'; break;
                                         case 'expirado': echo 'card-secondary'; break;
+                                        case 'convertido': echo 'card-info'; break;
                                         default: echo 'card-primary'; break;
                                     }
                                     ?>
@@ -450,11 +465,12 @@ include_once __DIR__ . '/../includes/header.php';
                                                     case 'aprovado': echo 'badge-success'; break;
                                                     case 'recusado': echo 'badge-danger'; break;
                                                     case 'expirado': echo 'badge-secondary'; break;
+                                                    case 'convertido': echo 'badge-info'; break;
                                                     default: echo 'badge-light'; break;
                                                 }
                                                 ?>
                                             ">
-                                                <?php echo htmlspecialchars(ucfirst($orc['status'] ?? 'desconhecido')); ?>
+                                                <?php echo htmlspecialchars(strtolower($orc['status'] ?? '') === 'convertido' ? 'Convertido em Pedido' : ucfirst($orc['status'] ?? 'desconhecido')); ?>
                                             </span>
                                         </div>
                                     </div>
@@ -491,14 +507,23 @@ include_once __DIR__ . '/../includes/header.php';
                                                class="btn btn-sm btn-info" title="Visualizar Detalhes">
                                                 <i class="fas fa-eye"></i> Detalhes
                                             </a>
-                                            <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
-                                               class="btn btn-sm btn-primary" title="Editar Orçamento">
-                                                <i class="fas fa-edit"></i> Editar
-                                            </a>
+                                            <?php if (strtolower($orc['status'] ?? '') === 'convertido' && !empty($orc['pedido_id'])): ?>
+                                                <a href="<?php echo BASE_URL; ?>/views/pedidos/edit.php?id=<?php echo $orc['pedido_id']; ?>" 
+                                                   class="btn btn-sm btn-success" title="Abrir Pedido #<?php echo $orc['pedido_numero']; ?>">
+                                                    <i class="fas fa-file-invoice-dollar"></i> Pedido
+                                                </a>
+                                            <?php else: ?>
+                                                <a href="<?php echo BASE_URL; ?>/views/orcamentos/edit.php?id=<?php echo $orc['id']; ?>" 
+                                                   class="btn btn-sm btn-primary" title="Editar Orçamento">
+                                                    <i class="fas fa-edit"></i> Editar
+                                                </a>
+                                            <?php endif; ?>
+                                            <?php if (strtolower($orc['status'] ?? '') !== 'convertido'): ?>
                                             <button type="button" class="btn btn-sm btn-danger" title="Excluir Orçamento"
                                                     onclick="confirmDelete(<?php echo $orc['id']; ?>, '<?php echo htmlspecialchars(addslashes($orc['codigo'] ?? $orc['numero'] ?? $orc['id'])); ?>')">
                                                 <i class="fas fa-trash"></i>
                                             </button>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 </div>
