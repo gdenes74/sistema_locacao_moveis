@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../models/Cliente.php';
 require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/Pedido.php';
 require_once __DIR__ . '/../../models/Orcamento.php';
+require_once __DIR__ . '/../../models/EstoqueMovimentacao.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -18,6 +19,7 @@ $db = $database->getConnection();
 $clienteModel = new Cliente($db);
 $pedidoModel = new Pedido($db);
 $orcamentoModel = new Orcamento($db);
+$estoqueModel = new EstoqueMovimentacao($db);
 
 // --- 1. BUSCA DOS DADOS PARA EDIÇÃO ---
 if (!isset($_GET['id']) || !filter_var($_GET['id'], FILTER_VALIDATE_INT)) {
@@ -190,6 +192,35 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
         $errorParamsDebug = isset($executeParams) ? json_encode($executeParams) : 'Parâmetros não disponíveis.';
         error_log("Erro AJAX buscar_produtos: " . $e->getMessage() . " | Query: " . $errorQueryDebug . " | Params: " . $errorParamsDebug);
         echo json_encode(['error' => 'Ocorreu um erro interno ao buscar produtos.']);
+        exit;
+    }
+}
+
+
+// --- 5. AJAX para verificar estoque no edit do pedido ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_id = isset($_GET['produto_id']) ? (int)$_GET['produto_id'] : 0;
+        $quantidade = isset($_GET['quantidade']) ? (int)$_GET['quantidade'] : 1;
+
+        if ($produto_id <= 0) {
+            echo json_encode(['disponivel' => false, 'erro' => 'ID do produto inválido']);
+            exit;
+        }
+
+        $disponivel = $estoqueModel->verificarEstoqueSimples($produto_id, $quantidade);
+        $estoque_total = $estoqueModel->obterEstoqueTotal($produto_id);
+
+        echo json_encode([
+            'disponivel' => $disponivel,
+            'estoque_disponivel' => $estoque_total,
+            'quantidade_solicitada' => $quantidade
+        ]);
+        exit;
+
+    } catch (Exception $e) {
+        echo json_encode(['disponivel' => true, 'erro' => $e->getMessage()]);
         exit;
     }
 }
@@ -711,7 +742,14 @@ include_once __DIR__ . '/../includes/header.php';
         <?php foreach ($itensPedido as $index => $item): ?>
             <?php
                 $tipoLinha = htmlspecialchars($item['tipo_linha']);
-                $nomeDisplay = htmlspecialchars($item['nome_produto_manual'] ?? $item['nome_produto_catalogo'] ?? 'Item sem nome');
+                if (!empty($item['nome_produto_manual'])) {
+                    $nomeBase = $item['nome_produto_manual'];
+                } elseif (!empty($item['nome_produto_catalogo'])) {
+                    $nomeBase = $item['nome_produto_catalogo'];
+                } else {
+                    $nomeBase = 'Item sem nome';
+                }
+                $nomeDisplay = htmlspecialchars($nomeBase);
                 $precoUnitario = number_format($item['preco_unitario'] ?? 0, 2, ',', '.');
                 $descontoItem = number_format($item['desconto'] ?? 0, 2, ',', '.');
                 // O subtotal do item será recalculado pelo JS, mas preenchemos para visualização inicial
@@ -1498,6 +1536,112 @@ $(document).ready(function() {
         }, 300);
     };
 
+
+    function verificarEstoqueAntes(produto) {
+        var quantidadeJaAdicionada = 0;
+        $('#tabela_itens_pedido .produto_id').each(function() {
+            if ($(this).val() == produto.id) {
+                var $row = $(this).closest('tr');
+                quantidadeJaAdicionada += parseInt($row.find('.item-qtd').val()) || 0;
+            }
+        });
+
+        var quantidadeTotal = quantidadeJaAdicionada + 1;
+
+        $.ajax({
+            url: `edit.php?id=${PEDIDO_ID}`,
+            type: 'GET',
+            dataType: 'json',
+            data: {
+                ajax: 'verificar_estoque',
+                produto_id: produto.id,
+                quantidade: quantidadeTotal,
+                pedido_id: PEDIDO_ID
+            },
+            success: function(response) {
+                if (response.disponivel) {
+                    adicionarLinhaItemTabela(produto, 'PRODUTO');
+                    $('#busca_produto').val('').focus();
+                    $('#sugestoes_produtos').empty().hide();
+                } else {
+                    Swal.fire({
+                        title: 'Estoque Insuficiente!',
+                        text: `Produto: ${produto.nome_produto}
+Estoque disponível: ${response.estoque_disponivel}
+Quantidade solicitada: ${quantidadeTotal}`,
+                        icon: 'warning',
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Erro na verificação de estoque:', error);
+                adicionarLinhaItemTabela(produto, 'PRODUTO');
+                $('#busca_produto').val('').focus();
+                $('#sugestoes_produtos').empty().hide();
+            }
+        });
+    }
+
+    function validarEstoqueQuantidade($row) {
+        var produtoId = $row.find('.produto_id').val();
+        var quantidadeAtual = parseInt($row.find('.item-qtd').val()) || 0;
+
+        if (!produtoId || quantidadeAtual <= 0) {
+            return;
+        }
+
+        var chaveValidacao = `${produtoId}_${quantidadeAtual}`;
+        if ($row.data('ultima-validacao') === chaveValidacao) {
+            return;
+        }
+
+        var quantidadeTotal = 0;
+        $('#tabela_itens_pedido .produto_id').each(function() {
+            if ($(this).val() == produtoId) {
+                var $outraRow = $(this).closest('tr');
+                if ($outraRow[0] === $row[0]) {
+                    quantidadeTotal += quantidadeAtual;
+                } else {
+                    quantidadeTotal += parseInt($outraRow.find('.item-qtd').val()) || 0;
+                }
+            }
+        });
+
+        $.ajax({
+            url: `edit.php?id=${PEDIDO_ID}`,
+            type: 'GET',
+            dataType: 'json',
+            data: {
+                ajax: 'verificar_estoque',
+                produto_id: produtoId,
+                quantidade: quantidadeTotal,
+                pedido_id: PEDIDO_ID
+            },
+            success: function(response) {
+                $row.data('ultima-validacao', chaveValidacao);
+
+                if (!response.disponivel) {
+                    Swal.fire({
+                        title: 'Estoque Insuficiente!',
+                        text: `Estoque disponível: ${response.estoque_disponivel}
+Quantidade solicitada: ${quantidadeTotal}`,
+                        icon: 'warning',
+                        confirmButtonText: 'Entendi'
+                    }).then(() => {
+                        var quantidadeOriginal = $row.find('.item-qtd').data('valor-original') || 1;
+                        $row.find('.item-qtd').val(quantidadeOriginal).focus();
+                        $row.removeData('ultima-validacao');
+                        calcularTotaisPedido();
+                    });
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Erro na validação de estoque:', error);
+            }
+        });
+    }
+
     // ✅ EVENTOS PRINCIPAIS COM PROTEÇÃO
     $('#valor_pago, #valor_sinal, #valor_multas, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas, #desconto_total').on('change', function() {
         if (!window.calculandoTotais) {
@@ -1544,9 +1688,7 @@ $(document).ready(function() {
                 preco_locacao: $(this).data('preco'),
                 foto_path_completo: $(this).data('foto-completa')
             };
-            adicionarLinhaItemTabela(produto, 'PRODUTO');
-            $('#busca_produto').val('').focus();
-            $('#sugestoes_produtos').empty().hide();
+            verificarEstoqueAntes(produto);
         };
 
         if (produtoJaExiste) {
@@ -1603,12 +1745,28 @@ $(document).ready(function() {
     });
 
     // ✅ EVENTOS DE ITENS COM PROTEÇÃO CONTRA LOOP
+    $(document).on('focus', '.item-qtd', function() {
+        $(this).data('valor-original', parseInt($(this).val()) || 1);
+    });
+
     $(document).on('change', '.item-qtd, .item-valor-unitario, .desconto_item', function() {
+        var $row = $(this).closest('tr');
+
         if (!window.calculandoTotais) {
             calcularTotaisPedido();
         }
+
+        if ($(this).hasClass('item-qtd') && $row.find('.produto_id').val()) {
+            validarEstoqueQuantidade($row);
+        }
     });
-    $(document).on('keyup', '.item-qtd, .item-valor-unitario, .desconto_item', calculateDebounced);
+    $(document).on('keyup input', '.item-qtd, .item-valor-unitario, .desconto_item', function() {
+        var $row = $(this).closest('tr');
+        calculateDebounced();
+        if ($(this).hasClass('item-qtd') && $row.find('.produto_id').val()) {
+            validarEstoqueQuantidade($row);
+        }
+    });
 
     // === Lógica para os botões "Usar Padrão" da varinha mágica ===
     $('.btn-usar-padrao').on('click', function() {
