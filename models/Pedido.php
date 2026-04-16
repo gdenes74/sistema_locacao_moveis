@@ -338,6 +338,10 @@ class Pedido
 
             $this->copiarItensOrcamento($orcamentoId, $this->id);
 
+            if (!$this->recalcularValores($this->id)) {
+                throw new Exception("Erro ao recalcular valores do pedido gerado a partir do orçamento");
+            }
+
             return $this->id;
         } catch (Exception $e) {
             error_log("Erro em Pedido::criarDePedidoOrcamento: " . $e->getMessage());
@@ -608,15 +612,19 @@ class Pedido
 
             foreach ($itens as $index => $item) {
                 $produtoId = isset($item['produto_id']) && !empty($item['produto_id']) ? (int) $item['produto_id'] : null;
-                $nomeManual = isset($item['nome_produto_manual']) && !empty($item['nome_produto_manual']) ? trim($item['nome_produto_manual']) : null;
-                $quantidade = isset($item['quantidade']) ? max(1, (int) $item['quantidade']) : 1;
+                $nomeManual = isset($item['nome_produto_manual']) && trim((string) $item['nome_produto_manual']) !== ''
+                    ? trim($item['nome_produto_manual'])
+                    : null;
+                $quantidade = isset($item['quantidade']) ? (int) $item['quantidade'] : 1;
                 $tipo = isset($item['tipo']) && !empty($item['tipo']) ? $item['tipo'] : 'locacao';
                 $precoUnitario = isset($item['preco_unitario']) ? (float) $item['preco_unitario'] : 0.00;
                 $desconto = isset($item['desconto']) ? (float) $item['desconto'] : 0.00;
                 $precoFinal = isset($item['preco_final'])
                     ? (float) $item['preco_final']
                     : ($quantidade * ($precoUnitario - $desconto));
-                $observacoes = isset($item['observacoes']) && !empty($item['observacoes']) ? trim($item['observacoes']) : null;
+                $observacoes = isset($item['observacoes']) && trim((string) $item['observacoes']) !== ''
+                    ? trim($item['observacoes'])
+                    : null;
                 $tipoLinha = isset($item['tipo_linha']) && !empty($item['tipo_linha']) ? $item['tipo_linha'] : 'PRODUTO';
                 $ordem = isset($item['ordem']) ? (int) $item['ordem'] : ($index + 1);
 
@@ -626,11 +634,20 @@ class Pedido
 
                 if ($tipoLinha === 'CABECALHO_SECAO') {
                     $produtoId = null;
+                    $nomeManual = $nomeManual ?: 'Título';
                     $quantidade = 0;
                     $precoUnitario = 0.00;
                     $desconto = 0.00;
                     $precoFinal = 0.00;
                     $tipo = null;
+                } else {
+                    if ($quantidade <= 0) {
+                        $quantidade = 1;
+                    }
+
+                    if ($produtoId === null) {
+                        $nomeManual = $nomeManual ?: 'Item manual';
+                    }
                 }
 
                 $stmtInsert->bindValue(':pedido_id', $pedidoId, PDO::PARAM_INT);
