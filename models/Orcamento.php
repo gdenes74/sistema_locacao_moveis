@@ -68,13 +68,16 @@ class Orcamento {
                     o.frete_elevador, o.frete_escadas, o.frete_terreo, o.valor_final,
                     o.ajuste_manual, o.motivo_ajuste, o.observacoes, o.condicoes_pagamento,
                     o.usuario_id, o.data_cadastro,
-                    c.nome AS nome_cliente
+                    c.nome AS nome_cliente,
+                    p.id AS pedido_id,
+                    p.numero AS pedido_numero
                 FROM
                     {$this->table} o
                 LEFT JOIN
                     clientes c ON o.cliente_id = c.id
-                WHERE 1=1
-            AND o.status != 'convertido'"; // ✅ CORREÇÃO: Esconde orçamentos convertidos
+                LEFT JOIN
+                    pedidos p ON p.orcamento_id = o.id
+                WHERE 1=1";
     $params = [];
 
 
