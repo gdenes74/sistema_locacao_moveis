@@ -86,6 +86,57 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
     }
 }
 
+
+// --- AJAX para salvar cliente via modal ---
+if (isset($_POST['ajax']) && $_POST['ajax'] === 'salvar_cliente_modal') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $clienteModel->nome = trim($_POST['nome'] ?? '');
+        $clienteModel->telefone = !empty($_POST['telefone']) ? trim($_POST['telefone']) : null;
+        $clienteModel->email = !empty($_POST['email']) ? trim($_POST['email']) : null;
+        $clienteModel->cpf_cnpj = !empty($_POST['cpf_cnpj']) ? trim($_POST['cpf_cnpj']) : null;
+        $clienteModel->endereco = !empty($_POST['endereco']) ? trim($_POST['endereco']) : null;
+        $clienteModel->cidade = !empty($_POST['cidade']) ? trim($_POST['cidade']) : null;
+        $clienteModel->observacoes = !empty($_POST['observacoes']) ? trim($_POST['observacoes']) : null;
+
+        if ($clienteModel->nome === '') {
+            echo json_encode(['success' => false, 'message' => 'O nome do cliente é obrigatório.']);
+            exit;
+        }
+
+        if (!empty($clienteModel->email) && !filter_var($clienteModel->email, FILTER_VALIDATE_EMAIL)) {
+            echo json_encode(['success' => false, 'message' => 'O e-mail informado é inválido.']);
+            exit;
+        }
+
+        if ($clienteModel->create()) {
+            echo json_encode([
+                'success' => true,
+                'message' => "Cliente cadastrado com sucesso!",
+                'cliente' => [
+                    'id' => $clienteModel->id,
+                    'nome' => $clienteModel->nome,
+                    'telefone' => $clienteModel->telefone,
+                    'email' => $clienteModel->email,
+                    'cpf_cnpj' => $clienteModel->cpf_cnpj,
+                    'endereco' => $clienteModel->endereco,
+                    'cidade' => $clienteModel->cidade,
+                    'observacoes' => $clienteModel->observacoes
+                ]
+            ]);
+            exit;
+        }
+
+        echo json_encode(['success' => false, 'message' => 'Não foi possível cadastrar o cliente.']);
+        exit;
+    } catch (Exception $e) {
+        http_response_code(500);
+        error_log("Erro AJAX salvar_cliente_modal: " . $e->getMessage());
+        echo json_encode(['success' => false, 'message' => 'Erro interno ao salvar cliente.']);
+        exit;
+    }
+}
+
 // --- Bloco AJAX para buscar orçamentos ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_orcamentos') {
     header('Content-Type: application/json; charset=utf-8');
@@ -644,7 +695,7 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
 
                             <div class="row mt-2">
-                                <div class="col-md-8">
+                                <div class="col-md-12">
                                     <label for="orcamento_id" class="form-label">Selecionar Orçamento <span class="text-danger">*</span></label>
                                     <select class="form-control select2" id="orcamento_id" name="orcamento_id">
                                         <option value="">Selecione um orçamento disponível</option>
@@ -1212,16 +1263,13 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="form-group"><label for="modal_cliente_email">E-mail</label><input type="email" class="form-control" id="modal_cliente_email" name="email"></div>
                         </div>
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_telefone">Telefone <span class="text-danger">*</span></label><input type="text" class="form-control telefone" id="modal_cliente_telefone" name="telefone" required></div>
+                            <div class="form-group"><label for="modal_cliente_telefone">Telefone</label><input type="text" class="form-control telefone" id="modal_cliente_telefone" name="telefone"></div>
                         </div>
                     </div>
                     <div class="form-group"><label for="modal_cliente_endereco">Endereço (Rua, Nº, Bairro)</label><input type="text" class="form-control" id="modal_cliente_endereco" name="endereco"></div>
                     <div class="row">
                         <div class="col-md-8">
                             <div class="form-group"><label for="modal_cliente_cidade">Cidade</label><input type="text" class="form-control" id="modal_cliente_cidade" name="cidade" value="Porto Alegre"></div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group"><label for="modal_cliente_cep">CEP</label><input type="text" class="form-control cep" id="modal_cliente_cep" name="cep"></div>
                         </div>
                     </div>
                     <div class="form-group"><label for="modal_cliente_observacoes">Observações do Cliente</label><textarea class="form-control" id="modal_cliente_observacoes" name="observacoes" rows="2"></textarea></div>
@@ -2085,6 +2133,40 @@ $(document).ready(function() {
         }
 
         calcularTotaisPedido();
+    });
+
+
+    $('#btnSalvarClienteModal').on('click', function() {
+        var formArray = $('#formNovoClienteModal').serializeArray();
+        formArray.push({ name: 'ajax', value: 'salvar_cliente_modal' });
+
+        $.ajax({
+            url: 'create.php',
+            type: 'POST',
+            data: $.param(formArray),
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    toastr.success(response.message, 'Sucesso');
+                    $('#modalNovoCliente').modal('hide');
+
+                    var textoCliente = response.cliente.nome + (response.cliente.cpf_cnpj ? ' - ' + response.cliente.cpf_cnpj : '');
+                    var newOption = new Option(textoCliente, response.cliente.id, true, true);
+                    $(newOption).data('clienteData', response.cliente);
+                    $(newOption).attr('data-cliente-full-data', JSON.stringify(response.cliente));
+
+                    $('#cliente_id').append(newOption).trigger('change');
+                    $('#formNovoClienteModal')[0].reset();
+                    $('#modalClienteFeedback').html('');
+                } else {
+                    toastr.error(response.message || 'Não foi possível cadastrar o cliente.', 'Erro');
+                }
+            },
+            error: function(xhr) {
+                toastr.error('Erro ao salvar cliente.', 'Erro');
+                console.error(xhr.responseText);
+            }
+        });
     });
 
     $('.taxa-frete-input').each(function() {

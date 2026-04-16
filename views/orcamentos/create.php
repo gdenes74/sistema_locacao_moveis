@@ -195,6 +195,59 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
     }
 }
 
+// --- Bloco AJAX para salvar cliente do modal ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax']) && $_POST['ajax'] === 'salvar_cliente_modal') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    try {
+        $clienteModal = new Cliente($db);
+
+        $clienteModal->nome = trim(filter_input(INPUT_POST, 'nome', FILTER_SANITIZE_SPECIAL_CHARS) ?? '');
+        $clienteModal->telefone = trim(filter_input(INPUT_POST, 'telefone', FILTER_SANITIZE_SPECIAL_CHARS) ?? '') ?: null;
+        $clienteModal->email = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
+        $clienteModal->cpf_cnpj = trim(filter_input(INPUT_POST, 'cpf_cnpj', FILTER_SANITIZE_SPECIAL_CHARS) ?? '') ?: null;
+        $clienteModal->endereco = trim(filter_input(INPUT_POST, 'endereco', FILTER_SANITIZE_SPECIAL_CHARS) ?? '') ?: null;
+        $clienteModal->cidade = trim(filter_input(INPUT_POST, 'cidade', FILTER_SANITIZE_SPECIAL_CHARS) ?? '') ?: null;
+        $clienteModal->observacoes = trim(filter_input(INPUT_POST, 'observacoes', FILTER_SANITIZE_SPECIAL_CHARS) ?? '') ?: null;
+
+        if ($clienteModal->nome === '') {
+            throw new Exception("O nome do cliente é obrigatório.");
+        }
+
+        if ($clienteModal->email === false && !empty($_POST['email'])) {
+            throw new Exception("O formato do e-mail informado é inválido.");
+        }
+
+        if (!$clienteModal->create()) {
+            throw new Exception("Não foi possível cadastrar o cliente.");
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Cliente cadastrado com sucesso!",
+            'cliente' => [
+                'id' => $clienteModal->id,
+                'nome' => $clienteModal->nome,
+                'telefone' => $clienteModal->telefone,
+                'email' => $clienteModal->email,
+                'cpf_cnpj' => $clienteModal->cpf_cnpj,
+                'endereco' => $clienteModal->endereco,
+                'cidade' => $clienteModal->cidade,
+                'observacoes' => $clienteModal->observacoes
+            ]
+        ]);
+        exit;
+
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => $e->getMessage()
+        ]);
+        exit;
+    }
+}
+
 // --- CÓDIGO PHP- PROCESSAMENTO FORMULÁRIO (submissão do formulário) (POST) ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
@@ -1010,23 +1063,18 @@ include_once __DIR__ . '/../includes/header.php';
                                     class="form-control" id="modal_cliente_email" name="email"></div>
                         </div>
                         <div class="col-md-6">
-                            <div class="form-group"><label for="modal_cliente_telefone">Telefone <span
-                                        class="text-danger">*</span></label><input type="text"
-                                    class="form-control telefone" id="modal_cliente_telefone" name="telefone" required>
+                            <div class="form-group"><label for="modal_cliente_telefone">Telefone</label><input type="text"
+                                    class="form-control telefone" id="modal_cliente_telefone" name="telefone">
                             </div>
                         </div>
                     </div>
                     <div class="form-group"><label for="modal_cliente_endereco">Endereço (Rua, Nº, Bairro)</label><input
                             type="text" class="form-control" id="modal_cliente_endereco" name="endereco"></div>
                     <div class="row">
-                        <div class="col-md-8">
+                        <div class="col-md-12">
                             <div class="form-group"><label for="modal_cliente_cidade">Cidade</label><input type="text"
                                     class="form-control" id="modal_cliente_cidade" name="cidade" value="Porto Alegre">
                             </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="form-group"><label for="modal_cliente_cep">CEP</label><input type="text"
-                                    class="form-control cep" id="modal_cliente_cep" name="cep"></div>
                         </div>
                     </div>
                     <div class="form-group"><label for="modal_cliente_observacoes">Observações do
@@ -1471,6 +1519,79 @@ $('#tabela_itens_orcamento').on('input keyup change blur', '.quantidade_item', f
 });
         });
     }
+
+    $('#btnSalvarClienteModal').on('click', function() {
+        var $btn = $(this);
+        var $feedback = $('#modalClienteFeedback');
+        var nome = $('#modal_cliente_nome').val().trim();
+
+        $feedback.html('');
+
+        if (nome === '') {
+            $feedback.html('<div class="alert alert-danger mb-0">O nome do cliente é obrigatório.</div>');
+            $('#modal_cliente_nome').focus();
+            return;
+        }
+
+        $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Salvando...');
+
+        var dados = $('#formNovoClienteModal').serialize() + '&ajax=salvar_cliente_modal';
+
+        $.ajax({
+            url: 'create.php',
+            type: 'POST',
+            dataType: 'json',
+            data: dados,
+            success: function(response) {
+                if (!response || !response.success || !response.cliente) {
+                    $feedback.html('<div class="alert alert-danger mb-0">Resposta inválida ao salvar cliente.</div>');
+                    return;
+                }
+
+                var cliente = response.cliente;
+                var textoOpcao = cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : '');
+                var novaOption = new Option(textoOpcao, cliente.id, true, true);
+                $(novaOption).data('clienteData', cliente);
+
+                $('#cliente_id').append(novaOption).trigger('change');
+                $('#cliente_id').trigger({
+                    type: 'select2:select',
+                    params: {
+                        data: {
+                            id: cliente.id,
+                            text: textoOpcao,
+                            clienteData: cliente
+                        }
+                    }
+                });
+
+                $feedback.html('<div class="alert alert-success mb-0">Cliente cadastrado com sucesso!</div>');
+
+                setTimeout(function() {
+                    $('#modalNovoCliente').modal('hide');
+                    $('#formNovoClienteModal')[0].reset();
+                    $('#modalClienteFeedback').html('');
+                    $('#modal_cliente_cidade').val('Porto Alegre');
+                }, 700);
+            },
+            error: function(xhr) {
+                var mensagem = 'Não foi possível cadastrar o cliente.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    mensagem = xhr.responseJSON.message;
+                }
+                $feedback.html('<div class="alert alert-danger mb-0">' + mensagem + '</div>');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('Salvar Cliente');
+            }
+        });
+    });
+
+    $('#modalNovoCliente').on('hidden.bs.modal', function() {
+        $('#formNovoClienteModal')[0].reset();
+        $('#modalClienteFeedback').html('');
+        $('#modal_cliente_cidade').val('Porto Alegre');
+    });
 
     if (typeof $.fn.datepicker === 'function') {
         $('.datepicker').datepicker({ format: 'dd/mm/yyyy', language: 'pt-BR', autoclose: true, todayHighlight: true, orientation: "bottom auto" });
