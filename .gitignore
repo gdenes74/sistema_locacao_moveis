@@ -1,6 +1,37 @@
-# Arquivos de configuração com dados sensíveis
+# =========================
+# CONFIGURAÇÕES SENSÍVEIS
+# =========================
 config/config.php
 config/database.php
 
-# Diretórios de uploads de produtos
-assets/uploads/produtos/
+# =========================
+# UPLOADS (IMAGENS)
+# =========================
+assets/uploads/*
+!assets/uploads/.gitkeep
+
+assets/uploads/produtos/*
+!assets/uploads/produtos/.gitkeep
+
+# =========================
+# LOGS / TEMP
+# =========================
+*.log
+*.tmp
+
+# =========================
+# SISTEMA (OS)
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / EDITORES
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# BACKUPS LOCAIS
+# =========================
+backup_uploads/
