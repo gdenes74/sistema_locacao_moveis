@@ -248,30 +248,55 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
 }
 
 
-// --- 5. AJAX para verificar estoque no edit do pedido ---
+// --- 5. AJAX para verificar estoque / disponibilidade temporal no edit do pedido ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
     header('Content-Type: application/json; charset=utf-8');
     try {
-        $produto_id = isset($_GET['produto_id']) ? (int)$_GET['produto_id'] : 0;
-        $quantidade = isset($_GET['quantidade']) ? (int)$_GET['quantidade'] : 1;
+        $produto_id = isset($_GET['produto_id']) ? (int) $_GET['produto_id'] : 0;
+        $quantidade = isset($_GET['quantidade']) ? (int) $_GET['quantidade'] : 0;
+        $data_inicio = $_GET['data_inicio'] ?? null;
+        $hora_inicio = $_GET['hora_inicio'] ?? null;
+        $turno_inicio = $_GET['turno_inicio'] ?? null;
+        $data_fim = $_GET['data_fim'] ?? null;
+        $hora_fim = $_GET['hora_fim'] ?? null;
+        $turno_fim = $_GET['turno_fim'] ?? null;
+        $ignorar_pedido_id = isset($_GET['ignorar_pedido_id']) ? (int) $_GET['ignorar_pedido_id'] : $pedidoId;
 
         if ($produto_id <= 0) {
-            echo json_encode(['disponivel' => false, 'erro' => 'ID do produto inválido']);
+            echo json_encode([
+                'success' => false,
+                'disponivel' => false,
+                'erro' => 'ID do produto inválido.'
+            ]);
             exit;
         }
 
-        $disponivel = $estoqueModel->verificarEstoqueSimples($produto_id, $quantidade);
-        $estoque_total = $estoqueModel->obterEstoqueTotal($produto_id);
+        $resultado = $estoqueModel->consultarDisponibilidadePeriodo(
+            $produto_id,
+            $data_inicio,
+            $hora_inicio,
+            $turno_inicio,
+            $data_fim,
+            $hora_fim,
+            $turno_fim,
+            max(0, $quantidade),
+            $ignorar_pedido_id
+        );
 
-        echo json_encode([
-            'disponivel' => $disponivel,
-            'estoque_disponivel' => $estoque_total,
-            'quantidade_solicitada' => $quantidade
-        ]);
+        if (!isset($resultado['estoque_disponivel']) && isset($resultado['livre_periodo'])) {
+            $resultado['estoque_disponivel'] = $resultado['livre_periodo'];
+        }
+
+        echo json_encode($resultado);
         exit;
 
     } catch (Exception $e) {
-        echo json_encode(['disponivel' => true, 'erro' => $e->getMessage()]);
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'disponivel' => false,
+            'erro' => $e->getMessage()
+        ]);
         exit;
     }
 }
@@ -394,8 +419,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                         $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : null;
                     }
 
-                    $item_data['quantidade'] = isset($_POST['quantidade'][$index]) ? (int) $_POST['quantidade'][$index] : 1;
-                    if ($item_data['quantidade'] <= 0) $item_data['quantidade'] = 1;
+                    $item_data['quantidade'] = isset($_POST['quantidade'][$index]) ? (int) $_POST['quantidade'][$index] : 0;
+
+                    if ($item_data['quantidade'] <= 0) {
+                        $nomeProdutoErro = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Produto sem nome';
+                        throw new Exception("Há produto com quantidade zero no pedido: " . $nomeProdutoErro . ". Ajuste a quantidade ou remova a linha antes de salvar.");
+                    }
 
                     $item_data['tipo'] = $_POST['tipo_item'][$index] ?? 'locacao';
                     $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
@@ -764,6 +793,19 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
 
+
+                        <div id="painel_consulta_disponibilidade" class="card painel-disponibilidade painel-neutro mt-2" style="display:none;">
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <h3 class="card-title mb-0"><i class="fas fa-bolt mr-2"></i>Disponibilidade Temporal</h3>
+                                <button type="button" class="btn btn-xs btn-light btn-fechar-painel-disponibilidade" title="Fechar painel">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="card-body p-2 small" id="conteudo_consulta_disponibilidade">
+                                <span class="text-white-50">Clique no resumo de uma linha para visualizar a consulta temporal.</span>
+                            </div>
+                        </div>
+
                         <div class="table-responsive mt-3">
                             <table class="table table-bordered table-hover" id="tabela_itens_pedido">
                                 <thead class="thead-light">
@@ -841,8 +883,9 @@ include_once __DIR__ . '/../includes/header.php';
                         <input type="hidden" name="tipo_item[]" value="<?= htmlspecialchars($item['tipo'] ?? 'locacao') ?>">
                         <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
                         <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
+                        <div class="disponibilidade-contexto mt-2" style="display:none;"></div>
                     </td>
-                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 1) ?>" min="1" style="width: 70px;"></td>
+                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>" min="0" style="width: 70px;" data-valor-original="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>"></td>
                     <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $precoUnitario ?>"></td>
                     <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $descontoItem ?>"></td>
                     <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
@@ -1285,6 +1328,107 @@ include_once __DIR__ . '/../includes/header.php';
                     .form-group.row .col-sm-1+.col-form-label {
                         padding-left: 0;
                     }
+
+
+                    .painel-disponibilidade {
+                        border: none;
+                        overflow: hidden;
+                        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+                    }
+                    .painel-disponibilidade .card-header {
+                        border-bottom: none;
+                    }
+                    .painel-disponibilidade.painel-neutro { background: linear-gradient(135deg, #475569, #334155); color: #fff; }
+                    .painel-disponibilidade.painel-ok { background: linear-gradient(135deg, #0f766e, #0ea5a4); color: #fff; }
+                    .painel-disponibilidade.painel-atencao { background: linear-gradient(135deg, #b45309, #f59e0b); color: #fff; }
+                    .painel-disponibilidade.painel-indisponivel { background: linear-gradient(135deg, #be123c, #e11d48); color: #fff; }
+                    .painel-status-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 4px 10px;
+                        border-radius: 999px;
+                        font-size: 0.74rem;
+                        font-weight: 800;
+                        letter-spacing: 0.04em;
+                        text-transform: uppercase;
+                        background: rgba(255,255,255,0.18);
+                        border: 1px solid rgba(255,255,255,0.28);
+                    }
+                    .painel-disponibilidade-grid {
+                        display: grid;
+                        grid-template-columns: repeat(4, minmax(0, 1fr));
+                        gap: 10px;
+                    }
+                    .painel-disponibilidade .painel-box {
+                        background: rgba(255,255,255,0.12);
+                        border: 1px solid rgba(255,255,255,0.18);
+                        border-radius: 12px;
+                        padding: 10px 12px;
+                    }
+                    .painel-disponibilidade .painel-box strong {
+                        display: block;
+                        font-size: 0.72rem;
+                        text-transform: uppercase;
+                        letter-spacing: 0.03em;
+                        opacity: 0.95;
+                        margin-bottom: 3px;
+                    }
+                    .painel-disponibilidade .painel-valor-principal {
+                        font-size: 1.15rem;
+                        font-weight: 800;
+                        line-height: 1.1;
+                    }
+                    .painel-disponibilidade .painel-subtexto {
+                        font-size: 0.78rem;
+                        opacity: 0.92;
+                        margin-top: 2px;
+                    }
+                    .btn-fechar-painel-disponibilidade {
+                        border-radius: 999px;
+                        padding: 2px 8px;
+                        font-size: 0.75rem;
+                    }
+                    .disponibilidade-contexto {
+                        cursor: pointer;
+                        display: block;
+                        margin-top: 8px;
+                        padding: 8px 10px;
+                        border-radius: 8px;
+                        font-size: 0.82rem;
+                        font-weight: 700;
+                        line-height: 1.35;
+                    }
+                    .disponibilidade-contexto.status-ok {
+                        background: #e8f4ff;
+                        border: 1px solid #1d78d6;
+                        color: #0a4d8c;
+                    }
+                    .item-pedido-row.row-status-ok td {
+                        background: #f4fbff !important;
+                    }
+                    .disponibilidade-contexto.status-atencao {
+                        background: #fff5df;
+                        border: 1px solid #ff9f1c;
+                        color: #9a5b00;
+                    }
+                    .item-pedido-row.row-status-atencao td {
+                        background: #fffaf0 !important;
+                    }
+                    .disponibilidade-contexto.status-indisponivel {
+                        background: #ffe8ee;
+                        border: 1px solid #e11d48;
+                        color: #a10f2b;
+                    }
+                    .item-pedido-row.row-status-indisponivel td {
+                        background: #fff4f6 !important;
+                    }
+                    @media (max-width: 991.98px) {
+                        .painel-disponibilidade-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                    }
+                    @media (max-width: 575.98px) {
+                        .painel-disponibilidade-grid { grid-template-columns: 1fr; }
+                    }
+
                 </style>
             </form>
         </div>
@@ -1541,6 +1685,228 @@ $(document).ready(function() {
         });
     }
 
+
+    function escapeHtml(text) {
+        if (text === null || text === undefined) { return ''; }
+        return $('<div>').text(text).html();
+    }
+
+    function obterPeriodoConsultaAtual() {
+        return {
+            data_inicio: $('#data_entrega').val() || '',
+            hora_inicio: $('#hora_entrega').val() || '',
+            turno_inicio: $('#turno_entrega').val() || '',
+            data_fim: $('#data_devolucao_prevista').val() || '',
+            hora_fim: $('#hora_devolucao').val() || '',
+            turno_fim: $('#turno_devolucao').val() || ''
+        };
+    }
+
+    function limparStatusLinhaDisponibilidade($row) {
+        $row.removeClass('table-danger table-warning table-success row-status-ok row-status-atencao row-status-indisponivel');
+    }
+
+    function obterClasseStatusDisponibilidade(response) {
+        if (!response || response.success === false || response.disponivel === false) {
+            return 'indisponivel';
+        }
+        if (response.nivel_alerta === 'atencao') {
+            return 'atencao';
+        }
+        return 'ok';
+    }
+
+    function obterTextoStatusDisponibilidade(response) {
+        const classe = obterClasseStatusDisponibilidade(response);
+        if (classe === 'indisponivel') return 'INDISPONÍVEL';
+        if (classe === 'atencao') return 'ATENÇÃO';
+        return 'DISPONÍVEL';
+    }
+
+    function montarResumoDisponibilidadeHtml(response) {
+        if (!response) {
+            return '<span class="text-white">Não foi possível consultar a disponibilidade.</span>';
+        }
+
+        const estoqueTotal = parseInt(response.estoque_total || 0, 10);
+        const comprometido = parseInt(response.comprometido_periodo || 0, 10);
+        const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
+        const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
+        const faltante = parseInt(response.faltante_orcamento || 0, 10);
+        const statusTexto = obterTextoStatusDisponibilidade(response);
+
+        let html = `<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap"><span class="painel-status-badge">${statusTexto}</span><small class="ml-2" style="opacity:.9;">Clique no resumo da linha para reabrir este painel.</small></div>`;
+        html += '<div class="painel-disponibilidade-grid">';
+        html += `<div class="painel-box"><strong>Estoque total</strong><div class="painel-valor-principal">${estoqueTotal}</div><div class="painel-subtexto">Quantidade cadastrada</div></div>`;
+        html += `<div class="painel-box"><strong>Pedidos no período</strong><div class="painel-valor-principal">${comprometido}</div><div class="painel-subtexto">Já comprometido fora deste pedido</div></div>`;
+        html += `<div class="painel-box"><strong>Neste pedido</strong><div class="painel-valor-principal">${reservadoAtual}</div><div class="painel-subtexto">Incluindo esta linha e as repetidas</div></div>`;
+        html += `<div class="painel-box"><strong>Livre após pedido</strong><div class="painel-valor-principal">${livreApos}</div>${faltante > 0 ? `<div class="painel-subtexto font-weight-bold">Faltando ${faltante}</div>` : '<div class="painel-subtexto">Saldo projetado</div>'}</div>`;
+        html += '</div>';
+
+        if (response.consulta_periodo_valida === false) {
+            html += '<div class="painel-box mt-2">Informe data de entrega e devolução para análise temporal completa.</div>';
+        }
+
+        if (response.conflitos && response.conflitos.length > 0) {
+            let conflitosHtml = response.conflitos.map(function(item) {
+                return `<li><strong>${escapeHtml(item.cliente || 'Cliente')}</strong> — ${parseInt(item.quantidade || 0, 10)} un. <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span></li>`;
+            }).join('');
+            html += `<div class="painel-box mt-2"><strong>Pedidos confirmados no período</strong><ul class="mb-0 pl-3 mt-1">${conflitosHtml}</ul></div>`;
+        }
+
+        let extras = [];
+        if (response.ultimo_retorno) {
+            extras.push(`<div><strong>Último retorno:</strong> ${escapeHtml(response.ultimo_retorno.cliente || 'Cliente')} <span style="opacity:.85;">(${escapeHtml(response.ultimo_retorno.fim_formatado || '')})</span></div>`);
+        }
+        if (response.proxima_saida) {
+            extras.push(`<div><strong>Próxima saída:</strong> ${escapeHtml(response.proxima_saida.cliente || 'Cliente')} <span style="opacity:.85;">(${escapeHtml(response.proxima_saida.inicio_formatado || '')})</span></div>`);
+        }
+        if (extras.length) {
+            html += `<div class="painel-box mt-2">${extras.join('<div class="mt-1"></div>')}</div>`;
+        }
+
+        if (response.observacoes_produto) {
+            html += `<div class="painel-box mt-2"><strong>Observações do produto</strong><div class="mt-1">${escapeHtml(response.observacoes_produto)}</div></div>`;
+        }
+
+        if (response.alertas && response.alertas.length > 0) {
+            let alertasHtml = response.alertas.map(function(alerta) {
+                return `<li>${escapeHtml(alerta)}</li>`;
+            }).join('');
+            html += `<div class="painel-box mb-0 mt-2"><strong>Alertas</strong><ul class="mb-0 pl-3 mt-1">${alertasHtml}</ul></div>`;
+        }
+
+        return html;
+    }
+
+    function montarResumoLinhaDisponibilidade(response) {
+        if (!response) {
+            return '';
+        }
+        const comprometido = parseInt(response.comprometido_periodo || 0, 10);
+        const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
+        const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
+        const statusTexto = obterTextoStatusDisponibilidade(response);
+        return `<strong>${statusTexto}</strong> · Pedidos: ${comprometido} · Neste pedido: ${reservadoAtual} · Livre após: ${livreApos} <span class="ml-1 text-muted">(abrir painel)</span>`;
+    }
+
+    function atualizarPainelConsultaDisponibilidade(nomeProduto, response, exibirPainel = true) {
+        const $painel = $('#painel_consulta_disponibilidade');
+        const $conteudo = $('#conteudo_consulta_disponibilidade');
+        const classe = obterClasseStatusDisponibilidade(response);
+
+        $painel.removeClass('painel-neutro painel-ok painel-atencao painel-indisponivel').addClass('painel-' + classe);
+
+        let titulo = nomeProduto ? `<div class="font-weight-bold mb-2" style="font-size:1rem;">${escapeHtml(nomeProduto)}</div>` : '';
+        $conteudo.html(titulo + montarResumoDisponibilidadeHtml(response));
+
+        if (exibirPainel) {
+            $painel.show();
+        }
+    }
+
+    function aplicarContextoDisponibilidadeNaLinha($row, response) {
+        if (!$row || !$row.length) { return; }
+
+        const $contexto = $row.find('.disponibilidade-contexto');
+        if (!$contexto.length) { return; }
+
+        limparStatusLinhaDisponibilidade($row);
+        const classe = obterClasseStatusDisponibilidade(response);
+        $contexto.removeClass('status-ok status-atencao status-indisponivel').addClass('status-' + classe).html(montarResumoLinhaDisponibilidade(response)).show();
+        $row.data('disponibilidade-response', response);
+
+        if (classe === 'indisponivel') {
+            $row.addClass('table-danger row-status-indisponivel');
+        } else if (classe === 'atencao') {
+            $row.addClass('table-warning row-status-atencao');
+        } else {
+            $row.addClass('table-success row-status-ok');
+        }
+    }
+
+    function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, callbackErro) {
+        const periodo = obterPeriodoConsultaAtual();
+
+        $.ajax({
+            url: `edit.php?id=${PEDIDO_ID}`,
+            type: 'GET',
+            dataType: 'json',
+            data: {
+                ajax: 'verificar_estoque',
+                produto_id: produtoId,
+                quantidade: quantidade,
+                data_inicio: periodo.data_inicio,
+                hora_inicio: periodo.hora_inicio,
+                turno_inicio: periodo.turno_inicio,
+                data_fim: periodo.data_fim,
+                hora_fim: periodo.hora_fim,
+                turno_fim: periodo.turno_fim,
+                ignorar_pedido_id: PEDIDO_ID
+            },
+            success: function(response) {
+                if (typeof callbackSucesso === 'function') {
+                    callbackSucesso(response);
+                }
+            },
+            error: function(xhr) {
+                if (typeof callbackErro === 'function') {
+                    callbackErro(xhr);
+                }
+            }
+        });
+    }
+
+    function atualizarContextoDisponibilidadeLinha($row, exibirAlertaSeIndisponivel = false) {
+        const produtoId = parseInt($row.find('.produto_id').val(), 10) || 0;
+        if (produtoId <= 0) { return; }
+
+        let quantidade = 0;
+        $('#tabela_itens_pedido .produto_id').each(function() {
+            if ($(this).val() == produtoId) {
+                quantidade += parseInt($(this).closest('tr').find('.item-qtd').val(), 10) || 0;
+            }
+        });
+        if (quantidade < 0) { quantidade = 0; }
+
+        const nomeProduto = $row.find('.nome_produto_display').val() || '';
+
+        consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
+            $('#tabela_itens_pedido .produto_id').each(function() {
+                if ($(this).val() == produtoId) {
+                    aplicarContextoDisponibilidadeNaLinha($(this).closest('tr'), response);
+                }
+            });
+
+            if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
+                Swal.fire({
+                    title: 'Atenção no período consultado',
+                    html: montarResumoDisponibilidadeHtml(response),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            atualizarPainelConsultaDisponibilidade(nomeProduto, response, false);
+        }, function() {
+            const response = {
+                success: false,
+                disponivel: false,
+                alertas: ['Erro ao consultar disponibilidade temporal.']
+            };
+            aplicarContextoDisponibilidadeNaLinha($row, response);
+        });
+    }
+
+    function revalidarTodasAsLinhasDisponibilidade() {
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+            const $row = $(this);
+            if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
+                atualizarContextoDisponibilidadeLinha($row, false);
+            }
+        });
+    }
+
     function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
         itemIndex++;
         var tipoLinha = tipoLinhaParam;
@@ -1552,13 +1918,13 @@ $(document).ready(function() {
         var nomeInputName = "nome_produto_display[]";
         
         if (tipoLinha === 'PRODUTO') {
-            var quantidadeDefault = dadosItem ? (dadosItem.quantidade || 1) : 1;
+            var quantidadeDefault = dadosItem && dadosItem.quantidade !== undefined && dadosItem.quantidade !== null && dadosItem.quantidade !== '' ? parseInt(dadosItem.quantidade, 10) : 0;
             var descontoDefault = dadosItem ? (parseFloat(dadosItem.desconto) || 0) : 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
             var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
             
             htmlLinha = `<tr class="item-pedido-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">` +
-            `<input type="hidden" name="tipo_linha[]" value="${tipoLinha}" class="tipo_linha"><input type="hidden" name="ordem[]" value="${itemIndex}" class="ordem"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};" placeholder="Observação do item" value="${dadosItem && dadosItem.observacoes ? dadosItem.observacoes : ''}"></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="1" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${formatCurrency(precoUnitarioDefault)}"></td>` +
+            `<input type="hidden" name="tipo_linha[]" value="${tipoLinha}" class="tipo_linha"><input type="hidden" name="ordem[]" value="${itemIndex}" class="ordem"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};" placeholder="Observação do item" value="${dadosItem && dadosItem.observacoes ? dadosItem.observacoes : ''}"><div class="disponibilidade-contexto mt-2" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" data-valor-original="${quantidadeDefault}" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${formatCurrency(precoUnitarioDefault)}"></td>` +
             `<td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${formatCurrency(descontoDefault)}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault)}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-pedido-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="5"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);" value="${nomeDisplay}"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}" class="tipo_linha"><input type="hidden" name="ordem[]" value="${itemIndex}" class="ordem"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
@@ -1566,6 +1932,12 @@ $(document).ready(function() {
         
         if (htmlLinha) {
             $('#tabela_itens_pedido tbody').append(htmlLinha);
+            var $novaLinha = $('#tabela_itens_pedido tbody tr:last-child');
+            if (tipoLinha === 'CABECALHO_SECAO') {
+                $novaLinha.find('.nome_titulo_secao').focus();
+            } else if (tipoLinha === 'PRODUTO' && produtoIdInput) {
+                atualizarContextoDisponibilidadeLinha($novaLinha, false);
+            }
             // ✅ CHAMA CÁLCULO APENAS UMA VEZ, SEM LOOP
             calcularTotaisPedido();
         }
@@ -1584,108 +1956,24 @@ $(document).ready(function() {
 
 
     function verificarEstoqueAntes(produto) {
-        var quantidadeJaAdicionada = 0;
-        $('#tabela_itens_pedido .produto_id').each(function() {
-            if ($(this).val() == produto.id) {
-                var $row = $(this).closest('tr');
-                quantidadeJaAdicionada += parseInt($row.find('.item-qtd').val()) || 0;
-            }
-        });
-
-        var quantidadeTotal = quantidadeJaAdicionada + 1;
-
-        $.ajax({
-            url: `edit.php?id=${PEDIDO_ID}`,
-            type: 'GET',
-            dataType: 'json',
-            data: {
-                ajax: 'verificar_estoque',
-                produto_id: produto.id,
-                quantidade: quantidadeTotal,
-                pedido_id: PEDIDO_ID
-            },
-            success: function(response) {
-                if (response.disponivel) {
-                    adicionarLinhaItemTabela(produto, 'PRODUTO');
-                    $('#busca_produto').val('').focus();
-                    $('#sugestoes_produtos').empty().hide();
-                } else {
-                    Swal.fire({
-                        title: 'Estoque Insuficiente!',
-                        text: `Produto: ${produto.nome_produto}
-Estoque disponível: ${response.estoque_disponivel}
-Quantidade solicitada: ${quantidadeTotal}`,
-                        icon: 'warning',
-                        confirmButtonText: 'Entendi'
-                    });
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Erro na verificação de estoque:', error);
-                adicionarLinhaItemTabela(produto, 'PRODUTO');
-                $('#busca_produto').val('').focus();
-                $('#sugestoes_produtos').empty().hide();
-            }
-        });
+        adicionarLinhaItemTabela(produto, 'PRODUTO');
+        $('#busca_produto').val('').focus();
+        $('#sugestoes_produtos').empty().hide();
     }
 
     function validarEstoqueQuantidade($row) {
         var produtoId = $row.find('.produto_id').val();
-        var quantidadeAtual = parseInt($row.find('.item-qtd').val()) || 0;
+        var quantidadeAtual = parseInt($row.find('.item-qtd').val(), 10) || 0;
 
-        if (!produtoId || quantidadeAtual <= 0) {
-            return;
+        if (!produtoId) return;
+
+        if (quantidadeAtual < 0) {
+            $row.find('.item-qtd').val(0);
+            quantidadeAtual = 0;
         }
 
-        var chaveValidacao = `${produtoId}_${quantidadeAtual}`;
-        if ($row.data('ultima-validacao') === chaveValidacao) {
-            return;
-        }
-
-        var quantidadeTotal = 0;
-        $('#tabela_itens_pedido .produto_id').each(function() {
-            if ($(this).val() == produtoId) {
-                var $outraRow = $(this).closest('tr');
-                if ($outraRow[0] === $row[0]) {
-                    quantidadeTotal += quantidadeAtual;
-                } else {
-                    quantidadeTotal += parseInt($outraRow.find('.item-qtd').val()) || 0;
-                }
-            }
-        });
-
-        $.ajax({
-            url: `edit.php?id=${PEDIDO_ID}`,
-            type: 'GET',
-            dataType: 'json',
-            data: {
-                ajax: 'verificar_estoque',
-                produto_id: produtoId,
-                quantidade: quantidadeTotal,
-                pedido_id: PEDIDO_ID
-            },
-            success: function(response) {
-                $row.data('ultima-validacao', chaveValidacao);
-
-                if (!response.disponivel) {
-                    Swal.fire({
-                        title: 'Estoque Insuficiente!',
-                        text: `Estoque disponível: ${response.estoque_disponivel}
-Quantidade solicitada: ${quantidadeTotal}`,
-                        icon: 'warning',
-                        confirmButtonText: 'Entendi'
-                    }).then(() => {
-                        var quantidadeOriginal = $row.find('.item-qtd').data('valor-original') || 1;
-                        $row.find('.item-qtd').val(quantidadeOriginal).focus();
-                        $row.removeData('ultima-validacao');
-                        calcularTotaisPedido();
-                    });
-                }
-            },
-            error: function(xhr, status, error) {
-                console.error('Erro na validação de estoque:', error);
-            }
-        });
+        atualizarContextoDisponibilidadeLinha($row, quantidadeAtual > 0);
+        $row.find('.item-qtd').data('valor-original', quantidadeAtual);
     }
 
     // ✅ EVENTOS PRINCIPAIS COM PROTEÇÃO
@@ -1792,7 +2080,7 @@ Quantidade solicitada: ${quantidadeTotal}`,
 
     // ✅ EVENTOS DE ITENS COM PROTEÇÃO CONTRA LOOP
     $(document).on('focus', '.item-qtd', function() {
-        $(this).data('valor-original', parseInt($(this).val()) || 1);
+        $(this).data('valor-original', parseInt($(this).val()) || 0);
     });
 
     $(document).on('change', '.item-qtd, .item-valor-unitario, .desconto_item', function() {
@@ -1812,6 +2100,24 @@ Quantidade solicitada: ${quantidadeTotal}`,
         if ($(this).hasClass('item-qtd') && $row.find('.produto_id').val()) {
             validarEstoqueQuantidade($row);
         }
+    });
+
+
+    $('#tabela_itens_pedido').on('click', '.disponibilidade-contexto', function() {
+        var $row = $(this).closest('tr');
+        var response = $row.data('disponibilidade-response') || null;
+        var nomeProduto = $row.find('.nome_produto_display').val() || '';
+        if (response) {
+            atualizarPainelConsultaDisponibilidade(nomeProduto, response);
+        }
+    });
+
+    $('.btn-fechar-painel-disponibilidade').on('click', function() {
+        $('#painel_consulta_disponibilidade').hide();
+    });
+
+    $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+        revalidarTodasAsLinhasDisponibilidade();
     });
 
     // === Lógica para os botões "Usar Padrão" da varinha mágica ===
@@ -1983,6 +2289,33 @@ Quantidade solicitada: ${quantidadeTotal}`,
         }
     });
 
+
+    $('#formEditarPedido').on('submit', function(e) {
+        let erroQuantidade = null;
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+            const $row = $(this);
+            if (($row.data('tipo-linha') || '') === 'PRODUTO') {
+                const quantidade = parseInt($row.find('.item-qtd').val(), 10) || 0;
+                const nomeProduto = $row.find('.nome_produto_display').val() || 'Produto sem nome';
+                if (quantidade <= 0) {
+                    erroQuantidade = nomeProduto;
+                    return false;
+                }
+            }
+        });
+
+        if (erroQuantidade) {
+            e.preventDefault();
+            Swal.fire({
+                title: 'Quantidade obrigatória',
+                text: 'Há produto com quantidade zero no pedido: ' + erroQuantidade + '. Ajuste a quantidade ou remova a linha antes de salvar.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+            return false;
+        }
+    });
+
     // Desabilitar submit ao pressionar Enter (exceto em textareas e botões)
     $('#formEditarPedido').on('keydown', function(e) {
         if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is(':button')) {
@@ -2111,6 +2444,7 @@ Quantidade solicitada: ${quantidadeTotal}`,
         if (!window.calculandoTotais) {
             calcularTotaisPedido();
         }
+        revalidarTodasAsLinhasDisponibilidade();
     }, 500);
 
     // Salvar Cliente Modal (AJAX)
