@@ -44,34 +44,52 @@ class EstoqueMovimentacao {
         );
     }
 
+    /**
+     * Mantido por compatibilidade com telas antigas.
+     * Agora considera também produto COMPOSTO e produto sem controle de estoque.
+     */
     public function verificarEstoqueSimples($produto_id, $quantidade_solicitada) {
         try {
-            $query = "SELECT quantidade_total FROM produtos WHERE id = :produto_id";
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':produto_id', $produto_id);
-            $stmt->execute();
-
-            $produto = $stmt->fetch(PDO::FETCH_ASSOC);
+            $produto = $this->obterProduto((int) $produto_id);
             if (!$produto) {
                 return false;
             }
 
-            return (int) $produto['quantidade_total'] >= (int) $quantidade_solicitada;
+            if ($this->produtoSemControleEstoque($produto)) {
+                return true;
+            }
+
+            $estoqueTotal = $this->obterEstoqueTotal((int) $produto_id);
+            return $estoqueTotal >= max(0, (int) $quantidade_solicitada);
         } catch (Exception $e) {
             error_log("Erro em EstoqueMovimentacao::verificarEstoqueSimples: " . $e->getMessage());
             return false;
         }
     }
 
+    /**
+     * Mantido por compatibilidade com telas antigas.
+     * Para produto composto, retorna o menor limite possível considerando:
+     * - estoque próprio do produto pai, quando controla_estoque = 1;
+     * - componentes obrigatórios em produto_composicao;
+     * - componentes/serviços sem estoque não limitam.
+     */
     public function obterEstoqueTotal($produto_id) {
         try {
-            $query = "SELECT quantidade_total FROM produtos WHERE id = :produto_id";
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':produto_id', $produto_id);
-            $stmt->execute();
+            $produto = $this->obterProduto((int) $produto_id);
+            if (!$produto) {
+                return 0;
+            }
 
-            $produto = $stmt->fetch(PDO::FETCH_ASSOC);
-            return $produto ? (int) $produto['quantidade_total'] : 0;
+            if ($this->produtoSemControleEstoque($produto) && !$this->produtoEhComposto($produto)) {
+                return 999999;
+            }
+
+            if ($this->produtoEhComposto($produto)) {
+                return $this->obterEstoqueTotalComposto($produto);
+            }
+
+            return (int) ($produto['quantidade_total'] ?? 0);
         } catch (Exception $e) {
             error_log("Erro em EstoqueMovimentacao::obterEstoqueTotal: " . $e->getMessage());
             return 0;
@@ -81,6 +99,8 @@ class EstoqueMovimentacao {
     /**
      * Consulta disponibilidade temporal em tempo real (Rota A),
      * usando produtos + pedidos + itens_pedido, sem depender da tabela estoque_temporal.
+     *
+     * Evolução: suporta produto COMPOSTO, preservando o retorno antigo para o front.
      */
     public function consultarDisponibilidadePeriodo(
         int $produtoId,
@@ -93,33 +113,36 @@ class EstoqueMovimentacao {
         int $quantidadeSolicitada = 0,
         ?int $ignorarPedidoId = null
     ): array {
+        return $this->consultarDisponibilidadeInterna(
+            $produtoId,
+            $dataInicio,
+            $horaInicio,
+            $turnoInicio,
+            $dataFim,
+            $horaFim,
+            $turnoFim,
+            $quantidadeSolicitada,
+            $ignorarPedidoId,
+            []
+        );
+    }
+
+    private function consultarDisponibilidadeInterna(
+        int $produtoId,
+        ?string $dataInicio,
+        ?string $horaInicio = null,
+        ?string $turnoInicio = null,
+        ?string $dataFim = null,
+        ?string $horaFim = null,
+        ?string $turnoFim = null,
+        int $quantidadeSolicitada = 0,
+        ?int $ignorarPedidoId = null,
+        array $pilhaProdutos = []
+    ): array {
         $produto = $this->obterProduto($produtoId);
 
-        $resultadoBase = [
-            'success' => true,
-            'produto_id' => $produtoId,
-            'produto_nome' => $produto['nome_produto'] ?? '',
-            'estoque_total' => isset($produto['quantidade_total']) ? (int) $produto['quantidade_total'] : 0,
-            'estoque_disponivel' => isset($produto['quantidade_total']) ? (int) $produto['quantidade_total'] : 0,
-            'comprometido_periodo' => 0,
-            'livre_periodo' => isset($produto['quantidade_total']) ? (int) $produto['quantidade_total'] : 0,
-            'quantidade_solicitada' => max(0, (int) $quantidadeSolicitada),
-            'reservado_orcamento_atual' => max(0, (int) $quantidadeSolicitada),
-            'livre_apos_orcamento' => isset($produto['quantidade_total']) ? ((int) $produto['quantidade_total'] - max(0, (int) $quantidadeSolicitada)) : 0,
-            'faltante_orcamento' => 0,
-            'disponivel' => false,
-            'consulta_periodo_valida' => false,
-            'nivel_alerta' => 'ok',
-            'alertas' => [],
-            'conflitos' => [],
-            'agenda' => [],
-            'ultimo_retorno' => null,
-            'proxima_saida' => null,
-            'observacoes_produto' => $produto['observacoes'] ?? null,
-        ];
-
         if (!$produto) {
-            return array_merge($resultadoBase, [
+            return $this->montarResultadoBase(null, $produtoId, $quantidadeSolicitada, [
                 'success' => false,
                 'nivel_alerta' => 'indisponivel',
                 'alertas' => ['Produto não encontrado.'],
@@ -127,11 +150,74 @@ class EstoqueMovimentacao {
             ]);
         }
 
+        if (in_array($produtoId, $pilhaProdutos, true)) {
+            return $this->montarResultadoBase($produto, $produtoId, $quantidadeSolicitada, [
+                'success' => false,
+                'nivel_alerta' => 'indisponivel',
+                'alertas' => ['Composição circular detectada neste produto.'],
+                'disponivel' => false,
+            ]);
+        }
+
+        $pilhaProdutos[] = $produtoId;
+
+        if ($this->produtoEhComposto($produto)) {
+            return $this->consultarDisponibilidadeProdutoComposto(
+                $produto,
+                $dataInicio,
+                $horaInicio,
+                $turnoInicio,
+                $dataFim,
+                $horaFim,
+                $turnoFim,
+                $quantidadeSolicitada,
+                $ignorarPedidoId,
+                $pilhaProdutos
+            );
+        }
+
+        return $this->consultarDisponibilidadeProdutoIndividual(
+            $produto,
+            $dataInicio,
+            $horaInicio,
+            $turnoInicio,
+            $dataFim,
+            $horaFim,
+            $turnoFim,
+            $quantidadeSolicitada,
+            $ignorarPedidoId
+        );
+    }
+
+    private function consultarDisponibilidadeProdutoIndividual(
+        array $produto,
+        ?string $dataInicio,
+        ?string $horaInicio = null,
+        ?string $turnoInicio = null,
+        ?string $dataFim = null,
+        ?string $horaFim = null,
+        ?string $turnoFim = null,
+        int $quantidadeSolicitada = 0,
+        ?int $ignorarPedidoId = null
+    ): array {
+        $produtoId = (int) $produto['id'];
+        $resultadoBase = $this->montarResultadoBase($produto, $produtoId, $quantidadeSolicitada);
+
         if ((int) ($produto['disponivel_locacao'] ?? 1) !== 1) {
             $resultadoBase['alertas'][] = 'Produto marcado como indisponível para locação.';
             $resultadoBase['nivel_alerta'] = 'indisponivel';
         }
 
+        if ($this->produtoSemControleEstoque($produto)) {
+            $resultadoBase['estoque_total'] = 999999;
+            $resultadoBase['estoque_disponivel'] = 999999;
+            $resultadoBase['livre_periodo'] = 999999;
+            $resultadoBase['livre_apos_orcamento'] = 999999;
+            $resultadoBase['faltante_orcamento'] = 0;
+            $resultadoBase['disponivel'] = $resultadoBase['nivel_alerta'] !== 'indisponivel';
+            $resultadoBase['alertas'][] = 'Produto/serviço sem controle de estoque.';
+            return $resultadoBase;
+        }
 
         // Se ainda não há período informado, devolve estoque simples + alerta orientativo.
         if (empty($dataInicio) || empty($dataFim)) {
@@ -141,8 +227,9 @@ class EstoqueMovimentacao {
             $resultadoBase['livre_periodo'] = $resultadoBase['estoque_total'];
             $resultadoBase['livre_apos_orcamento'] = $resultadoBase['estoque_total'] - $resultadoBase['quantidade_solicitada'];
             $resultadoBase['faltante_orcamento'] = max(0, $resultadoBase['quantidade_solicitada'] - $resultadoBase['estoque_total']);
-            if (!empty($produto['observacoes'])) {
-                $resultadoBase['observacoes_produto'] = trim($produto['observacoes']);
+            if (!$resultadoBase['disponivel'] && $resultadoBase['nivel_alerta'] !== 'indisponivel') {
+                $resultadoBase['nivel_alerta'] = 'indisponivel';
+                $resultadoBase['alertas'][] = 'Quantidade maior que o estoque total do produto.';
             }
             return $resultadoBase;
         }
@@ -188,7 +275,7 @@ class EstoqueMovimentacao {
             $fimAgenda = new DateTime($itemAgenda['fim_dt']);
 
             if ($this->intervalosSeSobrepoem($inicioConsulta, $fimConsulta, $inicioAgenda, $fimAgenda)) {
-                $comprometido += (int) $itemAgenda['quantidade'];
+                $comprometido += (float) $itemAgenda['quantidade'];
                 $conflitos[] = $itemAgenda;
             }
 
@@ -210,11 +297,11 @@ class EstoqueMovimentacao {
         $livreAposOrcamento = $livre - $resultadoBase['quantidade_solicitada'];
         $disponivel = $livreAposOrcamento >= 0 && $resultadoBase['nivel_alerta'] !== 'indisponivel';
 
-        $resultadoBase['comprometido_periodo'] = $comprometido;
-        $resultadoBase['livre_periodo'] = $livre;
-        $resultadoBase['livre_apos_orcamento'] = $livreAposOrcamento;
-        $resultadoBase['faltante_orcamento'] = max(0, 0 - $livreAposOrcamento);
-        $resultadoBase['estoque_disponivel'] = $livre;
+        $resultadoBase['comprometido_periodo'] = $this->normalizarNumeroEstoque($comprometido);
+        $resultadoBase['livre_periodo'] = $this->normalizarNumeroEstoque($livre);
+        $resultadoBase['livre_apos_orcamento'] = $this->normalizarNumeroEstoque($livreAposOrcamento);
+        $resultadoBase['faltante_orcamento'] = $this->normalizarNumeroEstoque(max(0, 0 - $livreAposOrcamento));
+        $resultadoBase['estoque_disponivel'] = $this->normalizarNumeroEstoque($livre);
         $resultadoBase['disponivel'] = $disponivel;
         $resultadoBase['conflitos'] = $conflitos;
         $resultadoBase['agenda'] = $agenda;
@@ -250,8 +337,252 @@ class EstoqueMovimentacao {
             }
         }
 
-        if (!empty($produto['observacoes'])) {
-            $resultadoBase['observacoes_produto'] = trim($produto['observacoes']);
+        return $resultadoBase;
+    }
+
+    private function consultarDisponibilidadeProdutoComposto(
+        array $produto,
+        ?string $dataInicio,
+        ?string $horaInicio = null,
+        ?string $turnoInicio = null,
+        ?string $dataFim = null,
+        ?string $horaFim = null,
+        ?string $turnoFim = null,
+        int $quantidadeSolicitada = 0,
+        ?int $ignorarPedidoId = null,
+        array $pilhaProdutos = []
+    ): array {
+        $produtoId = (int) $produto['id'];
+        $resultadoBase = $this->montarResultadoBase($produto, $produtoId, $quantidadeSolicitada);
+        $resultadoBase['produto_composto'] = true;
+        $resultadoBase['componentes'] = [];
+
+        if ((int) ($produto['disponivel_locacao'] ?? 1) !== 1) {
+            $resultadoBase['alertas'][] = 'Produto composto marcado como indisponível para locação.';
+            $resultadoBase['nivel_alerta'] = 'indisponivel';
+        }
+
+        $limitadores = [];
+
+        // O produto pai também pode ser limitador físico.
+        // Ex.: sofá de madeira com braços tem 4 estruturas próprias e ainda pode consumir capas/colchões.
+        if (!$this->produtoSemControleEstoque($produto)) {
+            $limitadores[] = [
+                'tipo_limitador' => 'PRODUTO_PAI',
+                'produto' => $produto,
+                'quantidade_por_unidade' => 1.0,
+                'obrigatorio' => 1,
+                'observacoes_composicao' => 'Estoque próprio do produto principal.',
+            ];
+        }
+
+        $componentes = $this->obterComponentesProdutoComposto($produtoId);
+        foreach ($componentes as $componente) {
+            $produtoFilho = $this->obterProduto((int) $componente['produto_filho_id']);
+            if (!$produtoFilho) {
+                $resultadoBase['alertas'][] = 'Componente não encontrado na composição do produto.';
+                $resultadoBase['nivel_alerta'] = 'indisponivel';
+                continue;
+            }
+
+            $limitadores[] = [
+                'tipo_limitador' => 'COMPONENTE',
+                'produto' => $produtoFilho,
+                'quantidade_por_unidade' => max(0.0001, (float) $componente['quantidade']),
+                'obrigatorio' => (int) ($componente['obrigatorio'] ?? 1),
+                'observacoes_composicao' => $componente['observacoes'] ?? null,
+            ];
+        }
+
+        if (empty($limitadores)) {
+            return array_merge($resultadoBase, [
+                'disponivel' => false,
+                'nivel_alerta' => 'indisponivel',
+                'alertas' => array_merge($resultadoBase['alertas'], [
+                    'Produto composto sem estoque próprio e sem componentes cadastrados.'
+                ]),
+                'estoque_total' => 0,
+                'estoque_disponivel' => 0,
+                'livre_periodo' => 0,
+                'livre_apos_orcamento' => 0 - $resultadoBase['quantidade_solicitada'],
+                'faltante_orcamento' => $resultadoBase['quantidade_solicitada'],
+            ]);
+        }
+
+        $menorEstoqueTotalPorComposto = null;
+        $menorLivrePorComposto = null;
+        $menorLivreAposPedidoPorComposto = null;
+        $comprometidoConsolidado = 0;
+        $conflitosConsolidados = [];
+        $agendaConsolidada = [];
+        $ultimoRetorno = null;
+        $proximaSaida = null;
+        $componentesResumo = [];
+        $disponivel = $resultadoBase['nivel_alerta'] !== 'indisponivel';
+
+        foreach ($limitadores as $limitador) {
+            $produtoLimitador = $limitador['produto'];
+            $produtoLimitadorId = (int) $produtoLimitador['id'];
+            $qtdPorUnidade = (float) $limitador['quantidade_por_unidade'];
+            $qtdNecessaria = (int) ceil(max(0, $quantidadeSolicitada) * $qtdPorUnidade);
+            $obrigatorio = (int) $limitador['obrigatorio'] === 1;
+
+            if ($this->produtoSemControleEstoque($produtoLimitador)) {
+                $resumoSemEstoque = [
+                    'tipo_limitador' => $limitador['tipo_limitador'],
+                    'produto_id' => $produtoLimitadorId,
+                    'produto_nome' => $produtoLimitador['nome_produto'] ?? '',
+                    'tipo_produto' => $produtoLimitador['tipo_produto'] ?? 'SIMPLES',
+                    'controla_estoque' => false,
+                    'quantidade_por_unidade' => $qtdPorUnidade,
+                    'quantidade_necessaria' => $qtdNecessaria,
+                    'obrigatorio' => $obrigatorio,
+                    'estoque_total' => 999999,
+                    'livre_periodo' => 999999,
+                    'estoque_disponivel' => 999999,
+                    'livre_apos_orcamento' => 999999,
+                    'faltante_orcamento' => 0,
+                    'disponivel' => true,
+                    'nivel_alerta' => 'ok',
+                    'alertas' => ['Componente/serviço sem controle de estoque.'],
+                    'conflitos' => [],
+                    'observacoes_composicao' => $limitador['observacoes_composicao'],
+                ];
+                $componentesResumo[] = $resumoSemEstoque;
+                continue;
+            }
+
+            if ($this->produtoEhComposto($produtoLimitador) && $limitador['tipo_limitador'] !== 'PRODUTO_PAI') {
+                $resultadoLimitador = $this->consultarDisponibilidadeInterna(
+                    $produtoLimitadorId,
+                    $dataInicio,
+                    $horaInicio,
+                    $turnoInicio,
+                    $dataFim,
+                    $horaFim,
+                    $turnoFim,
+                    $qtdNecessaria,
+                    $ignorarPedidoId,
+                    $pilhaProdutos
+                );
+            } else {
+                $resultadoLimitador = $this->consultarDisponibilidadeProdutoIndividual(
+                    $produtoLimitador,
+                    $dataInicio,
+                    $horaInicio,
+                    $turnoInicio,
+                    $dataFim,
+                    $horaFim,
+                    $turnoFim,
+                    $qtdNecessaria,
+                    $ignorarPedidoId
+                );
+            }
+
+            $estoqueTotalComposto = (int) floor(((float) ($resultadoLimitador['estoque_total'] ?? 0)) / $qtdPorUnidade);
+            $livreComposto = (int) floor(((float) ($resultadoLimitador['livre_periodo'] ?? 0)) / $qtdPorUnidade);
+            $livreAposComposto = (int) floor(((float) ($resultadoLimitador['livre_apos_orcamento'] ?? 0)) / $qtdPorUnidade);
+
+            $menorEstoqueTotalPorComposto = $menorEstoqueTotalPorComposto === null
+                ? $estoqueTotalComposto
+                : min($menorEstoqueTotalPorComposto, $estoqueTotalComposto);
+
+            $menorLivrePorComposto = $menorLivrePorComposto === null
+                ? $livreComposto
+                : min($menorLivrePorComposto, $livreComposto);
+
+            $menorLivreAposPedidoPorComposto = $menorLivreAposPedidoPorComposto === null
+                ? $livreAposComposto
+                : min($menorLivreAposPedidoPorComposto, $livreAposComposto);
+
+            $comprometidoConsolidado += (float) ($resultadoLimitador['comprometido_periodo'] ?? 0);
+
+            foreach (($resultadoLimitador['conflitos'] ?? []) as $conflito) {
+                $conflito['componente_id'] = $produtoLimitadorId;
+                $conflito['componente_nome'] = $produtoLimitador['nome_produto'] ?? '';
+                $conflitosConsolidados[] = $conflito;
+            }
+
+            foreach (($resultadoLimitador['agenda'] ?? []) as $agendaItem) {
+                $agendaItem['componente_id'] = $produtoLimitadorId;
+                $agendaItem['componente_nome'] = $produtoLimitador['nome_produto'] ?? '';
+                $agendaConsolidada[] = $agendaItem;
+            }
+
+            if (!empty($resultadoLimitador['ultimo_retorno'])) {
+                if ($ultimoRetorno === null || new DateTime($ultimoRetorno['fim_dt']) < new DateTime($resultadoLimitador['ultimo_retorno']['fim_dt'])) {
+                    $ultimoRetorno = $resultadoLimitador['ultimo_retorno'];
+                    $ultimoRetorno['componente_id'] = $produtoLimitadorId;
+                    $ultimoRetorno['componente_nome'] = $produtoLimitador['nome_produto'] ?? '';
+                }
+            }
+
+            if (!empty($resultadoLimitador['proxima_saida'])) {
+                if ($proximaSaida === null || new DateTime($proximaSaida['inicio_dt']) > new DateTime($resultadoLimitador['proxima_saida']['inicio_dt'])) {
+                    $proximaSaida = $resultadoLimitador['proxima_saida'];
+                    $proximaSaida['componente_id'] = $produtoLimitadorId;
+                    $proximaSaida['componente_nome'] = $produtoLimitador['nome_produto'] ?? '';
+                }
+            }
+
+            $componenteDisponivel = (bool) ($resultadoLimitador['disponivel'] ?? false);
+            if ($obrigatorio && !$componenteDisponivel) {
+                $disponivel = false;
+                $resultadoBase['alertas'][] = 'Componente indisponível: ' . ($produtoLimitador['nome_produto'] ?? 'componente');
+            }
+
+            $componentesResumo[] = [
+                'tipo_limitador' => $limitador['tipo_limitador'],
+                'produto_id' => $produtoLimitadorId,
+                'produto_nome' => $produtoLimitador['nome_produto'] ?? '',
+                'tipo_produto' => $produtoLimitador['tipo_produto'] ?? 'SIMPLES',
+                'controla_estoque' => true,
+                'quantidade_por_unidade' => $qtdPorUnidade,
+                'quantidade_necessaria' => $qtdNecessaria,
+                'obrigatorio' => $obrigatorio,
+                'estoque_total' => $resultadoLimitador['estoque_total'] ?? 0,
+                'livre_periodo' => $resultadoLimitador['livre_periodo'] ?? 0,
+                'estoque_disponivel' => $resultadoLimitador['estoque_disponivel'] ?? 0,
+                'livre_apos_orcamento' => $resultadoLimitador['livre_apos_orcamento'] ?? 0,
+                'faltante_orcamento' => $resultadoLimitador['faltante_orcamento'] ?? 0,
+                'disponivel' => $componenteDisponivel,
+                'nivel_alerta' => $resultadoLimitador['nivel_alerta'] ?? 'ok',
+                'alertas' => $resultadoLimitador['alertas'] ?? [],
+                'conflitos' => $resultadoLimitador['conflitos'] ?? [],
+                'observacoes_composicao' => $limitador['observacoes_composicao'],
+            ];
+        }
+
+        $estoqueTotalConsolidado = $menorEstoqueTotalPorComposto ?? 0;
+        $livreConsolidado = $menorLivrePorComposto ?? 0;
+        $livreAposConsolidado = $menorLivreAposPedidoPorComposto ?? ($livreConsolidado - $resultadoBase['quantidade_solicitada']);
+        $faltante = max(0, $resultadoBase['quantidade_solicitada'] - $livreConsolidado);
+
+        if ($resultadoBase['quantidade_solicitada'] > $livreConsolidado) {
+            $disponivel = false;
+        }
+
+        $resultadoBase['estoque_total'] = $estoqueTotalConsolidado;
+        $resultadoBase['estoque_disponivel'] = $livreConsolidado;
+        $resultadoBase['livre_periodo'] = $livreConsolidado;
+        $resultadoBase['livre_apos_orcamento'] = $livreAposConsolidado;
+        $resultadoBase['faltante_orcamento'] = $faltante;
+        $resultadoBase['comprometido_periodo'] = $this->normalizarNumeroEstoque($comprometidoConsolidado);
+        $resultadoBase['disponivel'] = $disponivel;
+        $resultadoBase['componentes'] = $componentesResumo;
+        $resultadoBase['conflitos'] = $conflitosConsolidados;
+        $resultadoBase['agenda'] = $agendaConsolidada;
+        $resultadoBase['ultimo_retorno'] = $ultimoRetorno;
+        $resultadoBase['proxima_saida'] = $proximaSaida;
+        $resultadoBase['consulta_periodo_valida'] = !(empty($dataInicio) || empty($dataFim));
+
+        if (!$disponivel) {
+            $resultadoBase['nivel_alerta'] = 'indisponivel';
+            if ($faltante > 0) {
+                $resultadoBase['alertas'][] = 'Quantidade insuficiente para o produto composto. Faltante: ' . $faltante . '.';
+            }
+        } elseif (!empty($conflitosConsolidados)) {
+            $resultadoBase['nivel_alerta'] = 'atencao';
         }
 
         return $resultadoBase;
@@ -259,6 +590,9 @@ class EstoqueMovimentacao {
 
     /**
      * Retorna a agenda do produto dentro de uma janela.
+     *
+     * Importante: para componentes físicos, também considera pedidos feitos por produtos pais compostos.
+     * Ex.: consultar "Capa Puff Azul" deve enxergar pedidos de "Puff Forrado Azul" que consomem essa capa.
      */
     public function obterAgendaProduto(
         int $produtoId,
@@ -278,7 +612,7 @@ class EstoqueMovimentacao {
                 SELECT
                     ip.id AS item_pedido_id,
                     ip.pedido_id,
-                    ip.quantidade,
+                    (ip.quantidade * 1) AS quantidade,
                     ip.observacoes AS observacoes_item,
                     p.numero,
                     p.codigo,
@@ -290,34 +624,84 @@ class EstoqueMovimentacao {
                     p.hora_devolucao,
                     p.turno_devolucao,
                     p.situacao_pedido,
-                    c.nome AS nome_cliente
+                    c.nome AS nome_cliente,
+                    'DIRETO' AS origem_consumo,
+                    ip.produto_id AS produto_origem_id,
+                    prod.nome_produto AS produto_origem_nome
                 FROM itens_pedido ip
                 INNER JOIN pedidos p ON p.id = ip.pedido_id
                 INNER JOIN clientes c ON c.id = p.cliente_id
+                INNER JOIN produtos prod ON prod.id = ip.produto_id
                 WHERE
-                    ip.produto_id = :produto_id
+                    ip.produto_id = :produto_id_direto
                     AND ip.tipo_linha = 'PRODUTO'
                     AND ip.tipo = 'locacao'
                     AND p.situacao_pedido = 'confirmado'
                     AND p.data_entrega IS NOT NULL
                     AND p.data_devolucao_prevista IS NOT NULL
-                    AND p.data_entrega <= :fim_data
-                    AND p.data_devolucao_prevista >= :inicio_data
+                    AND p.data_entrega <= :fim_data_direto
+                    AND p.data_devolucao_prevista >= :inicio_data_direto
             ";
 
             if (!empty($ignorarPedidoId)) {
-                $query .= " AND p.id <> :ignorar_pedido_id";
+                $query .= " AND p.id <> :ignorar_pedido_id_direto";
             }
 
-            $query .= " ORDER BY p.data_entrega ASC, p.hora_entrega ASC, p.id ASC";
+            $query .= "
+                UNION ALL
 
-            $stmt = $this->conn->prepare($query);
-            $stmt->bindValue(':produto_id', $produtoId, PDO::PARAM_INT);
-            $stmt->bindValue(':inicio_data', $inicioJanela->format('Y-m-d'));
-            $stmt->bindValue(':fim_data', $fimJanela->format('Y-m-d'));
+                SELECT
+                    ip.id AS item_pedido_id,
+                    ip.pedido_id,
+                    (ip.quantidade * pc.quantidade) AS quantidade,
+                    ip.observacoes AS observacoes_item,
+                    p.numero,
+                    p.codigo,
+                    p.cliente_id,
+                    p.data_entrega,
+                    p.hora_entrega,
+                    p.turno_entrega,
+                    p.data_devolucao_prevista,
+                    p.hora_devolucao,
+                    p.turno_devolucao,
+                    p.situacao_pedido,
+                    c.nome AS nome_cliente,
+                    'COMPOSTO' AS origem_consumo,
+                    ip.produto_id AS produto_origem_id,
+                    prod.nome_produto AS produto_origem_nome
+                FROM itens_pedido ip
+                INNER JOIN produto_composicao pc ON pc.produto_pai_id = ip.produto_id
+                INNER JOIN pedidos p ON p.id = ip.pedido_id
+                INNER JOIN clientes c ON c.id = p.cliente_id
+                INNER JOIN produtos prod ON prod.id = ip.produto_id
+                WHERE
+                    pc.produto_filho_id = :produto_id_composicao
+                    AND ip.tipo_linha = 'PRODUTO'
+                    AND ip.tipo = 'locacao'
+                    AND p.situacao_pedido = 'confirmado'
+                    AND p.data_entrega IS NOT NULL
+                    AND p.data_devolucao_prevista IS NOT NULL
+                    AND p.data_entrega <= :fim_data_composicao
+                    AND p.data_devolucao_prevista >= :inicio_data_composicao
+            ";
 
             if (!empty($ignorarPedidoId)) {
-                $stmt->bindValue(':ignorar_pedido_id', $ignorarPedidoId, PDO::PARAM_INT);
+                $query .= " AND p.id <> :ignorar_pedido_id_composicao";
+            }
+
+            $query .= " ORDER BY data_entrega ASC, hora_entrega ASC, pedido_id ASC";
+
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindValue(':produto_id_direto', $produtoId, PDO::PARAM_INT);
+            $stmt->bindValue(':inicio_data_direto', $inicioJanela->format('Y-m-d'));
+            $stmt->bindValue(':fim_data_direto', $fimJanela->format('Y-m-d'));
+            $stmt->bindValue(':produto_id_composicao', $produtoId, PDO::PARAM_INT);
+            $stmt->bindValue(':inicio_data_composicao', $inicioJanela->format('Y-m-d'));
+            $stmt->bindValue(':fim_data_composicao', $fimJanela->format('Y-m-d'));
+
+            if (!empty($ignorarPedidoId)) {
+                $stmt->bindValue(':ignorar_pedido_id_direto', $ignorarPedidoId, PDO::PARAM_INT);
+                $stmt->bindValue(':ignorar_pedido_id_composicao', $ignorarPedidoId, PDO::PARAM_INT);
             }
 
             $stmt->execute();
@@ -353,13 +737,16 @@ class EstoqueMovimentacao {
                     'pedido_codigo' => $row['codigo'],
                     'cliente_id' => (int) $row['cliente_id'],
                     'cliente' => $row['nome_cliente'],
-                    'quantidade' => (int) $row['quantidade'],
+                    'quantidade' => $this->normalizarNumeroEstoque((float) $row['quantidade']),
                     'situacao_pedido' => $row['situacao_pedido'],
                     'observacoes_item' => $row['observacoes_item'],
                     'inicio_dt' => $inicio->format('Y-m-d H:i:s'),
                     'fim_dt' => $fim->format('Y-m-d H:i:s'),
                     'inicio_formatado' => $this->formatarDataHoraBr($inicio),
                     'fim_formatado' => $this->formatarDataHoraBr($fim),
+                    'origem_consumo' => $row['origem_consumo'] ?? 'DIRETO',
+                    'produto_origem_id' => isset($row['produto_origem_id']) ? (int) $row['produto_origem_id'] : null,
+                    'produto_origem_nome' => $row['produto_origem_nome'] ?? null,
                 ];
             }
 
@@ -374,6 +761,40 @@ class EstoqueMovimentacao {
         }
     }
 
+    private function montarResultadoBase(?array $produto, int $produtoId, int $quantidadeSolicitada = 0, array $sobrescrever = []): array {
+        $estoqueTotal = $produto ? (int) ($produto['quantidade_total'] ?? 0) : 0;
+        $quantidadeSolicitada = max(0, (int) $quantidadeSolicitada);
+
+        $resultado = [
+            'success' => true,
+            'produto_id' => $produtoId,
+            'produto_nome' => $produto['nome_produto'] ?? '',
+            'tipo_produto' => $produto['tipo_produto'] ?? 'SIMPLES',
+            'controla_estoque' => $produto ? (int) ($produto['controla_estoque'] ?? 1) : 1,
+            'produto_composto' => $produto ? $this->produtoEhComposto($produto) : false,
+            'estoque_total' => $estoqueTotal,
+            'estoque_disponivel' => $estoqueTotal,
+            'comprometido_periodo' => 0,
+            'livre_periodo' => $estoqueTotal,
+            'quantidade_solicitada' => $quantidadeSolicitada,
+            'reservado_orcamento_atual' => $quantidadeSolicitada,
+            'livre_apos_orcamento' => $estoqueTotal - $quantidadeSolicitada,
+            'faltante_orcamento' => max(0, $quantidadeSolicitada - $estoqueTotal),
+            'disponivel' => false,
+            'consulta_periodo_valida' => false,
+            'nivel_alerta' => 'ok',
+            'alertas' => [],
+            'conflitos' => [],
+            'agenda' => [],
+            'componentes' => [],
+            'ultimo_retorno' => null,
+            'proxima_saida' => null,
+            'observacoes_produto' => $produto['observacoes'] ?? null,
+        ];
+
+        return array_merge($resultado, $sobrescrever);
+    }
+
     private function obterProduto(int $produtoId): ?array {
         try {
             $query = "
@@ -382,7 +803,9 @@ class EstoqueMovimentacao {
                     nome_produto,
                     quantidade_total,
                     observacoes,
-                    disponivel_locacao
+                    disponivel_locacao,
+                    tipo_produto,
+                    controla_estoque
                 FROM produtos
                 WHERE id = :produto_id
                 LIMIT 1
@@ -397,6 +820,88 @@ class EstoqueMovimentacao {
             error_log("Erro em EstoqueMovimentacao::obterProduto: " . $e->getMessage());
             return null;
         }
+    }
+
+    private function obterComponentesProdutoComposto(int $produtoPaiId): array {
+        try {
+            $query = "
+                SELECT
+                    pc.id,
+                    pc.produto_pai_id,
+                    pc.produto_filho_id,
+                    pc.quantidade,
+                    pc.obrigatorio,
+                    pc.observacoes,
+                    pf.nome_produto AS produto_filho_nome,
+                    pf.tipo_produto AS produto_filho_tipo,
+                    pf.controla_estoque AS produto_filho_controla_estoque,
+                    pf.quantidade_total AS produto_filho_quantidade_total
+                FROM produto_composicao pc
+                INNER JOIN produtos pf ON pf.id = pc.produto_filho_id
+                WHERE pc.produto_pai_id = :produto_pai_id
+                ORDER BY pc.id ASC
+            ";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindValue(':produto_pai_id', $produtoPaiId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Erro em EstoqueMovimentacao::obterComponentesProdutoComposto: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function obterEstoqueTotalComposto(array $produto): int {
+        $limitadores = [];
+
+        if (!$this->produtoSemControleEstoque($produto)) {
+            $limitadores[] = [
+                'produto' => $produto,
+                'quantidade_por_unidade' => 1.0,
+            ];
+        }
+
+        foreach ($this->obterComponentesProdutoComposto((int) $produto['id']) as $componente) {
+            $produtoFilho = $this->obterProduto((int) $componente['produto_filho_id']);
+            if (!$produtoFilho || $this->produtoSemControleEstoque($produtoFilho)) {
+                continue;
+            }
+
+            $limitadores[] = [
+                'produto' => $produtoFilho,
+                'quantidade_por_unidade' => max(0.0001, (float) $componente['quantidade']),
+            ];
+        }
+
+        if (empty($limitadores)) {
+            return 0;
+        }
+
+        $menor = null;
+        foreach ($limitadores as $limitador) {
+            $estoque = (int) ($limitador['produto']['quantidade_total'] ?? 0);
+            $qtdPorUnidade = (float) $limitador['quantidade_por_unidade'];
+            $possivel = (int) floor($estoque / $qtdPorUnidade);
+            $menor = $menor === null ? $possivel : min($menor, $possivel);
+        }
+
+        return (int) ($menor ?? 0);
+    }
+
+    private function produtoEhComposto(array $produto): bool {
+        return strtoupper((string) ($produto['tipo_produto'] ?? 'SIMPLES')) === 'COMPOSTO';
+    }
+
+    private function produtoSemControleEstoque(array $produto): bool {
+        return (int) ($produto['controla_estoque'] ?? 1) !== 1;
+    }
+
+    private function normalizarNumeroEstoque($valor) {
+        $valor = (float) $valor;
+        if (abs($valor - round($valor)) < 0.00001) {
+            return (int) round($valor);
+        }
+        return round($valor, 2);
     }
 
     private function intervalosSeSobrepoem(DateTime $inicioA, DateTime $fimA, DateTime $inicioB, DateTime $fimB): bool {

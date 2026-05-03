@@ -277,11 +277,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             exit;
         }
 
-        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path
-                FROM produtos p";
+        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path, p.tipo_produto
+        FROM produtos p";
 
-        $conditions = [];
-        $executeParams = [];
+$conditions = [];
+$executeParams = [];
+
+// Não mostrar componentes internos na busca operacional do pedido.
+// Ex.: Pufe Estrutura, Capa Pufe Azul, Recheio Almofada etc.
+// Eles continuam existindo no banco e continuam sendo usados no cálculo de estoque composto.
+$conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPOSTO'))";
 
         if (!empty($termo)) {
             $conditions[] = "(p.nome_produto LIKE ? OR p.codigo LIKE ?)";
@@ -1968,7 +1973,26 @@ $(document).ready(function() {
         if (extras.length) {
             html += `<div class="painel-box mt-2">${extras.join('<div class="mt-1"></div>')}</div>`;
         }
+if (response.produto_composto && response.componentes && response.componentes.length > 0) {
+    let componentesHtml = response.componentes.map(function(comp) {
+        const nome = comp.nome_produto || comp.produto_nome || comp.nome || 'Componente';
+        const estoqueTotal = parseInt(comp.estoque_total || comp.quantidade_total || 0, 10);
+        const livrePeriodo = parseInt(comp.livre_periodo ?? comp.estoque_disponivel ?? 0, 10);
+        const qtdPorUnidade = parseFloat(comp.quantidade_por_unidade || comp.quantidade || 1);
 
+        return `<li>
+            <strong>${escapeHtml(nome)}</strong>
+            — usa ${qtdPorUnidade} por unidade
+            · estoque total: ${estoqueTotal}
+            · livre no período: ${livrePeriodo}
+        </li>`;
+    }).join('');
+
+    html += `<div class="painel-box mt-2">
+        <strong>Componentes do produto composto</strong>
+        <ul class="mb-0 pl-3 mt-1">${componentesHtml}</ul>
+    </div>`;
+}
         if (response.observacoes_produto) {
             html += `<div class="painel-box mt-2"><strong>Observações do produto</strong><div class="mt-1">${escapeHtml(response.observacoes_produto)}</div></div>`;
         }
