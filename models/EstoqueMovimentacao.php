@@ -111,7 +111,8 @@ class EstoqueMovimentacao {
         ?string $horaFim = null,
         ?string $turnoFim = null,
         int $quantidadeSolicitada = 0,
-        ?int $ignorarPedidoId = null
+        ?int $ignorarPedidoId = null,
+        array $itensContextoAtual = []
     ): array {
         return $this->consultarDisponibilidadeInterna(
             $produtoId,
@@ -123,7 +124,8 @@ class EstoqueMovimentacao {
             $turnoFim,
             $quantidadeSolicitada,
             $ignorarPedidoId,
-            []
+            [],
+            $itensContextoAtual
         );
     }
 
@@ -137,7 +139,8 @@ class EstoqueMovimentacao {
         ?string $turnoFim = null,
         int $quantidadeSolicitada = 0,
         ?int $ignorarPedidoId = null,
-        array $pilhaProdutos = []
+        array $pilhaProdutos = [],
+        array $itensContextoAtual = []
     ): array {
         $produto = $this->obterProduto($produtoId);
 
@@ -172,7 +175,8 @@ class EstoqueMovimentacao {
                 $turnoFim,
                 $quantidadeSolicitada,
                 $ignorarPedidoId,
-                $pilhaProdutos
+                $pilhaProdutos,
+                $itensContextoAtual
             );
         }
 
@@ -350,7 +354,8 @@ class EstoqueMovimentacao {
         ?string $turnoFim = null,
         int $quantidadeSolicitada = 0,
         ?int $ignorarPedidoId = null,
-        array $pilhaProdutos = []
+        array $pilhaProdutos = [],
+        array $itensContextoAtual = []
     ): array {
         $produtoId = (int) $produto['id'];
         $resultadoBase = $this->montarResultadoBase($produto, $produtoId, $quantidadeSolicitada);
@@ -418,6 +423,7 @@ class EstoqueMovimentacao {
         $ultimoRetorno = null;
         $proximaSaida = null;
         $componentesResumo = [];
+        $maiorFaltantePorComponente = 0;
         $disponivel = $resultadoBase['nivel_alerta'] !== 'indisponivel';
 
         foreach ($limitadores as $limitador) {
@@ -426,6 +432,18 @@ class EstoqueMovimentacao {
             $qtdPorUnidade = (float) $limitador['quantidade_por_unidade'];
             $qtdNecessaria = (int) ceil(max(0, $quantidadeSolicitada) * $qtdPorUnidade);
             $obrigatorio = (int) $limitador['obrigatorio'] === 1;
+
+            // Quando o front envia o contexto inteiro da tela, este limitador passa a considerar
+            // todos os produtos do orçamento/pedido atual que consomem o mesmo componente.
+            // Ex.: Pufe Forrado Azul + Pufe Forrado Verde consomem a mesma Pufe Estrutura.
+            $qtdNecessariaContexto = $this->calcularConsumoLimitadorNoContexto(
+                $produtoLimitadorId,
+                $itensContextoAtual
+            );
+
+            if ($qtdNecessariaContexto > 0) {
+                $qtdNecessaria = (int) ceil($qtdNecessariaContexto);
+            }
 
             if ($this->produtoSemControleEstoque($produtoLimitador)) {
                 $resumoSemEstoque = [
@@ -438,6 +456,7 @@ class EstoqueMovimentacao {
                     'quantidade_necessaria' => $qtdNecessaria,
                     'obrigatorio' => $obrigatorio,
                     'estoque_total' => 999999,
+                    'comprometido_periodo' => 0,
                     'livre_periodo' => 999999,
                     'estoque_disponivel' => 999999,
                     'livre_apos_orcamento' => 999999,
@@ -463,7 +482,8 @@ class EstoqueMovimentacao {
                     $turnoFim,
                     $qtdNecessaria,
                     $ignorarPedidoId,
-                    $pilhaProdutos
+                    $pilhaProdutos,
+                    $itensContextoAtual
                 );
             } else {
                 $resultadoLimitador = $this->consultarDisponibilidadeProdutoIndividual(
@@ -525,6 +545,11 @@ class EstoqueMovimentacao {
                 }
             }
 
+            $faltanteComponente = (float) ($resultadoLimitador['faltante_orcamento'] ?? 0);
+            if ($qtdPorUnidade > 0) {
+                $maiorFaltantePorComponente = max($maiorFaltantePorComponente, (int) ceil($faltanteComponente / $qtdPorUnidade));
+            }
+
             $componenteDisponivel = (bool) ($resultadoLimitador['disponivel'] ?? false);
             if ($obrigatorio && !$componenteDisponivel) {
                 $disponivel = false;
@@ -539,8 +564,10 @@ class EstoqueMovimentacao {
                 'controla_estoque' => true,
                 'quantidade_por_unidade' => $qtdPorUnidade,
                 'quantidade_necessaria' => $qtdNecessaria,
+                'reservado_orcamento_atual' => $resultadoLimitador['reservado_orcamento_atual'] ?? $qtdNecessaria,
                 'obrigatorio' => $obrigatorio,
                 'estoque_total' => $resultadoLimitador['estoque_total'] ?? 0,
+                'comprometido_periodo' => $resultadoLimitador['comprometido_periodo'] ?? 0,
                 'livre_periodo' => $resultadoLimitador['livre_periodo'] ?? 0,
                 'estoque_disponivel' => $resultadoLimitador['estoque_disponivel'] ?? 0,
                 'livre_apos_orcamento' => $resultadoLimitador['livre_apos_orcamento'] ?? 0,
@@ -556,11 +583,25 @@ class EstoqueMovimentacao {
         $estoqueTotalConsolidado = $menorEstoqueTotalPorComposto ?? 0;
         $livreConsolidado = $menorLivrePorComposto ?? 0;
         $livreAposConsolidado = $menorLivreAposPedidoPorComposto ?? ($livreConsolidado - $resultadoBase['quantidade_solicitada']);
-        $faltante = max(0, $resultadoBase['quantidade_solicitada'] - $livreConsolidado);
+        $faltante = max(
+            0,
+            $resultadoBase['quantidade_solicitada'] - $livreConsolidado,
+            $maiorFaltantePorComponente
+        );
 
         if ($resultadoBase['quantidade_solicitada'] > $livreConsolidado) {
             $disponivel = false;
         }
+
+        // Para produto composto, o número principal não pode somar estrutura + capa.
+        // Ex.: Pufe Amarelo não deve mostrar 60 estruturas + 15 capas = 75.
+        // O painel principal deve refletir o gargalo consolidado do produto final.
+        $comprometidoConsolidado = max(0, $estoqueTotalConsolidado - $livreConsolidado);
+
+        // Evita listar o mesmo item de pedido duas vezes quando ele aparece pelo componente comum
+        // e também pela capa/cor específica do produto composto consultado.
+        $conflitosConsolidados = $this->deduplicarRegistrosPorItemPedido($conflitosConsolidados);
+        $agendaConsolidada = $this->deduplicarRegistrosPorItemPedido($agendaConsolidada);
 
         $resultadoBase['estoque_total'] = $estoqueTotalConsolidado;
         $resultadoBase['estoque_disponivel'] = $livreConsolidado;
@@ -761,6 +802,42 @@ class EstoqueMovimentacao {
         }
     }
 
+    private function deduplicarRegistrosPorItemPedido(array $registros): array {
+        if (empty($registros)) {
+            return [];
+        }
+
+        $vistos = [];
+        $deduplicados = [];
+
+        foreach ($registros as $registro) {
+            if (!is_array($registro)) {
+                continue;
+            }
+
+            $itemPedidoId = isset($registro['item_pedido_id']) ? (int) $registro['item_pedido_id'] : 0;
+            $pedidoId = isset($registro['pedido_id']) ? (int) $registro['pedido_id'] : 0;
+            $produtoOrigemId = isset($registro['produto_origem_id']) ? (int) $registro['produto_origem_id'] : 0;
+            $inicio = (string) ($registro['inicio_dt'] ?? '');
+            $fim = (string) ($registro['fim_dt'] ?? '');
+
+            if ($itemPedidoId > 0) {
+                $chave = 'item:' . $itemPedidoId;
+            } else {
+                $chave = 'pedido:' . $pedidoId . '|produto:' . $produtoOrigemId . '|inicio:' . $inicio . '|fim:' . $fim;
+            }
+
+            if (isset($vistos[$chave])) {
+                continue;
+            }
+
+            $vistos[$chave] = true;
+            $deduplicados[] = $registro;
+        }
+
+        return $deduplicados;
+    }
+
     private function montarResultadoBase(?array $produto, int $produtoId, int $quantidadeSolicitada = 0, array $sobrescrever = []): array {
         $estoqueTotal = $produto ? (int) ($produto['quantidade_total'] ?? 0) : 0;
         $quantidadeSolicitada = max(0, (int) $quantidadeSolicitada);
@@ -886,6 +963,111 @@ class EstoqueMovimentacao {
         }
 
         return (int) ($menor ?? 0);
+    }
+
+    private function normalizarItensContextoAtual(array $itensContextoAtual): array {
+        $itens = [];
+
+        foreach ($itensContextoAtual as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $produtoId = isset($item['produto_id']) ? (int) $item['produto_id'] : 0;
+            $quantidade = isset($item['quantidade']) ? (float) $item['quantidade'] : 0;
+
+            if ($produtoId <= 0 || $quantidade <= 0) {
+                continue;
+            }
+
+            if (!isset($itens[$produtoId])) {
+                $itens[$produtoId] = 0.0;
+            }
+
+            $itens[$produtoId] += $quantidade;
+        }
+
+        $normalizados = [];
+        foreach ($itens as $produtoId => $quantidade) {
+            $normalizados[] = [
+                'produto_id' => (int) $produtoId,
+                'quantidade' => (float) $quantidade,
+            ];
+        }
+
+        return $normalizados;
+    }
+
+    private function calcularConsumoLimitadorNoContexto(int $produtoLimitadorId, array $itensContextoAtual): float {
+        $itens = $this->normalizarItensContextoAtual($itensContextoAtual);
+
+        if (empty($itens)) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+
+        foreach ($itens as $item) {
+            $produtoOrigemId = (int) $item['produto_id'];
+            $quantidadeOrigem = (float) $item['quantidade'];
+
+            $consumos = $this->expandirConsumoEstoqueProduto(
+                $produtoOrigemId,
+                $quantidadeOrigem,
+                []
+            );
+
+            if (isset($consumos[$produtoLimitadorId])) {
+                $total += (float) $consumos[$produtoLimitadorId];
+            }
+        }
+
+        return $total;
+    }
+
+    private function expandirConsumoEstoqueProduto(int $produtoId, float $quantidade, array $pilha = []): array {
+        if ($produtoId <= 0 || $quantidade <= 0) {
+            return [];
+        }
+
+        if (in_array($produtoId, $pilha, true)) {
+            return [];
+        }
+
+        $pilha[] = $produtoId;
+        $produto = $this->obterProduto($produtoId);
+
+        if (!$produto) {
+            return [];
+        }
+
+        $consumos = [];
+
+        if (!$this->produtoSemControleEstoque($produto)) {
+            $consumos[$produtoId] = ($consumos[$produtoId] ?? 0.0) + $quantidade;
+        }
+
+        if ($this->produtoEhComposto($produto)) {
+            $componentes = $this->obterComponentesProdutoComposto($produtoId);
+
+            foreach ($componentes as $componente) {
+                $filhoId = (int) ($componente['produto_filho_id'] ?? 0);
+                $qtdPorUnidade = max(0.0001, (float) ($componente['quantidade'] ?? 1));
+                $qtdFilho = $quantidade * $qtdPorUnidade;
+
+                $consumosFilho = $this->expandirConsumoEstoqueProduto(
+                    $filhoId,
+                    $qtdFilho,
+                    $pilha
+                );
+
+                foreach ($consumosFilho as $idConsumo => $qtdConsumo) {
+                    $consumos[$idConsumo] = ($consumos[$idConsumo] ?? 0.0) + (float) $qtdConsumo;
+                }
+            }
+        }
+
+        return $consumos;
     }
 
     private function produtoEhComposto(array $produto): bool {

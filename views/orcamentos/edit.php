@@ -280,6 +280,33 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
         $hora_fim = $_GET['hora_fim'] ?? null;
         $turno_fim = $_GET['turno_fim'] ?? null;
         $ignorar_pedido_id = isset($_GET['ignorar_pedido_id']) ? (int) $_GET['ignorar_pedido_id'] : null;
+        $itens_contexto_atual = [];
+
+        if (isset($_GET['itens_contexto'])) {
+            $jsonContexto = $_GET['itens_contexto'];
+
+            if (is_string($jsonContexto) && trim($jsonContexto) !== '') {
+                $dadosContexto = json_decode($jsonContexto, true);
+
+                if (is_array($dadosContexto)) {
+                    foreach ($dadosContexto as $itemCtx) {
+                        if (!is_array($itemCtx)) {
+                            continue;
+                        }
+
+                        $produtoCtxId = isset($itemCtx['produto_id']) ? (int) $itemCtx['produto_id'] : 0;
+                        $quantidadeCtx = isset($itemCtx['quantidade']) ? (int) $itemCtx['quantidade'] : 0;
+
+                        if ($produtoCtxId > 0 && $quantidadeCtx > 0) {
+                            $itens_contexto_atual[] = [
+                                'produto_id' => $produtoCtxId,
+                                'quantidade' => $quantidadeCtx
+                            ];
+                        }
+                    }
+                }
+            }
+        }
 
         if ($produto_id <= 0) {
             echo json_encode([
@@ -299,7 +326,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
             $hora_fim,
             $turno_fim,
             max(0, $quantidade),
-            $ignorar_pedido_id
+            $ignorar_pedido_id,
+            $itens_contexto_atual
         );
 
         if (!isset($resultado['estoque_disponivel']) && isset($resultado['livre_periodo'])) {
@@ -1356,6 +1384,8 @@ $(document).ready(function() {
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
+        const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
+        const produtoConsultadoNome = response.produto_nome || '';
 
         let html = `<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap"><span class="painel-status-badge">${statusTexto}</span><small class="ml-2" style="opacity:.9;">Clique no resumo da linha para reabrir este painel.</small></div>`;
         html += '<div class="painel-disponibilidade-grid">';
@@ -1371,7 +1401,22 @@ $(document).ready(function() {
 
         if (response.conflitos && response.conflitos.length > 0) {
             let conflitosHtml = response.conflitos.map(function(item) {
-                return `<li><strong>${escapeHtml(item.cliente || 'Cliente')}</strong> — ${parseInt(item.quantidade || 0, 10)} un. <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span></li>`;
+                const quantidade = parseInt(item.quantidade || 0, 10);
+                const produtoOrigemId = parseInt(item.produto_origem_id || item.produto_id || 0, 10);
+                const produtoOrigemNome = item.produto_origem_nome || item.produto_nome || item.componente_nome || produtoConsultadoNome || 'Produto';
+                const destaque = produtoOrigemId > 0 && produtoOrigemId === produtoConsultadoId;
+                const classeDestaque = destaque ? ' style="background:rgba(255,255,255,.18); border-radius:8px; padding:4px 6px; margin:3px 0;"' : '';
+                const badge = destaque ? ' <span class="badge badge-light text-dark ml-1">produto consultado</span>' : '';
+                const pedidoId = parseInt(item.pedido_id || 0, 10);
+                const linkPedido = pedidoId > 0
+                    ? ` <a href="../pedidos/show.php?id=${pedidoId}" target="_blank" class="btn btn-xs btn-light ml-1" title="Abrir pedido"><i class="fas fa-eye"></i></a>`
+                    : '';
+
+                return `<li${classeDestaque}>
+                    <strong>${escapeHtml(item.cliente || 'Cliente')}</strong>
+                    — ${quantidade} un. de <strong>${escapeHtml(produtoOrigemNome)}</strong>${badge}
+                    <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span>${linkPedido}
+                </li>`;
             }).join('');
             html += `<div class="painel-box mt-2"><strong>Pedidos confirmados no período</strong><ul class="mb-0 pl-3 mt-1">${conflitosHtml}</ul></div>`;
         }
@@ -1390,19 +1435,30 @@ if (response.produto_composto && response.componentes && response.componentes.le
     let componentesHtml = response.componentes.map(function(comp) {
         const nome = comp.nome_produto || comp.produto_nome || comp.nome || 'Componente';
         const estoqueTotal = parseInt(comp.estoque_total || comp.quantidade_total || 0, 10);
+        const pedidosPeriodo = parseInt(comp.comprometido_periodo || 0, 10);
+        const reservadoComponente = parseInt((comp.reservado_orcamento_atual ?? comp.quantidade_necessaria ?? 0), 10);
         const livrePeriodo = parseInt(
             comp.livre_periodo !== undefined
                 ? comp.livre_periodo
                 : (comp.estoque_disponivel !== undefined ? comp.estoque_disponivel : estoqueTotal),
             10
         );
+        const livreApos = parseInt(
+            comp.livre_apos_orcamento !== undefined
+                ? comp.livre_apos_orcamento
+                : livrePeriodo,
+            10
+        );
+        const faltanteComponente = parseInt(comp.faltante_orcamento || 0, 10);
         const qtdPorUnidade = parseFloat(comp.quantidade_por_unidade || comp.quantidade || 1);
 
         return `<li>
             <strong>${escapeHtml(nome)}</strong>
             — usa ${qtdPorUnidade} por unidade
             · estoque total: ${estoqueTotal}
-            · livre no período: ${livrePeriodo}
+            · pedidos no período: ${pedidosPeriodo}
+            · neste orçamento: ${reservadoComponente}
+            · livre após orçamento: ${livreApos}${faltanteComponente > 0 ? ` · faltando ${faltanteComponente}` : ''}
         </li>`;
     }).join('');
 
@@ -1434,7 +1490,28 @@ if (response.produto_composto && response.componentes && response.componentes.le
         const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
-        return `<strong>${statusTexto}</strong> · Pedidos: ${comprometido} · Neste orçamento: ${reservadoAtual} · Livre após: ${livreApos} <span class="ml-1 text-muted">(abrir painel)</span>`;
+        let resumo = `<strong>${statusTexto}</strong> · Pedidos: ${comprometido} · Neste orçamento: ${reservadoAtual} · Livre após: ${livreApos} <span class="ml-1 text-muted">(abrir painel)</span>`;
+
+        if (response.produto_composto && response.componentes && response.componentes.length > 0) {
+            const componentesResumo = response.componentes.map(function(comp) {
+                const nome = comp.nome_produto || comp.produto_nome || comp.nome || 'Componente';
+                const reservadoComponente = parseInt((comp.reservado_orcamento_atual ?? comp.quantidade_necessaria ?? 0), 10);
+                const livreAposComponente = parseInt(
+                    comp.livre_apos_orcamento !== undefined
+                        ? comp.livre_apos_orcamento
+                        : (comp.livre_periodo !== undefined ? comp.livre_periodo : 0),
+                    10
+                );
+                const faltanteComponente = parseInt(comp.faltante_orcamento || 0, 10);
+                return `${escapeHtml(nome)}: neste orçamento ${reservadoComponente}, livre após ${livreAposComponente}${faltanteComponente > 0 ? `, faltando ${faltanteComponente}` : ''}`;
+            }).join(' | ');
+
+            if (componentesResumo) {
+                resumo += `<span class="d-block mt-1 font-weight-normal">Componentes: ${componentesResumo}</span>`;
+            }
+        }
+
+        return resumo;
     }
 
     function atualizarPainelConsultaDisponibilidade(nomeProduto, response, exibirPainel = true) {
@@ -1472,8 +1549,33 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }
     }
 
+    function coletarItensContextoAtualOrcamento() {
+        const itens = [];
+
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            const $row = $(this);
+
+            if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+                return;
+            }
+
+            const produtoId = parseInt($row.find('.produto_id').val(), 10) || 0;
+            const quantidade = parseInt($row.find('.item-qtd').val(), 10) || 0;
+
+            if (produtoId > 0 && quantidade > 0) {
+                itens.push({
+                    produto_id: produtoId,
+                    quantidade: quantidade
+                });
+            }
+        });
+
+        return itens;
+    }
+
     function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, callbackErro) {
         const periodo = obterPeriodoConsultaAtual();
+        const itensContexto = coletarItensContextoAtualOrcamento();
 
         $.ajax({
             url: `edit.php?id=${ORCAMENTO_ID}`,
@@ -1488,7 +1590,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 turno_inicio: periodo.turno_inicio,
                 data_fim: periodo.data_fim,
                 hora_fim: periodo.hora_fim,
-                turno_fim: periodo.turno_fim
+                turno_fim: periodo.turno_fim,
+                itens_contexto: JSON.stringify(itensContexto)
             },
             success: function(response) {
                 if (typeof callbackSucesso === 'function') {
@@ -1572,7 +1675,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
                         let preco = parseFloat(produto.preco_locacao) || 0;
                         let fotoHtml = produto.foto_path_completo ? `<img src="${produto.foto_path_completo}" alt="Miniatura" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">` : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
                         let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
-                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : ''}</div><span class="ml-auto text-primary font-weight-bold">R\$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
+                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${produto.tipo_produto === 'COMPOSTO' ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>' : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')}</div><span class="ml-auto text-primary font-weight-bold">R\$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
                     });
                 } else {
                     $('#sugestoes_produtos').append('<div class="list-group-item text-muted">Nenhum produto encontrado.</div>');
@@ -1607,6 +1710,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && dadosItem && dadosItem.id) {
                 atualizarContextoDisponibilidadeLinha($novaLinha, false);
+                revalidarTodasAsLinhasDisponibilidade();
             }
             calcularTotaisOrcamento();
         }
@@ -1675,6 +1779,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }
 
         atualizarContextoDisponibilidadeLinha($row, quantidadeAtual > 0);
+        revalidarTodasAsLinhasDisponibilidade();
         $row.find('.item-qtd').data('valor-original', quantidadeAtual);
     }
 
@@ -1733,7 +1838,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
     $('#btn_adicionar_titulo_secao').click(function() { adicionarLinhaItemTabela(null, 'CABECALHO_SECAO'); });
     $('#btn_adicionar_item_manual').click(function() { adicionarLinhaItemTabela(null, 'PRODUTO'); });
-    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() { $(this).closest('tr').remove(); atualizarOrdemDosItens(); calcularTotaisOrcamento(); });
+    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() { $(this).closest('tr').remove(); atualizarOrdemDosItens(); calcularTotaisOrcamento(); revalidarTodasAsLinhasDisponibilidade(); });
         $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { 
         var $row = $(this).closest('tr'); 
         $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); 
@@ -2057,7 +2162,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
     revalidarTodasAsLinhasDisponibilidade();
 
     function validarItensQuantidadeZeroEdit() {
-        let mensagemErro = '';
+        let produtoErro = null;
+
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'CABECALHO_SECAO') {
@@ -2067,21 +2173,21 @@ if (response.produto_composto && response.componentes && response.componentes.le
             const produtoId = String($row.find('.produto_id').val() || '').trim();
             const nomeProduto = String($row.find('.nome_produto_display').val() || '').trim();
             const quantidade = parseInt($row.find('.item-qtd').val() || '0', 10);
-
             const linhaTemProduto = produtoId !== '' || nomeProduto !== '';
 
             if (linhaTemProduto && quantidade <= 0) {
-                mensagemErro = 'Há produto cadastrado com quantidade zero. Ajuste a quantidade ou remova a linha antes de salvar.';
+                produtoErro = nomeProduto || 'Produto sem nome';
                 return false;
             }
         });
 
-        if (mensagemErro) {
-            if (typeof toastr !== 'undefined') {
-                toastr.error(mensagemErro);
-            } else {
-                alert(mensagemErro);
-            }
+        if (produtoErro) {
+            Swal.fire({
+                title: 'Quantidade obrigatória',
+                text: 'Há produto com quantidade zero no orçamento: ' + produtoErro + '. Ajuste a quantidade ou remova a linha antes de salvar.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
             return false;
         }
 
