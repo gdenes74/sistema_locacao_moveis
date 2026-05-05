@@ -1,61 +1,159 @@
 <?php
 class Orcamento {
+    /** @var PDO */
     private $conn;
-    private $table = 'orcamentos'; // Tabela principal de orçamentos
-    private $table_itens = 'itens_orcamento'; // Tabela de itens do orçamento
-    
+
+    /** @var string Tabela principal de orçamentos */
+    private $table = 'orcamentos';
+
+    /** @var string Tabela de itens do orçamento */
+    private $table_itens = 'itens_orcamento';
 
     // Propriedades do Orçamento (Cabeçalho)
+    /** @var int|null */
     public $id;
+
+    /** @var int|null */
     public $numero;
+
+    /** @var string|null */
     public $codigo;
+
+    /** @var int|null */
     public $cliente_id;
+
+    /** @var string|null Data no formato YYYY-MM-DD */
     public $data_orcamento;
+
+    /** @var string|null Data no formato YYYY-MM-DD */
     public $data_validade;
+
+    /** @var string|null Data no formato YYYY-MM-DD */
     public $data_entrega;
+
+    /** @var string|null Hora no formato HH:MM:SS */
     public $hora_entrega;
+
+    /** @var string|null Data no formato YYYY-MM-DD */
     public $data_evento;
+
+    /** @var string|null Hora no formato HH:MM:SS */
     public $hora_evento;
+
+    /** @var string|null */
     public $local_evento;
+
+    /** @var string|null Data no formato YYYY-MM-DD */
     public $data_devolucao_prevista;
+
+    /** @var string|null Hora no formato HH:MM:SS */
     public $hora_devolucao;
+
+    /** @var string|null */
     public $turno_entrega;
+
+    /** @var string|null */
     public $turno_devolucao;
-    public $tipo; // Este é o tipo do orçamento (locacao, venda, misto)
+
+    /** @var string|null Tipo do orçamento: locacao, venda ou misto */
+    public $tipo;
+
+    /** @var string|null */
     public $status;
+
+    /** @var float|null */
     public $valor_total_locacao;
+
+    /** @var float|null */
     public $subtotal_locacao;
+
+    /** @var float|null */
     public $valor_total_venda;
+
+    /** @var float|null */
     public $subtotal_venda;
+
+    /** @var float|null */
     public $desconto;
+
+    /** @var float|null */
     public $taxa_domingo_feriado;
+
+    /** @var float|null */
     public $taxa_madrugada;
+
+    /** @var float|null */
     public $taxa_horario_especial;
+
+    /** @var float|null */
     public $taxa_hora_marcada;
+
+    /** @var float|null */
     public $frete_elevador;
+
+    /** @var float|null */
     public $frete_escadas;
+
+    /** @var float|null */
     public $frete_terreo;
+
+    /** @var float|null */
     public $valor_final;
-    public $ajuste_manual; // Para o cabeçalho do orçamento
-    public $motivo_ajuste; // Para o cabeçalho do orçamento
-    public $observacoes;   // Observações gerais do orçamento (cabeçalho)
+
+    /** @var bool|int|null Para o cabeçalho do orçamento */
+    public $ajuste_manual;
+
+    /** @var string|null Para o cabeçalho do orçamento */
+    public $motivo_ajuste;
+
+    /** @var string|null Observações gerais do orçamento */
+    public $observacoes;
+
+    /** @var string|null */
     public $condicoes_pagamento;
+
+    /** @var int|null */
     public $usuario_id;
+
+    /** @var string|null */
     public $data_cadastro;
 
     // Propriedades para dados do cliente (para joins)
+    /** @var string|null */
     public $nome_cliente;
-    public $cliente_telefone;
-    public $cliente_email;
-    public $cliente_cpf_cnpj;
-    public $cliente_endereco;
-    public $cliente_cidade;
-    public $cliente_observacoes; // Observações do cadastro do cliente
 
+    /** @var string|null */
+    public $cliente_telefone;
+
+    /** @var string|null */
+    public $cliente_email;
+
+    /** @var string|null */
+    public $cliente_cpf_cnpj;
+
+    /** @var string|null */
+    public $cliente_endereco;
+
+    /** @var string|null */
+    public $cliente_cidade;
+
+    /** @var string|null Observações do cadastro do cliente */
+    public $cliente_observacoes;
+
+    /**
+     * @param PDO $db Conexão ativa com o banco de dados.
+     */
     public function __construct($db) {
         $this->conn = $db;
     }
 
+    /**
+     * Lista orçamentos com filtros opcionais.
+     *
+     * @param array<string,mixed> $filtros
+     * @param string $orderBy
+     * @return PDOStatement|false
+     */
     public function listarTodos($filtros = [], $orderBy = 'o.id DESC') {
         $query = "SELECT
                     o.id, o.numero, o.codigo, o.cliente_id, o.data_orcamento, o.data_validade,
@@ -130,6 +228,12 @@ if (!empty($filtros['pesquisar'])) {
         }
     }
 
+    /**
+     * Busca um orçamento pelo ID e preenche as propriedades do objeto.
+     *
+     * @param int $id
+     * @return array<string,mixed>|false
+     */
     public function getById($id) {
         $query = "SELECT
                     o.*,
@@ -177,6 +281,11 @@ if (!empty($filtros['pesquisar'])) {
         }
     }
 
+    /**
+     * Cria o cabeçalho do orçamento.
+     *
+     * @return int|false ID criado ou false em caso de erro.
+     */
     public function create() {
         if (empty($this->numero)) {
             error_log("Erro: Propriedade 'numero' não definida em Orcamento::create(). Este valor deve ser gerado antes.");
@@ -286,6 +395,11 @@ if (!empty($filtros['pesquisar'])) {
         }
     }
 
+    /**
+     * Atualiza o cabeçalho do orçamento.
+     *
+     * @return bool
+     */
     public function update() {
     if (empty($this->id)) {
         error_log("Erro: Tentativa de atualizar orçamento sem ID.");
@@ -381,6 +495,12 @@ if (!empty($filtros['pesquisar'])) {
 }
 
     // NOVO MÉTODO CORRIGIDO E SEGURO (DEPOIS)
+/**
+ * Exclui o orçamento e seus itens em transação.
+ *
+ * @param int $id
+ * @return bool
+ */
 public function delete($id) {
     // Inicia a "operação segura" de transação
     $this->conn->beginTransaction();
@@ -416,6 +536,13 @@ public function delete($id) {
 }
 
     // FUNÇÃO MODIFICADA: salvarItens
+     /**
+      * Salva todos os itens do orçamento, preservando a ordem recebida.
+      *
+      * @param int $orcamento_id
+      * @param array<int,array<string,mixed>> $itens
+      * @return bool
+      */
      public function salvarItens($orcamento_id, $itens) {
         try {
             $this->deletarTodosItens($orcamento_id);
@@ -460,6 +587,12 @@ public function delete($id) {
     }
 
 
+    /**
+     * Remove todos os itens vinculados ao orçamento.
+     *
+     * @param int $orcamento_id
+     * @return bool
+     */
     public function deletarTodosItens($orcamento_id) {
         $query = "DELETE FROM {$this->table_itens} WHERE orcamento_id = :orcamento_id";
         try {
@@ -472,6 +605,12 @@ public function delete($id) {
         }
     }
 
+/**
+ * Lista os itens do orçamento na ordem operacional salva.
+ *
+ * @param int $orcamento_id
+ * @return array<int,array<string,mixed>>|false
+ */
 public function getItens($orcamento_id) {
     $query = "SELECT
                 io.*,
@@ -495,6 +634,11 @@ public function getItens($orcamento_id) {
 
 
 
+    /**
+     * Marca como expirados os orçamentos pendentes com validade vencida.
+     *
+     * @return int Quantidade de registros afetados.
+     */
     public function verificarEAtualizarExpirados() {
         $query = "UPDATE {$this->table}
                   SET status = 'expirado'
@@ -509,6 +653,13 @@ public function getItens($orcamento_id) {
         }
     }
 
+    /**
+     * Atualiza apenas o status de um orçamento.
+     *
+     * @param int $id
+     * @param string $novoStatus
+     * @return bool
+     */
     public function updateStatus($id, $novoStatus) {
         $query = "UPDATE {$this->table} SET status = :status WHERE id = :id";
         try {
@@ -522,6 +673,12 @@ public function getItens($orcamento_id) {
         }
     }
 
+         /**
+          * Recalcula subtotais e valor final do orçamento.
+          *
+          * @param int $orcamentoId
+          * @return bool
+          */
          public function recalcularValores($orcamentoId) {
         if (empty($orcamentoId)) return false;
 
@@ -585,6 +742,11 @@ public function getItens($orcamento_id) {
             return false;
         }
     }
+    /**
+     * Obtém o orçamento mais recente.
+     *
+     * @return PDOStatement|false
+     */
     public function obterUltimo() {
         $query = "SELECT o.*, c.nome as nome_cliente
                   FROM {$this->table} o

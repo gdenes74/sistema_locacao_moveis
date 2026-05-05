@@ -1322,7 +1322,14 @@ $(document).ready(function() {
         localEventoOriginal = $(this).val();
     });
 
-    var itemIndex = 0; 
+    var itemIndex = 0;
+    $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+        const indiceAtual = parseInt($(this).attr('data-index'), 10) || 0;
+        if (indiceAtual > itemIndex) {
+            itemIndex = indiceAtual;
+        }
+    });
+
     function unformatCurrency(value) {
         if (value === null || typeof value === 'undefined' || value === '') return 0;
         if (typeof value !== 'string') value = String(value);
@@ -1384,8 +1391,6 @@ $(document).ready(function() {
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
-        const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
-        const produtoConsultadoNome = response.produto_nome || '';
 
         let html = `<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap"><span class="painel-status-badge">${statusTexto}</span><small class="ml-2" style="opacity:.9;">Clique no resumo da linha para reabrir este painel.</small></div>`;
         html += '<div class="painel-disponibilidade-grid">';
@@ -1401,22 +1406,7 @@ $(document).ready(function() {
 
         if (response.conflitos && response.conflitos.length > 0) {
             let conflitosHtml = response.conflitos.map(function(item) {
-                const quantidade = parseInt(item.quantidade || 0, 10);
-                const produtoOrigemId = parseInt(item.produto_origem_id || item.produto_id || 0, 10);
-                const produtoOrigemNome = item.produto_origem_nome || item.produto_nome || item.componente_nome || produtoConsultadoNome || 'Produto';
-                const destaque = produtoOrigemId > 0 && produtoOrigemId === produtoConsultadoId;
-                const classeDestaque = destaque ? ' style="background:rgba(255,255,255,.18); border-radius:8px; padding:4px 6px; margin:3px 0;"' : '';
-                const badge = destaque ? ' <span class="badge badge-light text-dark ml-1">produto consultado</span>' : '';
-                const pedidoId = parseInt(item.pedido_id || 0, 10);
-                const linkPedido = pedidoId > 0
-                    ? ` <a href="../pedidos/show.php?id=${pedidoId}" target="_blank" class="btn btn-xs btn-light ml-1" title="Abrir pedido"><i class="fas fa-eye"></i></a>`
-                    : '';
-
-                return `<li${classeDestaque}>
-                    <strong>${escapeHtml(item.cliente || 'Cliente')}</strong>
-                    — ${quantidade} un. de <strong>${escapeHtml(produtoOrigemNome)}</strong>${badge}
-                    <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span>${linkPedido}
-                </li>`;
+                return `<li><strong>${escapeHtml(item.cliente || 'Cliente')}</strong> — ${parseInt(item.quantidade || 0, 10)} un. <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span></li>`;
             }).join('');
             html += `<div class="painel-box mt-2"><strong>Pedidos confirmados no período</strong><ul class="mb-0 pl-3 mt-1">${conflitosHtml}</ul></div>`;
         }
@@ -1704,8 +1694,10 @@ if (response.produto_composto && response.componentes && response.componentes.le
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="5"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
         if (htmlLinha) {
+            $('#tabela_itens_orcamento tbody .no-items-row').remove();
             $('#tabela_itens_orcamento tbody').append(htmlLinha);
             var $novaLinha = $('#tabela_itens_orcamento tbody tr:last-child');
+            atualizarOrdemDosItens();
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && dadosItem && dadosItem.id) {
@@ -2162,8 +2154,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
     revalidarTodasAsLinhasDisponibilidade();
 
     function validarItensQuantidadeZeroEdit() {
-        let produtoErro = null;
-
+        let mensagemErro = '';
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'CABECALHO_SECAO') {
@@ -2173,21 +2164,21 @@ if (response.produto_composto && response.componentes && response.componentes.le
             const produtoId = String($row.find('.produto_id').val() || '').trim();
             const nomeProduto = String($row.find('.nome_produto_display').val() || '').trim();
             const quantidade = parseInt($row.find('.item-qtd').val() || '0', 10);
+
             const linhaTemProduto = produtoId !== '' || nomeProduto !== '';
 
             if (linhaTemProduto && quantidade <= 0) {
-                produtoErro = nomeProduto || 'Produto sem nome';
+                mensagemErro = 'Há produto cadastrado com quantidade zero. Ajuste a quantidade ou remova a linha antes de salvar.';
                 return false;
             }
         });
 
-        if (produtoErro) {
-            Swal.fire({
-                title: 'Quantidade obrigatória',
-                text: 'Há produto com quantidade zero no orçamento: ' + produtoErro + '. Ajuste a quantidade ou remova a linha antes de salvar.',
-                icon: 'warning',
-                confirmButtonText: 'Entendi'
-            });
+        if (mensagemErro) {
+            if (typeof toastr !== 'undefined') {
+                toastr.error(mensagemErro);
+            } else {
+                alert(mensagemErro);
+            }
             return false;
         }
 
@@ -2195,6 +2186,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
     }
 
     $('#formEditarOrcamento').on('submit', function(e) {
+        atualizarOrdemDosItens();
+
         if (!validarItensQuantidadeZeroEdit()) {
             e.preventDefault();
             return false;
