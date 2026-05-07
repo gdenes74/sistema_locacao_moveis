@@ -104,15 +104,15 @@ if (!function_exists('montarNomeItemOrcamentoImpressao')) {
         $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
 
         $obsEhUtil = $observacaoItem !== ''
-            && $obsNormalizada !== 'A DEFINIR'
-            && $obsNormalizada !== 'COR A DEFINIR'
-            && $obsNormalizada !== '-';
+            && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
 
-        // Produto genérico usado quando a cor ainda não foi fechada.
-        // Se a atendente preencher a observação da linha com "Marsala", a impressão fica:
-        // PUFE FORRADO COR MARSALA
-        if ($obsEhUtil && strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false) {
-            return 'Pufe Forrado Cor ' . $observacaoItem;
+        // Regra genérica para produtos compostos com cor informada na observação.
+        // Exemplos:
+        // Pufe Forrado Cor A Definir + Marsala => Pufe Forrado Cor Marsala
+        // Almofada Capa Cor A Definir + Neon => Almofada Capa Cor Neon
+        if ($obsEhUtil && strpos($nomeNormalizado, 'COR A DEFINIR') !== false) {
+            $nomeComCor = preg_replace('/\bCOR\s+A\s+DEFINIR\b/iu', 'Cor ' . $observacaoItem, $nomeItem);
+            return trim((string)($nomeComCor ?: $nomeItem));
         }
 
         return $nomeItem;
@@ -198,7 +198,7 @@ if (!function_exists('observacaoItemUsadaComoCorOrcamentoShow')) {
         $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
         $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
 
-        return strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false
+        return strpos($nomeNormalizado, 'COR A DEFINIR') !== false
             && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
     }
 }
@@ -216,13 +216,14 @@ if (!function_exists('montarNomeComponenteProducaoOrcamentoShow')) {
         $tipoProduto = normalizarTextoComparacaoMobel($componente['tipo_produto'] ?? '');
         $nomeComponenteNormalizado = normalizarTextoComparacaoMobel($nomeComponente);
 
-        $ehServicoForracao = $tipoProduto === 'SERVICO'
-            || strpos($nomeComponenteNormalizado, 'SERVICO FORRACAO') !== false
-            || strpos($nomeComponenteNormalizado, 'FORRACAO') !== false;
+        // Serviço é sempre serviço, mesmo quando o nome contém "Capa".
+        // Exemplo: Serviço Capa Almofada deve ir como serviço e receber a cor digitada.
+        $ehServico = $tipoProduto === 'SERVICO'
+            || strpos($nomeComponenteNormalizado, 'SERVICO') !== false;
 
-        if ($ehServicoForracao && observacaoItemUsadaComoCorOrcamentoShow($nomeItem, $observacaoItem)) {
-            $nomeComponenteSemDefinir = preg_replace('/\s+COR\s+A\s+DEFINIR\s*$/iu', '', $nomeComponente);
-            return trim($nomeComponenteSemDefinir . ' Cor ' . $observacaoItem);
+        if ($ehServico && observacaoItemUsadaComoCorOrcamentoShow($nomeItem, $observacaoItem)) {
+            $nomeComponenteSemDefinir = preg_replace('/\bCOR\s+A\s+DEFINIR\b/iu', '', $nomeComponente);
+            return trim((string)($nomeComponenteSemDefinir ?: $nomeComponente) . ' Cor ' . $observacaoItem);
         }
 
         return $nomeComponente;
@@ -277,18 +278,20 @@ if (!function_exists('grupoProducaoOrcamentoShow')) {
         $nomeNormalizado = normalizarTextoComparacaoMobel($nomeProduto);
         $tipoNormalizado = normalizarTextoComparacaoMobel($tipoProduto);
 
+        // Serviço vem antes de capa para não classificar "Serviço Capa Almofada" como CAPAS.
+        if ($tipoNormalizado === 'SERVICO'
+            || strpos($nomeNormalizado, 'SERVICO') !== false
+            || strpos($nomeNormalizado, 'FORRACAO') !== false) {
+            return ['chave' => 'servicos', 'titulo' => 'FORRAÇÕES / SERVIÇOS', 'ordem' => 20];
+        }
+
         if (strpos($nomeNormalizado, 'CAPA') !== false) {
             return ['chave' => 'capas', 'titulo' => 'CAPAS', 'ordem' => 10];
         }
 
-        if ($tipoNormalizado === 'SERVICO'
-            || strpos($nomeNormalizado, 'FORRACAO') !== false
-            || strpos($nomeNormalizado, 'SERVICO') !== false) {
-            return ['chave' => 'servicos', 'titulo' => 'FORRAÇÕES / SERVIÇOS', 'ordem' => 20];
-        }
-
-        if (strpos($nomeNormalizado, 'ESTRUTURA') !== false) {
-            return ['chave' => 'estruturas', 'titulo' => 'ESTRUTURAS', 'ordem' => 30];
+        if (strpos($nomeNormalizado, 'ESTRUTURA') !== false
+            || strpos($nomeNormalizado, 'RECHEIO') !== false) {
+            return ['chave' => 'estruturas', 'titulo' => 'ESTRUTURAS / RECHEIOS', 'ordem' => 30];
         }
 
         return ['chave' => 'outros', 'titulo' => 'OUTROS COMPONENTES', 'ordem' => 40];
