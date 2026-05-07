@@ -1000,10 +1000,16 @@ function imprimirPedido(id, tipo) {
     const url = `show.php?id=${id}&print=${tipo}`;
     const printWindow = window.open(url, '_blank', 'width=800,height=600,scrollbars=yes');
 
-    // Aguarda carregar e imprime
+    // Aguarda carregar e chama a função correta do show.php
     printWindow.onload = function() {
         setTimeout(function() {
-            printWindow.print();
+            if (tipo === 'cliente' && typeof printWindow.imprimirCliente === 'function') {
+                printWindow.imprimirCliente();
+            } else if (tipo === 'producao' && typeof printWindow.imprimirProducao === 'function') {
+                printWindow.imprimirProducao();
+            } else {
+                printWindow.print();
+            }
             // Fecha a janela após imprimir
             setTimeout(function() {
                 printWindow.close();
@@ -1017,7 +1023,7 @@ function imprimirPedido(id, tipo) {
 /**
  * Função para gerar ícone de ordenação
  */
-function sort_icon($column, $current_order) {
+function sort_icon(string $column, string $current_order): string {
     $column_asc = $column . ' ASC';
     $column_desc = $column . ' DESC';
 

@@ -11,7 +11,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // --- Funções Auxiliares (mantidas iguais ao orçamento) ---
 if (!function_exists('formatarDataDiaSemana')) {
-    function formatarDataDiaSemana($dataModel)
+    function formatarDataDiaSemana(mixed $dataModel): string
     {
         if (empty($dataModel) || $dataModel === '0000-00-00' || $dataModel === '0000-00-00 00:00:00')
             return '-';
@@ -28,7 +28,7 @@ if (!function_exists('formatarDataDiaSemana')) {
 }
 
 if (!function_exists('formatarTurnoHora')) {
-    function formatarTurnoHora($turno, $hora)
+    function formatarTurnoHora(mixed $turno, mixed $hora): string
     {
         $retorno = htmlspecialchars(trim($turno ?? ''));
 
@@ -46,7 +46,7 @@ if (!function_exists('formatarTurnoHora')) {
 }
 
 if (!function_exists('formatarValor')) {
-    function formatarValor($valor, $mostrarZeroComoString = false)
+    function formatarValor(mixed $valor, bool $mostrarZeroComoString = false): string
     {
         if (is_numeric($valor)) {
             if ($valor == 0 && !$mostrarZeroComoString) {
@@ -62,7 +62,7 @@ if (!function_exists('formatarValor')) {
 }
 
 if (!function_exists('formatarTelefone')) {
-    function formatarTelefone($telefone)
+    function formatarTelefone(mixed $telefone): string
     {
         if (empty($telefone))
             return '-';
@@ -77,7 +77,7 @@ if (!function_exists('formatarTelefone')) {
 }
 
 if (!function_exists('formatarStatusPedido')) {
-    function formatarStatusPedido($situacao_pedido)
+    function formatarStatusPedido(mixed $situacao_pedido): array
     {
         $statusMap = [
             'confirmado' => ['class' => 'info', 'icon' => 'check-circle', 'text' => 'CONFIRMADO'],
@@ -91,6 +91,275 @@ if (!function_exists('formatarStatusPedido')) {
         return $statusMap[$situacao_pedido] ?? ['class' => 'secondary', 'icon' => 'question', 'text' => strtoupper($situacao_pedido)];
     }
 }
+
+
+if (!function_exists('normalizarTextoComparacaoMobel')) {
+    function normalizarTextoComparacaoMobel(mixed $texto): string
+    {
+        $texto = trim((string)$texto);
+        $texto = mb_strtoupper($texto, 'UTF-8');
+        $map = [
+            'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+            'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+            'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+            'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+            'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+            'Ç' => 'C'
+        ];
+        return strtr($texto, $map);
+    }
+}
+
+if (!function_exists('montarNomeItemPedidoImpressao')) {
+    function montarNomeItemPedidoImpressao(mixed $nomeItem, mixed $observacaoItem = ''): string
+    {
+        $nomeItem = trim((string)$nomeItem);
+        $observacaoItem = trim((string)$observacaoItem);
+
+        $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
+        $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
+
+        $obsEhUtil = $observacaoItem !== ''
+            && $obsNormalizada !== 'A DEFINIR'
+            && $obsNormalizada !== 'COR A DEFINIR'
+            && $obsNormalizada !== '-';
+
+        if ($obsEhUtil && strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false) {
+            return 'Pufe Forrado Cor ' . $observacaoItem;
+        }
+
+        return $nomeItem;
+    }
+}
+
+if (!function_exists('observacaoItemUsadaComoCorPedidoShow')) {
+    function observacaoItemUsadaComoCorPedidoShow(mixed $nomeItem, mixed $observacaoItem = ''): bool
+    {
+        $observacaoItem = trim((string)$observacaoItem);
+        if ($observacaoItem === '') {
+            return false;
+        }
+
+        $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
+        $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
+
+        return strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false
+            && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
+    }
+}
+
+if (!function_exists('carregarComponentesProdutosCompostosPedidoShow')) {
+    function carregarComponentesProdutosCompostosPedidoShow(PDO $conn, array $itens): array
+    {
+        $produtoIds = [];
+
+        foreach ($itens as $item) {
+            $produtoId = isset($item['produto_id']) ? (int)$item['produto_id'] : 0;
+            if ($produtoId > 0) {
+                $produtoIds[$produtoId] = true;
+            }
+        }
+
+        if (empty($produtoIds)) {
+            return [];
+        }
+
+        $ids = array_keys($produtoIds);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $query = "SELECT
+                    pc.produto_pai_id,
+                    pc.produto_filho_id,
+                    pc.quantidade AS quantidade_componente,
+                    filho.nome_produto,
+                    filho.tipo_produto,
+                    filho.controla_estoque,
+                    filho.quantidade_total
+                  FROM produto_composicao pc
+                  INNER JOIN produtos filho ON filho.id = pc.produto_filho_id
+                  WHERE pc.produto_pai_id IN ($placeholders)
+                  ORDER BY pc.produto_pai_id ASC, filho.nome_produto ASC";
+
+        try {
+            $stmt = $conn->prepare($query);
+            foreach ($ids as $idx => $produtoId) {
+                $stmt->bindValue($idx + 1, (int)$produtoId, PDO::PARAM_INT);
+            }
+            $stmt->execute();
+            $linhas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log('[pedidos/show.php] Erro ao carregar componentes de produtos compostos: ' . $e->getMessage());
+            return [];
+        }
+
+        $componentesPorProduto = [];
+        foreach ($linhas as $linha) {
+            $paiId = (int)$linha['produto_pai_id'];
+            if (!isset($componentesPorProduto[$paiId])) {
+                $componentesPorProduto[$paiId] = [];
+            }
+            $componentesPorProduto[$paiId][] = $linha;
+        }
+
+        return $componentesPorProduto;
+    }
+}
+
+if (!function_exists('montarNomeComponenteProducaoPedidoShow')) {
+    function montarNomeComponenteProducaoPedidoShow(array $componente, mixed $observacaoItem = '', mixed $nomeItem = ''): string
+    {
+        $nomeComponente = trim((string)($componente['nome_produto'] ?? 'Componente'));
+        $observacaoItem = trim((string)$observacaoItem);
+
+        if ($nomeComponente === '') {
+            $nomeComponente = 'Componente';
+        }
+
+        $tipoProduto = normalizarTextoComparacaoMobel($componente['tipo_produto'] ?? '');
+        $nomeComponenteNormalizado = normalizarTextoComparacaoMobel($nomeComponente);
+
+        $ehServicoForracao = $tipoProduto === 'SERVICO'
+            || strpos($nomeComponenteNormalizado, 'SERVICO FORRACAO') !== false
+            || strpos($nomeComponenteNormalizado, 'FORRACAO') !== false;
+
+        if ($ehServicoForracao && observacaoItemUsadaComoCorPedidoShow($nomeItem, $observacaoItem)) {
+            $nomeComponenteSemDefinir = preg_replace('/\s+COR\s+A\s+DEFINIR\s*$/iu', '', $nomeComponente);
+            return trim($nomeComponenteSemDefinir . ' Cor ' . $observacaoItem);
+        }
+
+        return $nomeComponente;
+    }
+}
+
+if (!function_exists('adicionarComponenteResumoProducaoPedidoShow')) {
+    function adicionarComponenteResumoProducaoPedidoShow(array &$resumo, array $componente, float $quantidadeItem, mixed $observacaoItem = '', mixed $nomeItem = ''): void
+    {
+        $filhoId = isset($componente['produto_filho_id']) ? (int)$componente['produto_filho_id'] : 0;
+        if ($filhoId <= 0) {
+            return;
+        }
+
+        $quantidadeComponente = isset($componente['quantidade_componente']) ? (float)$componente['quantidade_componente'] : 1.0;
+        if ($quantidadeComponente <= 0) {
+            $quantidadeComponente = 1.0;
+        }
+
+        $quantidadeTotal = $quantidadeItem * $quantidadeComponente;
+        $nomeComponenteProducao = montarNomeComponenteProducaoPedidoShow($componente, $observacaoItem, $nomeItem);
+        $chaveResumo = $filhoId . '|' . normalizarTextoComparacaoMobel($nomeComponenteProducao);
+
+        if (!isset($resumo[$chaveResumo])) {
+            $resumo[$chaveResumo] = [
+                'produto_filho_id' => $filhoId,
+                'nome_produto' => $nomeComponenteProducao,
+                'tipo_produto' => $componente['tipo_produto'] ?? '',
+                'quantidade' => 0.0,
+            ];
+        }
+
+        $resumo[$chaveResumo]['quantidade'] += $quantidadeTotal;
+    }
+}
+
+if (!function_exists('formatarQuantidadeProducaoPedidoShow')) {
+    function formatarQuantidadeProducaoPedidoShow(float $quantidade): string
+    {
+        if (abs($quantidade - round($quantidade)) < 0.00001) {
+            return number_format($quantidade, 0, ',', '.');
+        }
+        return number_format($quantidade, 2, ',', '.');
+    }
+}
+
+if (!function_exists('grupoProducaoPedidoShow')) {
+    function grupoProducaoPedidoShow(mixed $nomeProduto, mixed $tipoProduto = ''): array
+    {
+        $nomeNormalizado = normalizarTextoComparacaoMobel($nomeProduto);
+        $tipoNormalizado = normalizarTextoComparacaoMobel($tipoProduto);
+
+        if (strpos($nomeNormalizado, 'CAPA') !== false) {
+            return ['chave' => 'capas', 'titulo' => 'CAPAS', 'ordem' => 10];
+        }
+
+        if ($tipoNormalizado === 'SERVICO'
+            || strpos($nomeNormalizado, 'FORRACAO') !== false
+            || strpos($nomeNormalizado, 'SERVICO') !== false) {
+            return ['chave' => 'servicos', 'titulo' => 'FORRAÇÕES / SERVIÇOS', 'ordem' => 20];
+        }
+
+        if (strpos($nomeNormalizado, 'ESTRUTURA') !== false) {
+            return ['chave' => 'estruturas', 'titulo' => 'ESTRUTURAS', 'ordem' => 30];
+        }
+
+        return ['chave' => 'outros', 'titulo' => 'OUTROS COMPONENTES', 'ordem' => 40];
+    }
+}
+
+if (!function_exists('ordenarComponentesProducaoPedidoShow')) {
+    function ordenarComponentesProducaoPedidoShow(array $componentes, mixed $observacaoItem = '', mixed $nomeItem = ''): array
+    {
+        usort($componentes, function (array $a, array $b) use ($observacaoItem, $nomeItem): int {
+            $nomeA = montarNomeComponenteProducaoPedidoShow($a, $observacaoItem, $nomeItem);
+            $nomeB = montarNomeComponenteProducaoPedidoShow($b, $observacaoItem, $nomeItem);
+            $grupoA = grupoProducaoPedidoShow($nomeA, $a['tipo_produto'] ?? '');
+            $grupoB = grupoProducaoPedidoShow($nomeB, $b['tipo_produto'] ?? '');
+
+            if ($grupoA['ordem'] !== $grupoB['ordem']) {
+                return $grupoA['ordem'] <=> $grupoB['ordem'];
+            }
+
+            return strnatcasecmp($nomeA, $nomeB);
+        });
+
+        return $componentes;
+    }
+}
+
+if (!function_exists('agruparResumoProducaoPedidoShow')) {
+    function agruparResumoProducaoPedidoShow(array $resumo): array
+    {
+        $grupos = [];
+
+        foreach ($resumo as $itemResumo) {
+            $grupo = grupoProducaoPedidoShow($itemResumo['nome_produto'] ?? '', $itemResumo['tipo_produto'] ?? '');
+            $chave = $grupo['chave'];
+
+            if (!isset($grupos[$chave])) {
+                $grupos[$chave] = [
+                    'titulo' => $grupo['titulo'],
+                    'ordem' => $grupo['ordem'],
+                    'itens' => []
+                ];
+            }
+
+            $grupos[$chave]['itens'][] = $itemResumo;
+        }
+
+        uasort($grupos, function (array $a, array $b): int {
+            return $a['ordem'] <=> $b['ordem'];
+        });
+
+        foreach ($grupos as &$grupo) {
+            usort($grupo['itens'], function (array $a, array $b): int {
+                return strnatcasecmp((string)($a['nome_produto'] ?? ''), (string)($b['nome_produto'] ?? ''));
+            });
+        }
+        unset($grupo);
+
+        return $grupos;
+    }
+}
+
+if (!function_exists('limparNomeArquivoPedidoShow')) {
+    function limparNomeArquivoPedidoShow(mixed $texto): string
+    {
+        $texto = trim((string)$texto);
+        $texto = str_replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], ' ', $texto);
+        $texto = preg_replace('/\s+/', ' ', $texto) ?? $texto;
+        return trim($texto) ?: 'SEM NOME';
+    }
+}
+
 // --- Fim Funções Auxiliares ---
 
 $database = new Database();
@@ -138,6 +407,8 @@ if (!empty($pedidoModel->cliente_id)) {
 }
 
 $itens = $pedidoModel->getItens($id);
+$componentesPorProduto = is_array($itens) ? carregarComponentesProdutosCompostosPedidoShow($conn, $itens) : [];
+$resumoComponentesProducao = [];
 
 // ✅ CÁLCULO CORRETO DO SALDO
 $valorFinal = floatval($pedidoModel->valor_final ?? 0);
@@ -154,8 +425,28 @@ $saldoAPagar = floatval($saldoBanco);
 // Status do pedido
 $statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado');
 
-// Define a variável JavaScript para uso no footer
-$inline_js_setup = "const PEDIDO_ID = " . $id . ";";
+// Nome sugerido para salvar/imprimir PDF
+$dataEventoArquivo = 'sem-data';
+if (!empty($pedidoModel->data_evento)) {
+    $timestampEventoArquivo = strtotime($pedidoModel->data_evento);
+    if ($timestampEventoArquivo !== false) {
+        $dataEventoArquivo = date('d.m.y', $timestampEventoArquivo);
+    }
+}
+
+$nomeClienteArquivo = limparNomeArquivoPedidoShow($clienteModel->nome ?? 'Cliente');
+$numeroPedidoArquivo = limparNomeArquivoPedidoShow($pedidoModel->numero ?? $pedidoModel->id ?? $id);
+$nomeArquivoDocumento = limparNomeArquivoPedidoShow($dataEventoArquivo . ' - ' . $nomeClienteArquivo . ' - PEDIDO ' . $numeroPedidoArquivo);
+$page_title = $nomeArquivoDocumento;
+
+$nomeArquivoCliente = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - CLIENTE');
+$nomeArquivoProducao = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - PRODUCAO');
+
+// Define variáveis JavaScript para uso no footer
+$inline_js_setup = "window.PEDIDO_ID = " . $id
+    . "; window.NOME_ARQUIVO_DOCUMENTO = " . json_encode($nomeArquivoDocumento, JSON_UNESCAPED_UNICODE)
+    . "; window.NOME_ARQUIVO_CLIENTE = " . json_encode($nomeArquivoCliente, JSON_UNESCAPED_UNICODE)
+    . "; window.NOME_ARQUIVO_PRODUCAO = " . json_encode($nomeArquivoProducao, JSON_UNESCAPED_UNICODE) . ";";
 ?>
 
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
@@ -483,7 +774,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                 <tr class="text-center">
                                     <th style="width: 8%;">QTD</th>
                                     <th>DESCRIÇÃO DO PRODUTO/SERVIÇO</th>
-                                    <th style="width: 12%;">UNITÁRIO</th>
+                                    <th class="col-financeira" style="width: 12%;">UNITÁRIO</th>
                                     <?php
                                     // Verifica se algum item tem desconto para mostrar a coluna
                                     $temDesconto = false;
@@ -496,9 +787,9 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                         }
                                     }
                                     if ($temDesconto): ?>
-                                        <th style="width: 12%;">DESCONTO</th>
+                                        <th class="col-financeira" style="width: 12%;">DESCONTO</th>
                                     <?php endif; ?>
-                                    <th style="width: 15%;">TOTAL</th>
+                                    <th class="col-financeira" style="width: 15%;">TOTAL</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -531,31 +822,59 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                             $descontoItem = isset($item['desconto']) ? floatval($item['desconto']) : 0;
                                             $itemSubtotal = isset($item['preco_final']) ? floatval($item['preco_final']) : 0;
                                             $subtotalItensPIX += $itemSubtotal;
+
+                                            $observacaoItem = trim((string)($item['observacoes'] ?? ''));
+                                            $nomeItemExibicao = montarNomeItemPedidoImpressao($nomeItem, $observacaoItem);
+                                            $obsFoiConcatenada = observacaoItemUsadaComoCorPedidoShow($nomeItem, $observacaoItem);
+                                            $produtoIdItem = isset($item['produto_id']) ? (int)$item['produto_id'] : 0;
+                                            $componentesItem = $produtoIdItem > 0 && isset($componentesPorProduto[$produtoIdItem]) ? $componentesPorProduto[$produtoIdItem] : [];
+                                            if (!empty($componentesItem)) {
+                                                foreach ($componentesItem as $componenteItem) {
+                                                    adicionarComponenteResumoProducaoPedidoShow($resumoComponentesProducao, $componenteItem, $quantidadeItem, $observacaoItem, $nomeItem);
+                                                }
+                                            }
+                                            $componentesItemOrdenados = !empty($componentesItem) ? ordenarComponentesProducaoPedidoShow($componentesItem, $observacaoItem, $nomeItem) : [];
                                             ?>
                                             <tr>
-                                                <td class="text-center"><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></td>
-                                                <td>
+                                                <td class="text-center qtd-item"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></strong></td>
+                                                <td class="descricao-item">
                                                     <?php if (!empty($item['foto_path'])): ?>
                                                         <img src="<?= BASE_URL ?>/<?= ltrim($item['foto_path'], '/') ?>"
-                                                            alt="<?= htmlspecialchars($nomeItem) ?>" class="produto-foto-impressao"
+                                                            alt="<?= htmlspecialchars($nomeItemExibicao) ?>" class="produto-foto-impressao"
                                                             style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; float: left;"
                                                             onerror="this.style.display='none';">
                                                     <?php endif; ?>
-                                                    <div style="overflow: hidden;">
-                                                        <?= htmlspecialchars(strtoupper($nomeItem)) ?>
-                                                        <?php if (!empty($item['observacoes'])): ?>
-                                                            <br><small class="observacao-item text-muted"
-                                                                style="font-style: italic;"><?= htmlspecialchars($item['observacoes']) ?></small>
+                                                    <div class="texto-produto-impressao" style="overflow: hidden;">
+                                                        <strong><?= htmlspecialchars(strtoupper($nomeItemExibicao)) ?></strong>
+                                                        <?php if ($observacaoItem !== '' && !$obsFoiConcatenada): ?>
+                                                            <br><small class="observacao-item text-muted" style="font-style: italic;"><?= htmlspecialchars($observacaoItem) ?></small>
+                                                        <?php endif; ?>
+
+                                                        <?php if (!empty($componentesItemOrdenados)): ?>
+                                                            <div class="componentes-producao somente-producao">
+                                                                <strong>Componentes para produção:</strong>
+                                                                <?php foreach ($componentesItemOrdenados as $comp): ?>
+                                                                    <?php
+                                                                    $qtdComp = isset($comp['quantidade_componente']) ? (float)$comp['quantidade_componente'] : 1.0;
+                                                                    $qtdTotalComp = $quantidadeItem * ($qtdComp > 0 ? $qtdComp : 1.0);
+                                                                    $nomeComponenteProducao = montarNomeComponenteProducaoPedidoShow($comp, $observacaoItem, $nomeItem);
+                                                                    ?>
+                                                                    <div>
+                                                                        - <?= htmlspecialchars(formatarQuantidadeProducaoPedidoShow($qtdTotalComp)) ?>
+                                                                        <?= htmlspecialchars($nomeComponenteProducao) ?>
+                                                                    </div>
+                                                                <?php endforeach; ?>
+                                                            </div>
                                                         <?php endif; ?>
                                                     </div>
                                                 </td>
-                                                <td class="text-right">R$ <?= formatarValor($precoUnitarioItem) ?></td>
+                                                <td class="text-right col-financeira">R$ <?= formatarValor($precoUnitarioItem) ?></td>
                                                 <?php if ($temDesconto): ?>
-                                                    <td class="text-right">
+                                                    <td class="text-right col-financeira">
                                                         <?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?>
                                                     </td>
                                                 <?php endif; ?>
-                                                <td class="text-right">R$ <?= formatarValor($itemSubtotal) ?></td>
+                                                <td class="text-right col-financeira"><strong>R$ <?= formatarValor($itemSubtotal) ?></strong></td>
                                             </tr>
                                         <?php endif; ?>
                                         <?php
@@ -579,14 +898,43 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                                     <tr>
                                         <td>&nbsp;</td>
                                         <td>&nbsp;</td>
-                                        <td>&nbsp;</td>
-                                        <?php if ($temDesconto): ?><td>&nbsp;</td><?php endif; ?>
-                                        <td>&nbsp;</td>
+                                        <td class="col-financeira">&nbsp;</td>
+                                        <?php if ($temDesconto): ?><td class="col-financeira">&nbsp;</td><?php endif; ?>
+                                        <td class="col-financeira">&nbsp;</td>
                                     </tr>
                                 <?php endfor; ?>
                             </tbody>
                         </table>
                     </div>
+
+                    <?php if (!empty($resumoComponentesProducao)): ?>
+                        <div class="resumo-componentes-producao somente-producao">
+                            <div class="titulo-resumo-producao">RESUMO PARA PRODUÇÃO / SEPARAÇÃO</div>
+                            <table class="table table-sm table-bordered mb-0 tabela-resumo-producao">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 18%;">QTD</th>
+                                        <th>COMPONENTE / SERVIÇO</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach (agruparResumoProducaoPedidoShow($resumoComponentesProducao) as $grupoResumo): ?>
+                                        <tr class="grupo-resumo-producao">
+                                            <td colspan="2"><?= htmlspecialchars($grupoResumo['titulo']) ?></td>
+                                        </tr>
+                                        <?php foreach ($grupoResumo['itens'] as $resumoComp): ?>
+                                            <tr>
+                                                <td class="text-center font-weight-bold">
+                                                    <?= htmlspecialchars(formatarQuantidadeProducaoPedidoShow((float)$resumoComp['quantidade'])) ?>
+                                                </td>
+                                                <td><?= htmlspecialchars($resumoComp['nome_produto'] ?? 'Componente') ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
 
                     <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
                     <div class="row mb-3">
@@ -615,7 +963,7 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
                         <div class="col-5 taxas-fretes text-right">
                             <?php
                             // Função para verificar se uma taxa deve ser exibida
-                            function exibirTaxa($valor, $valorPadrao = null)
+                            function exibirTaxa(mixed $valor, mixed $valorPadrao = null): string
                             {
                                 if (is_numeric($valor) && $valor > 0) {
                                     return 'R$ ' . formatarValor($valor);
@@ -900,6 +1248,55 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
         align-items: center;
     }
 
+
+    .somente-producao {
+        display: none;
+    }
+
+    .componentes-producao {
+        clear: both;
+        margin-top: 4px;
+        padding: 4px 6px;
+        border-left: 3px solid #666;
+        background: #f7f7f7;
+        font-size: 9.4pt;
+        line-height: 1.18;
+        color: #000;
+    }
+
+    .resumo-componentes-producao {
+        margin: 6px 0 8px 0;
+        padding: 6px 8px;
+        border: 2px solid #000;
+        background: #f2f2f2;
+        color: #000;
+        page-break-inside: avoid;
+    }
+
+    .titulo-resumo-producao {
+        font-weight: 900;
+        font-size: 12pt;
+        margin-bottom: 4px;
+        text-align: center;
+        border-bottom: 1px solid #000;
+        padding-bottom: 3px;
+    }
+
+    .tabela-resumo-producao th,
+    .tabela-resumo-producao td {
+        border: 1px solid #777 !important;
+        color: #000 !important;
+        font-size: 10.5pt;
+        padding: 3px 6px !important;
+    }
+
+    .grupo-resumo-producao td {
+        background: #e9ecef !important;
+        font-weight: 900;
+        text-transform: uppercase;
+        text-align: left;
+    }
+
     @media print {
         body {
             font-size: 10pt;
@@ -971,50 +1368,93 @@ $inline_js_setup = "const PEDIDO_ID = " . $id . ";";
         .impressao-cliente .observacao-item {
             display: none !important;
         }
+
+        .impressao-producao .somente-producao {
+            display: block !important;
+        }
+
+        .impressao-cliente .somente-producao {
+            display: none !important;
+        }
+
+        .impressao-producao .card-financeiro-barra,
+        .impressao-producao .obs-taxas-regras,
+        .impressao-producao .bloco-pagamento-taxas,
+        .impressao-producao .info-pix,
+        .impressao-producao .forma-pagamento,
+        .impressao-producao .taxas-fretes,
+        .impressao-producao .obs-gerais,
+        .impressao-producao .observacoes-adicionais,
+        .impressao-producao .row.mb-3:has(.obs-gerais) {
+            display: none !important;
+        }
+
+        .impressao-producao .col-financeira {
+            display: none !important;
+        }
+
+        .impressao-producao .componentes-producao {
+            display: block !important;
+            font-size: 9.2pt !important;
+            margin-top: 3px !important;
+            padding: 3px 5px !important;
+        }
+
+        .impressao-producao .resumo-componentes-producao {
+            display: block !important;
+        }
     }
 </style>
 
 <script>
-    // Funções de impressão (iguais ao orçamento)
-    function imprimirCliente() {
-        console.log('Função imprimirCliente chamada');
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
-        observacoes.forEach(function (el) {
-            el.style.display = 'none';
-        });
-        document.body.classList.add('impressao-cliente');
-        window.print();
-        setTimeout(function () {
-            observacoes.forEach(function (el) {
-                el.style.display = 'block';
-            });
-            document.body.classList.remove('impressao-cliente');
-            console.log('Observações restauradas');
-        }, 1000);
+function definirTituloDocumentoPedido(tipo) {
+    if (tipo === 'producao' && window.NOME_ARQUIVO_PRODUCAO) {
+        document.title = window.NOME_ARQUIVO_PRODUCAO;
+        return;
     }
 
-    function imprimirProducao() {
-        console.log('Função imprimirProducao chamada');
-        var observacoes = document.querySelectorAll('.observacao-item');
-        console.log('Observações encontradas:', observacoes.length);
-        observacoes.forEach(function (el) {
-            el.style.display = 'block';
-        });
-        document.body.classList.add('impressao-producao');
-        window.print();
-        setTimeout(function () {
-            document.body.classList.remove('impressao-producao');
-            console.log('Classe impressao-producao removida');
-        }, 1000);
+    if (tipo === 'cliente' && window.NOME_ARQUIVO_CLIENTE) {
+        document.title = window.NOME_ARQUIVO_CLIENTE;
+        return;
     }
 
-    // Teste se as funções estão carregadas
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('JavaScript carregado com sucesso');
-        console.log('Função imprimirCliente:', typeof imprimirCliente);
-        console.log('Função imprimirProducao:', typeof imprimirProducao);
-    });
+    if (window.NOME_ARQUIVO_DOCUMENTO) {
+        document.title = window.NOME_ARQUIVO_DOCUMENTO;
+    }
+}
+
+function limparModoImpressaoPedido() {
+    var observacoes = document.querySelectorAll('.observacao-item');
+    observacoes.forEach(function (el) { el.style.display = ''; });
+    document.body.classList.remove('impressao-cliente');
+    document.body.classList.remove('impressao-producao');
+    definirTituloDocumentoPedido('visualizacao');
+    window.onafterprint = null;
+}
+
+function imprimirCliente() {
+    var observacoes = document.querySelectorAll('.observacao-item');
+    observacoes.forEach(function (el) { el.style.display = 'none'; });
+    document.body.classList.remove('impressao-producao');
+    document.body.classList.add('impressao-cliente');
+    definirTituloDocumentoPedido('cliente');
+    window.onafterprint = limparModoImpressaoPedido;
+    window.print();
+}
+
+function imprimirProducao() {
+    var observacoes = document.querySelectorAll('.observacao-item');
+    observacoes.forEach(function (el) { el.style.display = 'inline'; });
+    document.body.classList.remove('impressao-cliente');
+    document.body.classList.add('impressao-producao');
+    definirTituloDocumentoPedido('producao');
+    window.onafterprint = limparModoImpressaoPedido;
+    window.print();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    definirTituloDocumentoPedido('visualizacao');
+});
 </script>
 
 <?php
