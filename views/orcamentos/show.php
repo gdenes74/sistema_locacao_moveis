@@ -187,8 +187,50 @@ if (!function_exists('carregarComponentesProdutosCompostosOrcamentoShow')) {
     }
 }
 
+if (!function_exists('observacaoItemUsadaComoCorOrcamentoShow')) {
+    function observacaoItemUsadaComoCorOrcamentoShow(mixed $nomeItem, mixed $observacaoItem = ''): bool
+    {
+        $observacaoItem = trim((string)$observacaoItem);
+        if ($observacaoItem === '') {
+            return false;
+        }
+
+        $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
+        $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
+
+        return strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false
+            && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
+    }
+}
+
+if (!function_exists('montarNomeComponenteProducaoOrcamentoShow')) {
+    function montarNomeComponenteProducaoOrcamentoShow(array $componente, mixed $observacaoItem = '', mixed $nomeItem = ''): string
+    {
+        $nomeComponente = trim((string)($componente['nome_produto'] ?? 'Componente'));
+        $observacaoItem = trim((string)$observacaoItem);
+
+        if ($nomeComponente === '') {
+            $nomeComponente = 'Componente';
+        }
+
+        $tipoProduto = normalizarTextoComparacaoMobel($componente['tipo_produto'] ?? '');
+        $nomeComponenteNormalizado = normalizarTextoComparacaoMobel($nomeComponente);
+
+        $ehServicoForracao = $tipoProduto === 'SERVICO'
+            || strpos($nomeComponenteNormalizado, 'SERVICO FORRACAO') !== false
+            || strpos($nomeComponenteNormalizado, 'FORRACAO') !== false;
+
+        if ($ehServicoForracao && observacaoItemUsadaComoCorOrcamentoShow($nomeItem, $observacaoItem)) {
+            $nomeComponenteSemDefinir = preg_replace('/\s+COR\s+A\s+DEFINIR\s*$/iu', '', $nomeComponente);
+            return trim($nomeComponenteSemDefinir . ' Cor ' . $observacaoItem);
+        }
+
+        return $nomeComponente;
+    }
+}
+
 if (!function_exists('adicionarComponenteResumoProducaoOrcamentoShow')) {
-    function adicionarComponenteResumoProducaoOrcamentoShow(array &$resumo, array $componente, float $quantidadeItem): void
+    function adicionarComponenteResumoProducaoOrcamentoShow(array &$resumo, array $componente, float $quantidadeItem, mixed $observacaoItem = '', mixed $nomeItem = ''): void
     {
         $filhoId = isset($componente['produto_filho_id']) ? (int)$componente['produto_filho_id'] : 0;
         if ($filhoId <= 0) {
@@ -202,15 +244,19 @@ if (!function_exists('adicionarComponenteResumoProducaoOrcamentoShow')) {
 
         $quantidadeTotal = $quantidadeItem * $quantidadeComponente;
 
-        if (!isset($resumo[$filhoId])) {
-            $resumo[$filhoId] = [
-                'nome_produto' => $componente['nome_produto'] ?? 'Componente',
+        $nomeComponenteProducao = montarNomeComponenteProducaoOrcamentoShow($componente, $observacaoItem, $nomeItem);
+        $chaveResumo = $filhoId . '|' . normalizarTextoComparacaoMobel($nomeComponenteProducao);
+
+        if (!isset($resumo[$chaveResumo])) {
+            $resumo[$chaveResumo] = [
+                'produto_filho_id' => $filhoId,
+                'nome_produto' => $nomeComponenteProducao,
                 'tipo_produto' => $componente['tipo_produto'] ?? '',
                 'quantidade' => 0.0,
             ];
         }
 
-        $resumo[$filhoId]['quantidade'] += $quantidadeTotal;
+        $resumo[$chaveResumo]['quantidade'] += $quantidadeTotal;
     }
 }
 
@@ -221,6 +267,100 @@ if (!function_exists('formatarQuantidadeProducaoOrcamentoShow')) {
             return number_format($quantidade, 0, ',', '.');
         }
         return number_format($quantidade, 2, ',', '.');
+    }
+}
+
+
+if (!function_exists('grupoProducaoOrcamentoShow')) {
+    function grupoProducaoOrcamentoShow(mixed $nomeProduto, mixed $tipoProduto = ''): array
+    {
+        $nomeNormalizado = normalizarTextoComparacaoMobel($nomeProduto);
+        $tipoNormalizado = normalizarTextoComparacaoMobel($tipoProduto);
+
+        if (strpos($nomeNormalizado, 'CAPA') !== false) {
+            return ['chave' => 'capas', 'titulo' => 'CAPAS', 'ordem' => 10];
+        }
+
+        if ($tipoNormalizado === 'SERVICO'
+            || strpos($nomeNormalizado, 'FORRACAO') !== false
+            || strpos($nomeNormalizado, 'SERVICO') !== false) {
+            return ['chave' => 'servicos', 'titulo' => 'FORRAÇÕES / SERVIÇOS', 'ordem' => 20];
+        }
+
+        if (strpos($nomeNormalizado, 'ESTRUTURA') !== false) {
+            return ['chave' => 'estruturas', 'titulo' => 'ESTRUTURAS', 'ordem' => 30];
+        }
+
+        return ['chave' => 'outros', 'titulo' => 'OUTROS COMPONENTES', 'ordem' => 40];
+    }
+}
+
+if (!function_exists('ordenarComponentesProducaoOrcamentoShow')) {
+    function ordenarComponentesProducaoOrcamentoShow(array $componentes, mixed $observacaoItem = '', mixed $nomeItem = ''): array
+    {
+        usort($componentes, function ($a, $b) use ($observacaoItem, $nomeItem) {
+            $nomeA = montarNomeComponenteProducaoOrcamentoShow($a, $observacaoItem, $nomeItem);
+            $nomeB = montarNomeComponenteProducaoOrcamentoShow($b, $observacaoItem, $nomeItem);
+            $grupoA = grupoProducaoOrcamentoShow($nomeA, $a['tipo_produto'] ?? '');
+            $grupoB = grupoProducaoOrcamentoShow($nomeB, $b['tipo_produto'] ?? '');
+
+            if ($grupoA['ordem'] !== $grupoB['ordem']) {
+                return $grupoA['ordem'] <=> $grupoB['ordem'];
+            }
+
+            return strnatcasecmp($nomeA, $nomeB);
+        });
+
+        return $componentes;
+    }
+}
+
+if (!function_exists('agruparResumoProducaoOrcamentoShow')) {
+    function agruparResumoProducaoOrcamentoShow(array $resumo): array
+    {
+        $grupos = [];
+
+        foreach ($resumo as $itemResumo) {
+            $grupo = grupoProducaoOrcamentoShow($itemResumo['nome_produto'] ?? '', $itemResumo['tipo_produto'] ?? '');
+            $chave = $grupo['chave'];
+
+            if (!isset($grupos[$chave])) {
+                $grupos[$chave] = [
+                    'titulo' => $grupo['titulo'],
+                    'ordem' => $grupo['ordem'],
+                    'itens' => []
+                ];
+            }
+
+            $grupos[$chave]['itens'][] = $itemResumo;
+        }
+
+        uasort($grupos, function ($a, $b) {
+            return $a['ordem'] <=> $b['ordem'];
+        });
+
+        foreach ($grupos as &$grupo) {
+            usort($grupo['itens'], function ($a, $b) {
+                return strnatcasecmp((string)($a['nome_produto'] ?? ''), (string)($b['nome_produto'] ?? ''));
+            });
+        }
+        unset($grupo);
+
+        return $grupos;
+    }
+}
+
+if (!function_exists('limparNomeArquivoOrcamentoShow')) {
+    function limparNomeArquivoOrcamentoShow(mixed $texto): string
+    {
+        $texto = trim((string)$texto);
+
+        // Remove caracteres inválidos para nome de arquivo no Windows sem usar regex complexo.
+        // Evita warnings como: preg_replace(): Unknown modifier '\'.
+        $texto = str_replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], ' ', $texto);
+        $texto = preg_replace('/\s+/', ' ', $texto) ?? $texto;
+
+        return trim($texto) ?: 'SEM NOME';
     }
 }
 
@@ -285,7 +425,26 @@ $itens = $orcamentoModel->getItens($id);
 $componentesPorProduto = is_array($itens) ? carregarComponentesProdutosCompostosOrcamentoShow($conn, $itens) : [];
 $resumoComponentesProducao = [];
 
-$inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE_URL . "';";
+$dataEventoArquivo = 'sem-data';
+if (!empty($orcamentoModel->data_evento)) {
+    $timestampEventoArquivo = strtotime($orcamentoModel->data_evento);
+    if ($timestampEventoArquivo !== false) {
+        $dataEventoArquivo = date('d.m.y', $timestampEventoArquivo);
+    }
+}
+
+$nomeClienteArquivo = limparNomeArquivoOrcamentoShow($clienteModel->nome ?? 'Cliente');
+$numeroOrcamentoArquivo = limparNomeArquivoOrcamentoShow($orcamentoModel->numero ?? $orcamentoModel->id ?? $id);
+$nomeArquivoDocumento = limparNomeArquivoOrcamentoShow($dataEventoArquivo . ' - ' . $nomeClienteArquivo . ' - ORCAMENTO ' . $numeroOrcamentoArquivo);
+$page_title = $nomeArquivoDocumento;
+
+$nomeArquivoCliente = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - CLIENTE');
+$nomeArquivoProducao = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - PRODUCAO');
+
+$inline_js_setup = "window.ORCAMENTO_ID = " . $id
+    . "; window.NOME_ARQUIVO_DOCUMENTO = " . json_encode($nomeArquivoDocumento, JSON_UNESCAPED_UNICODE)
+    . "; window.NOME_ARQUIVO_CLIENTE = " . json_encode($nomeArquivoCliente, JSON_UNESCAPED_UNICODE)
+    . "; window.NOME_ARQUIVO_PRODUCAO = " . json_encode($nomeArquivoProducao, JSON_UNESCAPED_UNICODE) . ";";
 ?>
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
@@ -533,12 +692,16 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
                                             $observacaoItem = trim((string)($item['observacoes'] ?? ''));
                                             $nomeItemExibicao = montarNomeItemOrcamentoImpressao($nomeItem, $observacaoItem);
                                             $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
-                                            $obsFoiConcatenada = $observacaoItem !== '' && strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false && normalizarTextoComparacaoMobel($observacaoItem) !== 'A DEFINIR';
+                                            $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
+                                            $obsFoiConcatenada = $observacaoItem !== ''
+                                                && strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false
+                                                && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
                                             $produtoIdItem = isset($item['produto_id']) ? (int)$item['produto_id'] : 0;
                                             $componentesItem = $produtoIdItem > 0 && isset($componentesPorProduto[$produtoIdItem]) ? $componentesPorProduto[$produtoIdItem] : [];
                                             if (!empty($componentesItem)) {
+                                                $componentesItem = ordenarComponentesProducaoOrcamentoShow($componentesItem, $observacaoItem, $nomeItem);
                                                 foreach ($componentesItem as $componenteItem) {
-                                                    adicionarComponenteResumoProducaoOrcamentoShow($resumoComponentesProducao, $componenteItem, $quantidadeItem);
+                                                    adicionarComponenteResumoProducaoOrcamentoShow($resumoComponentesProducao, $componenteItem, $quantidadeItem, $observacaoItem, $nomeItem);
                                                 }
                                             }
                                             ?>
@@ -555,8 +718,6 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
                                                         <strong><?= htmlspecialchars(strtoupper($nomeItemExibicao), ENT_QUOTES, 'UTF-8') ?></strong>
                                                         <?php if ($observacaoItem !== '' && !$obsFoiConcatenada): ?>
                                                             <br><small class="observacao-item"><?= htmlspecialchars($observacaoItem, ENT_QUOTES, 'UTF-8') ?></small>
-                                                        <?php elseif ($observacaoItem !== '' && $obsFoiConcatenada): ?>
-                                                            <br><small class="observacao-item observacao-producao">Obs.: <?= htmlspecialchars($observacaoItem, ENT_QUOTES, 'UTF-8') ?></small>
                                                         <?php endif; ?>
 
                                                         <?php if (!empty($componentesItem)): ?>
@@ -566,10 +727,11 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
                                                                     <?php
                                                                     $qtdComp = isset($comp['quantidade_componente']) ? (float)$comp['quantidade_componente'] : 1.0;
                                                                     $qtdTotalComp = $quantidadeItem * ($qtdComp > 0 ? $qtdComp : 1.0);
+                                                                    $nomeComponenteProducao = montarNomeComponenteProducaoOrcamentoShow($comp, $observacaoItem, $nomeItem);
                                                                     ?>
                                                                     <div>
                                                                         - <?= htmlspecialchars(formatarQuantidadeProducaoOrcamentoShow($qtdTotalComp), ENT_QUOTES, 'UTF-8') ?>
-                                                                        <?= htmlspecialchars($comp['nome_produto'] ?? 'Componente', ENT_QUOTES, 'UTF-8') ?>
+                                                                        <?= htmlspecialchars($nomeComponenteProducao, ENT_QUOTES, 'UTF-8') ?>
                                                                     </div>
                                                                 <?php endforeach; ?>
                                                             </div>
@@ -613,14 +775,32 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
                     <?php if (!empty($resumoComponentesProducao)): ?>
                         <div class="resumo-componentes-producao somente-producao">
                             <div class="titulo-resumo-producao">RESUMO PARA PRODUÇÃO / SEPARAÇÃO</div>
-                            <div class="row">
-                                <?php foreach ($resumoComponentesProducao as $resumoComp): ?>
-                                    <div class="col-6 item-resumo-producao">
-                                        <strong><?= htmlspecialchars(formatarQuantidadeProducaoOrcamentoShow((float)$resumoComp['quantidade']), ENT_QUOTES, 'UTF-8') ?></strong>
-                                        <?= htmlspecialchars($resumoComp['nome_produto'] ?? 'Componente', ENT_QUOTES, 'UTF-8') ?>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
+                            <?php $gruposResumoProducao = agruparResumoProducaoOrcamentoShow($resumoComponentesProducao); ?>
+                            <table class="table table-sm table-bordered tabela-resumo-producao mb-0">
+                                <thead>
+                                    <tr>
+                                        <th class="text-center" style="width: 12%;">QTD</th>
+                                        <th>COMPONENTE / SERVIÇO</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($gruposResumoProducao as $grupoResumo): ?>
+                                        <tr class="linha-grupo-resumo-producao">
+                                            <td colspan="2"><?= htmlspecialchars($grupoResumo['titulo'], ENT_QUOTES, 'UTF-8') ?></td>
+                                        </tr>
+                                        <?php foreach ($grupoResumo['itens'] as $resumoComp): ?>
+                                            <tr>
+                                                <td class="text-center font-weight-bold">
+                                                    <?= htmlspecialchars(formatarQuantidadeProducaoOrcamentoShow((float)$resumoComp['quantidade']), ENT_QUOTES, 'UTF-8') ?>
+                                                </td>
+                                                <td>
+                                                    <?= htmlspecialchars($resumoComp['nome_produto'] ?? 'Componente', ENT_QUOTES, 'UTF-8') ?>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
                         </div>
                     <?php endif; ?>
 
@@ -809,9 +989,34 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
         padding-bottom: 3px;
     }
 
-    .item-resumo-producao {
+    .tabela-resumo-producao {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 4px;
+    }
+
+    .tabela-resumo-producao th,
+    .tabela-resumo-producao td {
+        border: 1px solid #000 !important;
+        padding: 3px 6px !important;
         font-size: 10.5pt;
-        line-height: 1.35;
+        color: #000 !important;
+        vertical-align: middle;
+    }
+
+    .tabela-resumo-producao th {
+        background: #e6e6e6 !important;
+        font-weight: 900;
+        text-align: center;
+    }
+
+
+    .tabela-resumo-producao .linha-grupo-resumo-producao td {
+        background: #e6e6e6 !important;
+        font-weight: 900;
+        text-transform: uppercase;
+        text-align: left;
+        border-top: 2px solid #000 !important;
     }
 
     .obs-taxas-regras {
@@ -1153,6 +1358,12 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
             display: block !important;
         }
 
+        .impressao-producao .tabela-resumo-producao th,
+        .impressao-producao .tabela-resumo-producao td {
+            font-size: 9.6pt !important;
+            padding: 2px 5px !important;
+        }
+
         .impressao-producao .box-data-evento,
         .impressao-producao .destaque-amarelo {
             font-size: 10.8pt !important;
@@ -1161,11 +1372,32 @@ $inline_js_setup = "const ORCAMENTO_ID = " . $id . "; const BASE_URL = '" . BASE
 </style>
 
 <script>
+if (window.NOME_ARQUIVO_DOCUMENTO) {
+    document.title = window.NOME_ARQUIVO_DOCUMENTO;
+}
+
+function definirTituloDocumentoOrcamento(tipo) {
+    if (tipo === 'producao' && window.NOME_ARQUIVO_PRODUCAO) {
+        document.title = window.NOME_ARQUIVO_PRODUCAO;
+        return;
+    }
+
+    if (tipo === 'cliente' && window.NOME_ARQUIVO_CLIENTE) {
+        document.title = window.NOME_ARQUIVO_CLIENTE;
+        return;
+    }
+
+    if (window.NOME_ARQUIVO_DOCUMENTO) {
+        document.title = window.NOME_ARQUIVO_DOCUMENTO;
+    }
+}
+
 function limparModoImpressaoOrcamento() {
     var observacoes = document.querySelectorAll('.observacao-item');
     observacoes.forEach(function (el) { el.style.display = ''; });
     document.body.classList.remove('impressao-cliente');
     document.body.classList.remove('impressao-producao');
+    definirTituloDocumentoOrcamento('visualizacao');
     window.onafterprint = null;
 }
 
@@ -1174,6 +1406,7 @@ function imprimirCliente() {
     observacoes.forEach(function (el) { el.style.display = 'none'; });
     document.body.classList.remove('impressao-producao');
     document.body.classList.add('impressao-cliente');
+    definirTituloDocumentoOrcamento('cliente');
     window.onafterprint = limparModoImpressaoOrcamento;
     window.print();
 }
@@ -1183,6 +1416,7 @@ function imprimirProducao() {
     observacoes.forEach(function (el) { el.style.display = 'inline'; });
     document.body.classList.remove('impressao-cliente');
     document.body.classList.add('impressao-producao');
+    definirTituloDocumentoOrcamento('producao');
     window.onafterprint = limparModoImpressaoOrcamento;
     window.print();
 }
@@ -1230,7 +1464,7 @@ $(document).ready(function() {
                 $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Convertendo...');
 
                 $.ajax({
-                    url: `${BASE_URL}/views/orcamentos/converter_pedido.php`,
+                    url: `${window.BASE_URL || '<?= BASE_URL ?>'}/views/orcamentos/converter_pedido.php`,
                     type: 'POST',
                     data: { orcamento_id: orcamentoId },
                     dataType: 'json',
@@ -1250,7 +1484,7 @@ $(document).ready(function() {
                                 confirmButtonText: '<i class="fas fa-edit"></i> Editar Pedido',
                                 confirmButtonColor: '#007bff'
                             }).then(() => {
-                                window.location.href = `${BASE_URL}/views/pedidos/edit.php?id=${response.pedido_id}&converted=1`;
+                                window.location.href = `${window.BASE_URL || '<?= BASE_URL ?>'}/views/pedidos/edit.php?id=${response.pedido_id}&converted=1`;
                             });
                         } else {
                             Swal.fire({
@@ -1294,8 +1528,8 @@ $(document).ready(function() {
 <?php
 $custom_js = <<<'JS'
 console.log('Show.php carregado com visual compacto, componentes de produção e concatenação de cor.');
-console.log('ORCAMENTO_ID:', typeof ORCAMENTO_ID !== 'undefined' ? ORCAMENTO_ID : 'não definido');
-console.log('BASE_URL:', typeof BASE_URL !== 'undefined' ? BASE_URL : 'não definido');
+console.log('ORCAMENTO_ID:', typeof window.ORCAMENTO_ID !== 'undefined' ? window.ORCAMENTO_ID : 'não definido');
+console.log('BASE_URL:', typeof window.BASE_URL !== 'undefined' ? window.BASE_URL : 'não definido');
 JS;
 
 include_once __DIR__ . '/../includes/footer.php';

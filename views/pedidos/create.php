@@ -974,27 +974,30 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
 
-                        <div class="table-responsive mt-3">
-                            <table class="table table-bordered table-hover" id="tabela_itens_pedido">
-                                <thead class="thead-light">
-                                    <tr>
-                                        <th style="width: 35%;">Produto/Serviço/Seção <span class="text-danger">*</span></th>
-                                        <th style="width: 10%;">Qtd. <span class="text-danger">*</span></th>
-                                        <th style="width: 15%;">Vlr. Unit. (R$)</th>
-                                        <th style="width: 15%;">Desc. Item (R$)</th>
-                                        <th style="width: 15%;">Subtotal (R$)</th>
-                                        <th style="width: 10%;">Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                                <tfoot>
-                                    <tr>
-                                        <td colspan="4" class="text-right"><strong>Subtotal dos Itens:</strong></td>
-                                        <td id="subtotal_geral_itens" class="text-right font-weight-bold">A confirmar</td>
-                                        <td></td>
-                                    </tr>
-                                </tfoot>
-                            </table>
+                        <div class="itens-scroll-container mt-3">
+                            <div class="table-responsive mb-0">
+                                <table class="table table-bordered table-hover mb-0" id="tabela_itens_pedido">
+                                    <thead class="thead-light">
+                                        <tr>
+                                            <th style="width: 34%;">Produto/Serviço/Seção <span class="text-danger">*</span></th>
+                                            <th style="width: 20%;">Status</th>
+                                            <th style="width: 6%;">Qtd. <span class="text-danger">*</span></th>
+                                            <th style="width: 11%;">Vlr. Unit. (R$)</th>
+                                            <th style="width: 8%;">Desc. Item (R$)</th>
+                                            <th style="width: 9%;">Subtotal (R$)</th>
+                                            <th style="width: 12%;">Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan="5" class="text-right"><strong>Subtotal dos Itens:</strong></td>
+                                            <td id="subtotal_geral_itens" class="text-right font-weight-bold">A confirmar</td>
+                                            <td></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
                         </div>
                         <div class="mt-2">
                             <button type="button" class="btn btn-info btn-sm mr-2" id="btn_adicionar_titulo_secao">
@@ -1307,6 +1310,97 @@ include_once __DIR__ . '/../includes/header.php';
                         position: absolute;
                         z-index: 1050;
                     }
+                    .itens-scroll-container {
+                        max-height: 520px;
+                        min-height: 220px;
+                        overflow-y: auto;
+                        overflow-x: auto;
+                        border: 1px solid #dee2e6;
+                        border-radius: 4px;
+                        background: #ffffff;
+                    }
+                    .itens-scroll-container thead th {
+                        position: sticky;
+                        top: 0;
+                        z-index: 5;
+                        background: #e9ecef;
+                    }
+                    .itens-scroll-container tfoot td {
+                        position: sticky;
+                        bottom: 0;
+                        z-index: 4;
+                        background: #ffffff;
+                    }
+                    @media (max-height: 760px) {
+                        .itens-scroll-container {
+                            max-height: 430px;
+                        }
+                    }
+
+                    /* Status compacto de disponibilidade na coluna própria */
+                    #tabela_itens_pedido th,
+                    #tabela_itens_pedido td {
+                        vertical-align: middle !important;
+                    }
+                    .status-disponibilidade-cell {
+                        min-width: 210px;
+                        vertical-align: middle !important;
+                    }
+                    .status-disponibilidade-cell .disponibilidade-contexto {
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 100%;
+                        min-height: 30px;
+                        margin-top: 0 !important;
+                        padding: 5px 8px;
+                        border-radius: 8px;
+                        font-size: 0.69rem;
+                        font-weight: 800;
+                        line-height: 1.1;
+                        text-align: center;
+                        white-space: nowrap;
+                    }
+                    .disponibilidade-contexto .status-principal {
+                        display: inline;
+                        font-size: 0.69rem;
+                        letter-spacing: 0.02em;
+                        text-transform: uppercase;
+                        font-weight: 900;
+                    }
+                    .disponibilidade-contexto .status-detalhe {
+                        display: inline;
+                        margin-left: 4px;
+                        font-size: 0.68rem;
+                        font-weight: 800;
+                        opacity: 0.96;
+                    }
+                    .disponibilidade-contexto .status-abrir {
+                        display: none;
+                    }
+                    #tabela_itens_pedido td:last-child {
+                        white-space: nowrap;
+                        min-width: 105px;
+                    }
+                    #tabela_itens_pedido td:last-child .btn,
+                    #tabela_itens_pedido td:last-child .drag-handle {
+                        display: inline-block;
+                        margin-right: 5px !important;
+                        vertical-align: middle;
+                    }
+                    #tabela_itens_pedido .desconto_item {
+                        min-width: 76px;
+                    }
+                    #tabela_itens_pedido .subtotal_item_display {
+                        min-width: 82px;
+                    }
+                    .disponibilidade-contexto.status-neutro {
+                        background: #eef2f7;
+                        border: 1px solid #cbd5e1;
+                        color: #475569;
+                    }
+
                     #painel_consulta_disponibilidade {
                         position: relative;
                         width: 100%;
@@ -1785,6 +1879,17 @@ $(document).ready(function() {
         }
     }
 
+    function rolarTabelaItensParaLinha($row) {
+        var $container = $('.itens-scroll-container');
+        if (!$container.length || !$row || !$row.length) { return; }
+
+        setTimeout(function() {
+            $container.stop(true).animate({
+                scrollTop: $container[0].scrollHeight
+            }, 180);
+        }, 60);
+    }
+
     function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
         itemIndex++;
         var tipoLinha = tipoLinhaParam;
@@ -1820,7 +1925,9 @@ $(document).ready(function() {
                     <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
                     <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
                     <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item">
-                    <div class="disponibilidade-contexto mt-2" style="display:none;"></div>
+                </td>
+                <td class="status-disponibilidade-cell text-center">
+                    <div class="disponibilidade-contexto status-neutro" style="display:none;"></div>
                 </td>
                 <td>
                     <input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" data-valor-original="${quantidadeDefault}" style="width: 70px;">
@@ -1840,7 +1947,7 @@ $(document).ready(function() {
             </tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-pedido-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;">
-                <td colspan="5">
+                <td colspan="6">
                     <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
                     <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);">
                     <input type="hidden" name="produto_id[]" value="">
@@ -1860,13 +1967,21 @@ $(document).ready(function() {
 
         if (htmlLinha) {
             $('#tabela_itens_pedido tbody').append(htmlLinha);
+            var $novaLinha = $('#tabela_itens_pedido tbody tr:last-child');
+            atualizarOrdemDosItens();
             if (tipoLinha === 'CABECALHO_SECAO') {
-                $('#tabela_itens_pedido tbody tr:last-child .nome_titulo_secao').focus();
+                $novaLinha.find('.nome_titulo_secao').focus();
+                rolarTabelaItensParaLinha($novaLinha);
+            } else if (tipoLinha === 'PRODUTO') {
+                if (produtoIdInput) {
+                    atualizarContextoDisponibilidadeLinha($novaLinha, false);
+                }
+                rolarTabelaItensParaLinha($novaLinha);
+                setTimeout(function() {
+                    $novaLinha.find('.item-qtd').focus().select();
+                }, 120);
             }
             calcularTotaisPedido();
-            if (tipoLinha === 'PRODUTO' && produtoIdInput) {
-                atualizarContextoDisponibilidadeLinha($('#tabela_itens_pedido tbody tr:last'), false);
-            }
         }
     }
 
@@ -2072,34 +2187,21 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
     function montarResumoLinhaDisponibilidade(response) {
         if (!response) {
-            return '';
+            return '<span class="status-principal">CONSULTAR</span><span class="status-detalhe">· abrir painel</span>';
         }
+
         const comprometido = parseInt(response.comprometido_periodo || 0, 10);
         const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
+        const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
-        let resumo = `<strong>${statusTexto}</strong> · Pedidos: ${comprometido} · Neste pedido: ${reservadoAtual} · Livre após: ${livreApos} <span class="ml-1 text-muted">(abrir painel)</span>`;
 
-        if (response.produto_composto && response.componentes && response.componentes.length > 0) {
-            const componentesResumo = response.componentes.map(function(comp) {
-                const nome = comp.nome_produto || comp.produto_nome || comp.nome || 'Componente';
-                const reservadoComponente = parseInt((comp.reservado_orcamento_atual ?? comp.quantidade_necessaria ?? 0), 10);
-                const livreAposComponente = parseInt(
-                    comp.livre_apos_orcamento !== undefined
-                        ? comp.livre_apos_orcamento
-                        : (comp.livre_periodo !== undefined ? comp.livre_periodo : 0),
-                    10
-                );
-                const faltanteComponente = parseInt(comp.faltante_orcamento || 0, 10);
-                return `${escapeHtml(nome)}: neste pedido ${reservadoComponente}, livre após ${livreAposComponente}${faltanteComponente > 0 ? `, faltando ${faltanteComponente}` : ''}`;
-            }).join(' | ');
-
-            if (componentesResumo) {
-                resumo += `<span class="d-block mt-1 font-weight-normal">Componentes: ${componentesResumo}</span>`;
-            }
+        let detalhe = `· Ped. ${comprometido} · Ped. atual ${reservadoAtual} · Livre ${livreApos}`;
+        if (faltante > 0) {
+            detalhe = `· Faltando ${faltante}`;
         }
 
-        return resumo;
+        return `<span class="status-principal">${statusTexto}</span><span class="status-detalhe">${detalhe}</span>`;
     }
 
     function atualizarPainelConsultaDisponibilidade(nomeProduto, response) {
@@ -2696,4 +2798,4 @@ if (response.produto_composto && response.componentes && response.componentes.le
 JS;
 
 include_once __DIR__ . '/../includes/footer.php';
-?>
+?>  
