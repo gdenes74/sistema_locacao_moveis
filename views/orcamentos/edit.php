@@ -870,6 +870,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                     <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
                                                     <td>
                                                         <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                                                        <button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button>
                                                         <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
                                                         <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
                                                     </td>
@@ -1379,6 +1380,12 @@ include_once __DIR__ . '/../includes/header.php';
     #tabela_itens_orcamento .desconto_item { min-width: 76px; }
     #tabela_itens_orcamento .subtotal_item_display { min-width: 82px; }
 
+    .item-orcamento-row.row-em-troca-produto td {
+        background: #e0f2fe !important;
+        outline: 2px solid #0284c7;
+        outline-offset: -2px;
+    }
+
 </style>
 
 <?php
@@ -1414,7 +1421,7 @@ $(document).ready(function() {
         localEventoOriginal = $(this).val();
     });
 
-    var itemIndex = 0; 
+    var itemIndex = $('#tabela_itens_orcamento tbody tr.item-orcamento-row').length; 
     function unformatCurrency(value) {
         if (value === null || typeof value === 'undefined' || value === '') return 0;
         if (typeof value !== 'string') value = String(value);
@@ -1431,6 +1438,89 @@ $(document).ready(function() {
     function escapeHtml(text) {
         if (text === null || text === undefined) { return ''; }
         return $('<div>').text(text).html();
+    }
+
+    let linhaSelecionadaParaTrocaProduto = null;
+
+    function normalizarTextoComparacaoJS(texto) {
+        return String(texto || '')
+            .trim()
+            .toUpperCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function limparSelecaoTrocaProduto() {
+        if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
+            linhaSelecionadaParaTrocaProduto.removeClass('row-em-troca-produto');
+        }
+        linhaSelecionadaParaTrocaProduto = null;
+    }
+
+    function selecionarLinhaParaTrocaProduto($row) {
+        limparSelecaoTrocaProduto();
+        linhaSelecionadaParaTrocaProduto = $row;
+        $row.addClass('row-em-troca-produto');
+
+        const nomeAtual = $row.find('.nome_produto_display').val() || 'produto atual';
+        $('#busca_produto').focus().select();
+
+        if (typeof toastr !== 'undefined') {
+            toastr.info('Escolha na busca o novo produto para substituir: ' + nomeAtual);
+        }
+    }
+
+    function substituirProdutoNaLinha($row, produto) {
+        if (!$row || !$row.length || !produto || !produto.id) {
+            return;
+        }
+
+        const nomeAnterior = $row.find('.nome_produto_display').val() || '';
+        const nomeNovo = produto.nome_produto || produto.nome || 'Sem nome';
+        const precoNovo = parseFloat(produto.preco_locacao) || 0;
+        const fotoNova = produto.foto_path_completo || '';
+
+        const $tdProduto = $row.children('td').first();
+        $tdProduto.children('img').remove();
+
+        if (fotoNova) {
+            const imgHtml = `<img src="${escapeHtml(fotoNova)}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">`;
+            $tdProduto.prepend(imgHtml);
+        }
+
+        $row.find('.nome_produto_display')
+            .val(nomeNovo)
+            .prop('readonly', true)
+            .attr('readonly', 'readonly');
+
+        $row.find('.produto_id').val(produto.id);
+        $row.find('input[name="tipo_linha[]"]').val('PRODUTO');
+        $row.attr('data-tipo-linha', 'PRODUTO').data('tipo-linha', 'PRODUTO');
+
+        $row.find('.item-valor-unitario').val(precoNovo.toFixed(2).replace('.', ','));
+
+        const obsAtual = ($row.find('.observacoes_item_input').val() || '').trim();
+        const nomeAnteriorNorm = normalizarTextoComparacaoJS(nomeAnterior);
+        const nomeNovoNorm = normalizarTextoComparacaoJS(nomeNovo);
+
+        if (obsAtual !== '' && nomeAnteriorNorm.indexOf('COR A DEFINIR') !== -1 && nomeNovoNorm.indexOf('COR A DEFINIR') === -1) {
+            $row.find('.observacoes_item_input').val('').hide();
+            $row.find('.observacoes_item_label').hide();
+        }
+
+        $row.removeData('disponibilidade-response');
+        $row.find('.disponibilidade-contexto')
+            .removeClass('status-ok status-atencao status-indisponivel')
+            .addClass('status-neutro')
+            .hide()
+            .html('');
+
+        limparStatusLinhaDisponibilidade($row);
+        calcularSubtotalItem($row);
+        calcularTotaisOrcamento();
+        atualizarOrdemDosItens();
+        atualizarContextoDisponibilidadeLinha($row, true);
+        revalidarTodasAsLinhasDisponibilidade();
     }
 
     function obterPeriodoConsultaAtual() {
@@ -1490,9 +1580,28 @@ $(document).ready(function() {
         }
 
         if (response.conflitos && response.conflitos.length > 0) {
+            const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
+            const produtoConsultadoNome = response.produto_nome || '';
+
             let conflitosHtml = response.conflitos.map(function(item) {
-                return `<li><strong>${escapeHtml(item.cliente || 'Cliente')}</strong> — ${parseInt(item.quantidade || 0, 10)} un. <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span></li>`;
+                const quantidade = parseInt(item.quantidade || 0, 10);
+                const produtoOrigemId = parseInt(item.produto_origem_id || item.produto_id || 0, 10);
+                const produtoOrigemNome = item.produto_origem_nome || item.produto_nome || item.componente_nome || produtoConsultadoNome || 'Produto';
+                const destaque = produtoOrigemId > 0 && produtoOrigemId === produtoConsultadoId;
+                const classeDestaque = destaque ? ' style="background:rgba(255,255,255,.18); border-radius:8px; padding:4px 6px; margin:3px 0;"' : '';
+                const badge = destaque ? ' <span class="badge badge-light text-dark ml-1">produto consultado</span>' : '';
+                const pedidoId = parseInt(item.pedido_id || 0, 10);
+                const linkPedido = pedidoId > 0
+                    ? ` <a href="../pedidos/show.php?id=${pedidoId}" target="_blank" class="btn btn-xs btn-light ml-1" title="Abrir pedido"><i class="fas fa-eye"></i></a>`
+                    : '';
+
+                return `<li${classeDestaque}>
+                    <strong>${escapeHtml(item.cliente || 'Cliente')}</strong>
+                    — ${quantidade} un. de <strong>${escapeHtml(produtoOrigemNome)}</strong>${badge}
+                    <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span>${linkPedido}
+                </li>`;
             }).join('');
+
             html += `<div class="painel-box mt-2"><strong>Pedidos confirmados no período</strong><ul class="mb-0 pl-3 mt-1">${conflitosHtml}</ul></div>`;
         }
 
@@ -1772,13 +1881,14 @@ if (response.produto_composto && response.componentes && response.componentes.le
             var descontoDefault = 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
             var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
-            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="${quantidadeDefault}" min="0" style="width: 70px;" data-valor-original="${quantidadeDefault}"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R\$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="${quantidadeDefault}" min="0" style="width: 70px;" data-valor-original="${quantidadeDefault}"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R\$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button> <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="6"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
         if (htmlLinha) {
             $('#tabela_itens_orcamento tbody').append(htmlLinha);
             var $novaLinha = $('#tabela_itens_orcamento tbody tr:last-child');
+            atualizarOrdemDosItens();
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && dadosItem && dadosItem.id) {
@@ -1893,9 +2003,18 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 preco_locacao: $(this).data('preco'), 
                 foto_path_completo: $(this).data('foto-completa') 
             }; 
+
+            if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
+                substituirProdutoNaLinha(linhaSelecionadaParaTrocaProduto, produto);
+                limparSelecaoTrocaProduto();
+                $('#busca_produto').val('').focus();
+                $('#sugestoes_produtos').empty().hide();
+                return;
+            }
+
             verificarEstoqueAntes(produto); 
         }; 
-        if (produtoJaExiste) { 
+        if (produtoJaExiste && !(linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length)) { 
             Swal.fire({ 
                 title: 'Produto Repetido', 
                 text: "Deseja adicionar este item novamente?", 
@@ -1915,7 +2034,23 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
     $('#btn_adicionar_titulo_secao').click(function() { adicionarLinhaItemTabela(null, 'CABECALHO_SECAO'); });
     $('#btn_adicionar_item_manual').click(function() { adicionarLinhaItemTabela(null, 'PRODUTO'); });
-    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() { $(this).closest('tr').remove(); atualizarOrdemDosItens(); calcularTotaisOrcamento(); revalidarTodasAsLinhasDisponibilidade(); });
+    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
+        const $row = $(this).closest('tr');
+        if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto[0] === $row[0]) {
+            limparSelecaoTrocaProduto();
+        }
+        $row.remove();
+        atualizarOrdemDosItens();
+        calcularTotaisOrcamento();
+        revalidarTodasAsLinhasDisponibilidade();
+    });
+    $('#tabela_itens_orcamento').on('click', '.btn_trocar_produto', function() {
+        const $row = $(this).closest('tr');
+        if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+            return;
+        }
+        selecionarLinhaParaTrocaProduto($row);
+    });
         $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { 
         var $row = $(this).closest('tr'); 
         $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); 
@@ -2271,6 +2406,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
     }
 
     $('#formEditarOrcamento').on('submit', function(e) {
+        atualizarOrdemDosItens();
+
         if (!validarItensQuantidadeZeroEdit()) {
             e.preventDefault();
             return false;

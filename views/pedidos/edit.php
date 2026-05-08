@@ -922,6 +922,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
                     <td>
                         <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                        <button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button>
                         <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
                         <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
                     </td>
@@ -1469,6 +1470,11 @@ include_once __DIR__ . '/../includes/header.php';
                         background: #ffffff;
                     }
                     #sugestoes_produtos { z-index: 1060 !important; }
+                    .row-em-troca-produto td {
+                        outline: 2px solid #007bff;
+                        outline-offset: -2px;
+                        background-color: #eef6ff !important;
+                    }
                     .itens-scroll-container {
                         max-height: 520px;
                         min-height: 220px;
@@ -1812,6 +1818,89 @@ $(document).ready(function() {
         return $('<div>').text(text).html();
     }
 
+    let linhaSelecionadaParaTrocaProduto = null;
+
+    function normalizarTextoComparacaoJS(texto) {
+        return String(texto || '')
+            .trim()
+            .toUpperCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    function limparSelecaoTrocaProduto() {
+        if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
+            linhaSelecionadaParaTrocaProduto.removeClass('row-em-troca-produto');
+        }
+        linhaSelecionadaParaTrocaProduto = null;
+    }
+
+    function selecionarLinhaParaTrocaProduto($row) {
+        limparSelecaoTrocaProduto();
+        linhaSelecionadaParaTrocaProduto = $row;
+        $row.addClass('row-em-troca-produto');
+
+        const nomeAtual = $row.find('.nome_produto_display').val() || 'produto atual';
+        $('#busca_produto').focus().select();
+
+        if (typeof toastr !== 'undefined') {
+            toastr.info('Escolha na busca o novo produto para substituir: ' + nomeAtual);
+        }
+    }
+
+    function substituirProdutoNaLinha($row, produto) {
+        if (!$row || !$row.length || !produto || !produto.id) {
+            return;
+        }
+
+        const nomeAnterior = $row.find('.nome_produto_display').val() || '';
+        const nomeNovo = produto.nome_produto || produto.nome || 'Sem nome';
+        const precoNovo = parseFloat(produto.preco_locacao) || 0;
+        const fotoNova = produto.foto_path_completo || '';
+
+        const $tdProduto = $row.children('td').first();
+        $tdProduto.children('img').remove();
+
+        if (fotoNova) {
+            const imgHtml = `<img src="${escapeHtml(fotoNova)}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">`;
+            $tdProduto.prepend(imgHtml);
+        }
+
+        $row.find('.nome_produto_display')
+            .val(nomeNovo)
+            .prop('readonly', true)
+            .attr('readonly', 'readonly');
+
+        $row.find('.produto_id').val(produto.id);
+        $row.find('input[name="tipo_linha[]"]').val('PRODUTO');
+        $row.attr('data-tipo-linha', 'PRODUTO').data('tipo-linha', 'PRODUTO');
+        $row.find('.item-valor-unitario').val(formatCurrency(precoNovo));
+
+        const obsAtual = ($row.find('.observacoes_item_input').val() || '').trim();
+        const nomeAnteriorNorm = normalizarTextoComparacaoJS(nomeAnterior);
+        const nomeNovoNorm = normalizarTextoComparacaoJS(nomeNovo);
+
+        if (obsAtual !== '' && nomeAnteriorNorm.indexOf('COR A DEFINIR') !== -1 && nomeNovoNorm.indexOf('COR A DEFINIR') === -1) {
+            $row.find('.observacoes_item_input').val('').hide();
+            $row.find('.observacoes_item_label').hide();
+        }
+
+        $row.removeData('disponibilidade-response');
+        $row.removeData('alerta-indisponivel-chave');
+        $row.find('.disponibilidade-contexto')
+            .removeClass('status-ok status-atencao status-indisponivel')
+            .addClass('status-neutro')
+            .hide()
+            .html('');
+
+        limparStatusLinhaDisponibilidade($row);
+        calcularSubtotalItem($row);
+        calcularTotaisPedido();
+        atualizarOrdemDosItens();
+        atualizarContextoDisponibilidadeLinha($row, true);
+        revalidarTodasAsLinhasDisponibilidade();
+    }
+
     function obterPeriodoConsultaAtual() {
         return {
             data_inicio: $('#data_entrega').val() || '',
@@ -2067,12 +2156,28 @@ $(document).ready(function() {
             });
 
             if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
-                Swal.fire({
-                    title: 'Atenção no período consultado',
-                    html: montarResumoDisponibilidadeHtml(response),
-                    icon: 'warning',
-                    confirmButtonText: 'Entendi'
-                });
+                const chaveAlerta = [
+                    produtoId,
+                    quantidade,
+                    $('#data_entrega').val(),
+                    $('#hora_entrega').val(),
+                    $('#turno_entrega').val(),
+                    $('#data_devolucao_prevista').val(),
+                    $('#hora_devolucao').val(),
+                    $('#turno_devolucao').val()
+                ].join('|');
+
+                if ($row.data('alerta-indisponivel-chave') !== chaveAlerta) {
+                    $row.data('alerta-indisponivel-chave', chaveAlerta);
+                    Swal.fire({
+                        title: 'Atenção no período consultado',
+                        html: montarResumoDisponibilidadeHtml(response),
+                        icon: 'warning',
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            } else if (response && response.disponivel !== false) {
+                $row.removeData('alerta-indisponivel-chave');
             }
 
             atualizarPainelConsultaDisponibilidade(nomeProduto, response, false);
@@ -2124,7 +2229,7 @@ $(document).ready(function() {
             
             htmlLinha = `<tr class="item-pedido-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">` +
             `<input type="hidden" name="tipo_linha[]" value="${tipoLinha}" class="tipo_linha"><input type="hidden" name="ordem[]" value="${itemIndex}" class="ordem"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:${dadosItem && dadosItem.observacoes ? 'block' : 'none'};" placeholder="Observação do item" value="${dadosItem && dadosItem.observacoes ? dadosItem.observacoes : ''}"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" data-valor-original="${quantidadeDefault}" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${formatCurrency(precoUnitarioDefault)}"></td>` +
-            `<td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${formatCurrency(descontoDefault)}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault)}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+            `<td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${formatCurrency(descontoDefault)}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault)}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button> <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-pedido-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="6"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);" value="${nomeDisplay}"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}" class="tipo_linha"><input type="hidden" name="ordem[]" value="${itemIndex}" class="ordem"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
@@ -2132,6 +2237,7 @@ $(document).ready(function() {
         if (htmlLinha) {
             $('#tabela_itens_pedido tbody').append(htmlLinha);
             var $novaLinha = $('#tabela_itens_pedido tbody tr:last-child');
+            atualizarOrdemDosItens();
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && produtoIdInput) {
@@ -2225,10 +2331,19 @@ $(document).ready(function() {
                 preco_locacao: $(this).data('preco'),
                 foto_path_completo: $(this).data('foto-completa')
             };
+
+            if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
+                substituirProdutoNaLinha(linhaSelecionadaParaTrocaProduto, produto);
+                limparSelecaoTrocaProduto();
+                $('#busca_produto').val('').focus();
+                $('#sugestoes_produtos').empty().hide();
+                return;
+            }
+
             verificarEstoqueAntes(produto);
         };
 
-        if (produtoJaExiste) {
+        if (produtoJaExiste && !(linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length)) {
             Swal.fire({
                 title: 'Produto Repetido',
                 text: "Este item já foi adicionado. Deseja adicioná-lo novamente em outra linha?",
@@ -2257,7 +2372,11 @@ $(document).ready(function() {
     });
 
     $('#tabela_itens_pedido').on('click', '.btn_remover_item', function() {
-        $(this).closest('tr').remove();
+        const $row = $(this).closest('tr');
+        if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto[0] === $row[0]) {
+            limparSelecaoTrocaProduto();
+        }
+        $row.remove();
         atualizarOrdemDosItens();
         if (!window.calculandoTotais) {
             calcularTotaisPedido();
@@ -2267,6 +2386,14 @@ $(document).ready(function() {
         if ($('#tabela_itens_pedido tbody tr.item-pedido-row').length === 0) {
             $('#tabela_itens_pedido tbody').append('<tr class="no-items-row"><td colspan="7" class="text-center text-muted">Nenhum item adicionado a este pedido ainda.</td></tr>');
         }
+    });
+
+    $('#tabela_itens_pedido').on('click', '.btn_trocar_produto', function() {
+        const $row = $(this).closest('tr');
+        if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+            return;
+        }
+        selecionarLinhaParaTrocaProduto($row);
     });
 
     // Remove a linha "Nenhum item adicionado" quando um item é adicionado
@@ -2299,10 +2426,15 @@ $(document).ready(function() {
         }
     });
     $(document).on('keyup input', '.item-qtd, .item-valor-unitario, .desconto_item', function() {
-        var $row = $(this).closest('tr');
+        var $input = $(this);
+        var $row = $input.closest('tr');
         calculateDebounced();
-        if ($(this).hasClass('item-qtd') && $row.find('.produto_id').val()) {
-            validarEstoqueQuantidade($row);
+
+        if ($input.hasClass('item-qtd') && $row.find('.produto_id').val()) {
+            clearTimeout($input.data('validacao-timeout'));
+            $input.data('validacao-timeout', setTimeout(function() {
+                validarEstoqueQuantidade($row);
+            }, 700));
         }
     });
 
@@ -2321,6 +2453,7 @@ $(document).ready(function() {
     });
 
     $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').removeData('alerta-indisponivel-chave');
         revalidarTodasAsLinhasDisponibilidade();
     });
 
@@ -2495,6 +2628,7 @@ $(document).ready(function() {
 
 
     $('#formEditarPedido').on('submit', function(e) {
+        atualizarOrdemDosItens();
         let erroQuantidade = null;
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);

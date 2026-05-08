@@ -694,11 +694,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                             $subtotalItensPIX += $itemSubtotal;
                                             $observacaoItem = trim((string)($item['observacoes'] ?? ''));
                                             $nomeItemExibicao = montarNomeItemOrcamentoImpressao($nomeItem, $observacaoItem);
-                                            $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
-                                            $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
-                                            $obsFoiConcatenada = $observacaoItem !== ''
-                                                && strpos($nomeNormalizado, 'PUFE FORRADO COR A DEFINIR') !== false
-                                                && !in_array($obsNormalizada, ['A DEFINIR', 'COR A DEFINIR', '-'], true);
+                                            $obsFoiConcatenada = observacaoItemUsadaComoCorOrcamentoShow($nomeItem, $observacaoItem);
                                             $produtoIdItem = isset($item['produto_id']) ? (int)$item['produto_id'] : 0;
                                             $componentesItem = $produtoIdItem > 0 && isset($componentesPorProduto[$produtoIdItem]) ? $componentesPorProduto[$produtoIdItem] : [];
                                             if (!empty($componentesItem)) {
