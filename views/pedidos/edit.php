@@ -1631,6 +1631,7 @@ $(document).ready(function() {
     // Contar itens existentes para inicializar corretamente
     const linhasExistentes = document.querySelectorAll('#tabela_itens_pedido tbody tr.item-pedido-row');
     itemIndex = linhasExistentes.length;
+    let disponibilidadeRequestSeq = 0;
     
     console.log('itemIndex inicializado:', itemIndex);
     // PEDIDO_ID e itemIndex são definidos via PHP antes deste bloco JS
@@ -1897,8 +1898,7 @@ $(document).ready(function() {
         calcularSubtotalItem($row);
         calcularTotaisPedido();
         atualizarOrdemDosItens();
-        atualizarContextoDisponibilidadeLinha($row, true);
-        revalidarTodasAsLinhasDisponibilidade();
+        revalidarTodasAsLinhasDisponibilidade($row);
     }
 
     function obterPeriodoConsultaAtual() {
@@ -2139,23 +2139,30 @@ $(document).ready(function() {
         if (produtoId <= 0) { return; }
 
         let quantidade = 0;
+
+        // Mantém a soma de linhas repetidas do mesmo produto.
+        // A revalidação geral, chamada nos eventos, atualiza também os produtos diferentes que compartilham componentes.
         $('#tabela_itens_pedido .produto_id').each(function() {
             if ($(this).val() == produtoId) {
                 quantidade += parseInt($(this).closest('tr').find('.item-qtd').val(), 10) || 0;
             }
         });
+
         if (quantidade < 0) { quantidade = 0; }
 
         const nomeProduto = $row.find('.nome_produto_display').val() || '';
+        const requestSeq = ++disponibilidadeRequestSeq;
+        $row.data('disponibilidade-request-seq', requestSeq);
 
         consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
-            $('#tabela_itens_pedido .produto_id').each(function() {
-                if ($(this).val() == produtoId) {
-                    aplicarContextoDisponibilidadeNaLinha($(this).closest('tr'), response);
-                }
-            });
+            // Evita resposta AJAX antiga sobrescrever consulta nova.
+            if ($row.data('disponibilidade-request-seq') !== requestSeq) {
+                return;
+            }
 
-            if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
+            aplicarContextoDisponibilidadeNaLinha($row, response);
+
+            if (exibirAlertaSeIndisponivel && response && response.success !== false && response.disponivel === false) {
                 const chaveAlerta = [
                     produtoId,
                     quantidade,
@@ -2191,11 +2198,14 @@ $(document).ready(function() {
         });
     }
 
-    function revalidarTodasAsLinhasDisponibilidade() {
+    function revalidarTodasAsLinhasDisponibilidade($rowAlerta = null) {
+        const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
+
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
-                atualizarContextoDisponibilidadeLinha($row, false);
+                const deveAlertar = rowAlertaEl && this === rowAlertaEl;
+                atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
         });
     }
@@ -2241,7 +2251,7 @@ $(document).ready(function() {
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && produtoIdInput) {
-                atualizarContextoDisponibilidadeLinha($novaLinha, false);
+                revalidarTodasAsLinhasDisponibilidade($novaLinha);
             }
             // ✅ CHAMA CÁLCULO APENAS UMA VEZ, SEM LOOP
             calcularTotaisPedido();
@@ -2281,7 +2291,9 @@ $(document).ready(function() {
             quantidadeAtual = 0;
         }
 
-        atualizarContextoDisponibilidadeLinha($row, quantidadeAtual > 0);
+        // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
+        // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura/colchões.
+        revalidarTodasAsLinhasDisponibilidade($row);
         $row.find('.item-qtd').data('valor-original', quantidadeAtual);
     }
 

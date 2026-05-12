@@ -1421,7 +1421,8 @@ $(document).ready(function() {
         localEventoOriginal = $(this).val();
     });
 
-    var itemIndex = $('#tabela_itens_orcamento tbody tr.item-orcamento-row').length; 
+    var itemIndex = $('#tabela_itens_orcamento tbody tr.item-orcamento-row').length;
+    var disponibilidadeRequestSeq = 0;
     function unformatCurrency(value) {
         if (value === null || typeof value === 'undefined' || value === '') return 0;
         if (typeof value !== 'string') value = String(value);
@@ -1519,8 +1520,7 @@ $(document).ready(function() {
         calcularSubtotalItem($row);
         calcularTotaisOrcamento();
         atualizarOrdemDosItens();
-        atualizarContextoDisponibilidadeLinha($row, true);
-        revalidarTodasAsLinhasDisponibilidade();
+        revalidarTodasAsLinhasDisponibilidade($row);
     }
 
     function obterPeriodoConsultaAtual() {
@@ -1782,6 +1782,9 @@ if (response.produto_composto && response.componentes && response.componentes.le
         if (produtoId <= 0) { return; }
 
         let quantidade = 0;
+
+        // Mantém a soma de linhas repetidas do mesmo produto.
+        // A disputa entre produtos diferentes que compartilham componentes é resolvida pelo contexto completo.
         $('#tabela_itens_orcamento .produto_id').each(function() {
             if ($(this).val() == produtoId) {
                 quantidade += parseInt($(this).closest('tr').find('.item-qtd').val(), 10) || 0;
@@ -1790,21 +1793,46 @@ if (response.produto_composto && response.componentes && response.componentes.le
         if (quantidade < 0) { quantidade = 0; }
 
         const nomeProduto = $row.find('.nome_produto_display').val() || '';
+        const requestSeq = ++disponibilidadeRequestSeq;
+        $row.data('disponibilidade-request-seq', requestSeq);
 
         consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
-            $('#tabela_itens_orcamento .produto_id').each(function() {
-                if ($(this).val() == produtoId) {
-                    aplicarContextoDisponibilidadeNaLinha($(this).closest('tr'), response);
-                }
-            });
+            // Evita que uma resposta AJAX antiga sobrescreva uma consulta mais recente da mesma linha.
+            if ($row.data('disponibilidade-request-seq') !== requestSeq) {
+                return;
+            }
 
-            if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
-                Swal.fire({
-                    title: 'Atenção no período consultado',
-                    html: montarResumoDisponibilidadeHtml(response),
-                    icon: 'warning',
-                    confirmButtonText: 'Entendi'
-                });
+            aplicarContextoDisponibilidadeNaLinha($row, response);
+
+            if (exibirAlertaSeIndisponivel && response && response.success !== false && response.disponivel === false) {
+                const chaveAlerta = [
+                    produtoId,
+                    quantidade,
+                    $('#data_entrega').val(),
+                    $('#hora_entrega').val(),
+                    $('#turno_entrega').val(),
+                    $('#data_devolucao_prevista').val(),
+                    $('#hora_devolucao').val(),
+                    $('#turno_devolucao').val()
+                ].join('|');
+
+                const jaAlertado = $row.data('alerta-indisponivel-chave');
+
+                if (jaAlertado !== chaveAlerta) {
+                    $row.data('alerta-indisponivel-chave', chaveAlerta);
+
+                    Swal.fire({
+                        title: 'Quantidade indisponível no período',
+                        html: montarResumoDisponibilidadeHtml(response),
+                        icon: 'warning',
+                        width: 760,
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            }
+
+            if (response && response.disponivel !== false) {
+                $row.removeData('alerta-indisponivel-chave');
             }
 
             atualizarPainelConsultaDisponibilidade(nomeProduto, response, false);
@@ -1818,11 +1846,14 @@ if (response.produto_composto && response.componentes && response.componentes.le
         });
     }
 
-    function revalidarTodasAsLinhasDisponibilidade() {
+    function revalidarTodasAsLinhasDisponibilidade($rowAlerta = null) {
+        const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
+
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
-                atualizarContextoDisponibilidadeLinha($row, false);
+                const deveAlertar = rowAlertaEl && this === rowAlertaEl;
+                atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
         });
     }
@@ -1892,8 +1923,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
             } else if (tipoLinha === 'PRODUTO' && dadosItem && dadosItem.id) {
-                atualizarContextoDisponibilidadeLinha($novaLinha, false);
-                revalidarTodasAsLinhasDisponibilidade();
+                revalidarTodasAsLinhasDisponibilidade($novaLinha);
             }
             calcularTotaisOrcamento();
             rolarTabelaItensParaLinha($novaLinha);
@@ -1955,18 +1985,16 @@ if (response.produto_composto && response.componentes && response.componentes.le
     }
 
     function validarEstoqueQuantidade($row) {
-        var produtoId = $row.find('.produto_id').val();
         var quantidadeAtual = parseInt($row.find('.item-qtd').val(), 10) || 0;
-
-        if (!produtoId) return;
 
         if (quantidadeAtual < 0) {
             $row.find('.item-qtd').val(0);
             quantidadeAtual = 0;
         }
 
-        atualizarContextoDisponibilidadeLinha($row, quantidadeAtual > 0);
-        revalidarTodasAsLinhasDisponibilidade();
+        // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
+        // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura e colchões.
+        revalidarTodasAsLinhasDisponibilidade($row);
         $row.find('.item-qtd').data('valor-original', quantidadeAtual);
     }
 

@@ -1578,6 +1578,7 @@ $custom_js = <<<'JS'
 $(document).ready(function() {
     $('#btnUsarEnderecoCliente').hide();
     var itemIndex = 0;
+    var disponibilidadeRequestSeq = 0;
 
     function unformatCurrency(value) {
         if (!value || typeof value !== 'string') { return 0; }
@@ -1974,7 +1975,7 @@ $(document).ready(function() {
                 rolarTabelaItensParaLinha($novaLinha);
             } else if (tipoLinha === 'PRODUTO') {
                 if (produtoIdInput) {
-                    atualizarContextoDisponibilidadeLinha($novaLinha, false);
+                    revalidarTodasLinhasPedido($novaLinha);
                 }
                 rolarTabelaItensParaLinha($novaLinha);
                 setTimeout(function() {
@@ -2298,24 +2299,58 @@ if (response.produto_composto && response.componentes && response.componentes.le
         if (produtoId <= 0) { return; }
 
         let quantidade = 0;
+
+        // Mantém a soma de linhas repetidas do mesmo produto.
+        // A consulta também envia o contexto inteiro do pedido para capturar produtos diferentes
+        // que compartilham componentes, como sofá Rosa Antigo e sofá Cor A Definir.
         $('#tabela_itens_pedido .produto_id').each(function() {
             if ($(this).val() == produtoId) {
-                quantidade += parseInt($(this).closest('tr').find('.quantidade_item').val(), 10) || 0;
+                quantidade += parseInt($(this).closest('tr').find('.quantidade_item, .item-qtd').first().val(), 10) || 0;
             }
         });
+
         if (quantidade < 0) { quantidade = 0; }
 
-        consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
-            revalidarTodasAsLinhasDisponibilidadeProdutoPedido(produtoId, response);
+        const requestSeq = ++disponibilidadeRequestSeq;
+        $row.data('disponibilidade-request-seq', requestSeq);
 
-            if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
-                Swal.fire({
-                    title: 'Quantidade indisponível no período',
-                    html: montarResumoDisponibilidadeHtml(response),
-                    icon: 'warning',
-                    width: 760,
-                    confirmButtonText: 'Entendi'
-                });
+        consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
+            // Evita resposta AJAX antiga sobrescrever uma consulta mais nova.
+            if ($row.data('disponibilidade-request-seq') !== requestSeq) {
+                return;
+            }
+
+            aplicarContextoDisponibilidadeNaLinha($row, response);
+
+            if (exibirAlertaSeIndisponivel && response && response.success !== false && response.disponivel === false) {
+                const chaveAlerta = [
+                    produtoId,
+                    quantidade,
+                    $('#data_entrega').val(),
+                    $('#hora_entrega').val(),
+                    $('#turno_entrega').val(),
+                    $('#data_devolucao_prevista').val(),
+                    $('#hora_devolucao').val(),
+                    $('#turno_devolucao').val()
+                ].join('|');
+
+                const jaAlertado = $row.data('alerta-indisponivel-chave');
+
+                if (jaAlertado !== chaveAlerta) {
+                    $row.data('alerta-indisponivel-chave', chaveAlerta);
+
+                    Swal.fire({
+                        title: 'Quantidade indisponível no período',
+                        html: montarResumoDisponibilidadeHtml(response),
+                        icon: 'warning',
+                        width: 760,
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            }
+
+            if (response && response.disponivel !== false) {
+                $row.removeData('alerta-indisponivel-chave');
             }
         }, function() {
             const response = {
@@ -2335,17 +2370,24 @@ if (response.produto_composto && response.componentes && response.componentes.le
         });
     }
 
-    function revalidarTodasLinhasPedido() {
+    function revalidarTodasLinhasPedido($rowAlerta = null) {
+        const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
+
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
-                atualizarContextoDisponibilidadeLinha($row, false);
+                const deveAlertar = rowAlertaEl && this === rowAlertaEl;
+                atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
         });
     }
 
     function validarEstoqueTemporalLinha($row, exibirToast = false) {
-        atualizarContextoDisponibilidadeLinha($row, exibirToast);
+        if (exibirToast) {
+            revalidarTodasLinhasPedido($row);
+        } else {
+            revalidarTodasLinhasPedido();
+        }
     }
 
     function verificarEstoqueAntes(produto) {
@@ -2353,47 +2395,18 @@ if (response.produto_composto && response.componentes && response.componentes.le
         $('#busca_produto').val('').focus();
         $('#sugestoes_produtos').empty().hide();
         var $ultimaLinha = $('#tabela_itens_pedido tbody tr:last');
-        validarEstoqueTemporalLinha($ultimaLinha, true);
+        revalidarTodasLinhasPedido($ultimaLinha);
     }
 
     function validarEstoqueQuantidade($row) {
-        var produtoId = $row.find('.produto_id').val();
-        if (!produtoId) return;
+        var quantidadeAtual = parseInt($row.find('.quantidade_item, .item-qtd').first().val(), 10) || 0;
 
-        var quantidadeTotal = 0;
-        $('#tabela_itens_pedido .produto_id').each(function() {
-            if ($(this).val() == produtoId) {
-                var $outraRow = $(this).closest('tr');
-                quantidadeTotal += parseInt($outraRow.find('.quantidade_item').val(), 10) || 0;
-            }
-        });
-        if (quantidadeTotal < 0) { quantidadeTotal = 0; }
+        if (quantidadeAtual < 0) {
+            $row.find('.quantidade_item, .item-qtd').first().val(0);
+        }
 
-        consultarDisponibilidadeAjax(produtoId, quantidadeTotal, function(response) {
-            revalidarTodasAsLinhasDisponibilidadeProdutoPedido(produtoId, response);
-
-            if (response.success === false) {
-                return;
-            }
-
-            const chaveAlerta = [produtoId, quantidadeTotal, $('#data_entrega').val(), $('#hora_entrega').val(), $('#turno_entrega').val(), $('#data_devolucao_prevista').val(), $('#hora_devolucao').val(), $('#turno_devolucao').val()].join('|');
-            const jaAlertado = $row.data('alerta-indisponivel-chave');
-
-            if (!response.disponivel) {
-                if (jaAlertado !== chaveAlerta) {
-                    $row.data('alerta-indisponivel-chave', chaveAlerta);
-                    Swal.fire({
-                        title: 'Quantidade indisponível no período',
-                        html: montarResumoDisponibilidadeHtml(response),
-                        icon: 'warning',
-                        width: 760,
-                        confirmButtonText: 'Entendi'
-                    });
-                }
-            } else {
-                $row.removeData('alerta-indisponivel-chave');
-            }
-        });
+        // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
+        revalidarTodasLinhasPedido($row);
     }
 
     $('#valor_pago, #valor_sinal, #valor_multas, #taxa_domingo_feriado, #taxa_madrugada, #taxa_horario_especial, #taxa_hora_marcada, #frete_terreo, #frete_elevador, #frete_escadas').on('change keyup', calcularTotaisPedido);
@@ -2646,7 +2659,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
     $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
     $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
 
-    $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup', function() {
+    $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').removeData('alerta-indisponivel-chave');
         revalidarTodasLinhasPedido();
     });
 

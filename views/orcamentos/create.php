@@ -1404,7 +1404,8 @@ include_once __DIR__ . '/../includes/header.php';
 $custom_js = <<<'JS'
 $(document).ready(function() {
     $('#btnUsarEnderecoCliente').hide(); // <-- ESCONDE O BOTAO ADIC ENDERECO CLIENTE
-    var itemIndex = 0; 
+    var itemIndex = 0;
+    var disponibilidadeRequestSeq = 0;
     function unformatCurrency(value) {
         if (!value || typeof value !== 'string') { return 0; }
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -1675,25 +1676,58 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         if (produtoId <= 0) { return; }
 
         let quantidade = 0;
+
+        // Mantém a soma de linhas repetidas do mesmo produto.
+        // O contexto completo enviado ao backend continua considerando todos os itens do orçamento,
+        // inclusive produtos diferentes que compartilham componentes.
         $('#tabela_itens_orcamento .produto_id').each(function() {
             if ($(this).val() == produtoId) {
                 quantidade += parseInt($(this).closest('tr').find('.quantidade_item').val(), 10) || 0;
             }
         });
+
         if (quantidade < 0) { quantidade = 0; }
 
-        const nomeProduto = $row.find('.nome_produto_display').val() || '';
+        const requestSeq = ++disponibilidadeRequestSeq;
+        $row.data('disponibilidade-request-seq', requestSeq);
 
         consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
+            // Evita resposta AJAX antiga sobrescrever consulta mais recente.
+            if ($row.data('disponibilidade-request-seq') !== requestSeq) {
+                return;
+            }
+
             aplicarContextoDisponibilidadeNaLinha($row, response);
 
-            if (exibirAlertaSeIndisponivel && response && response.disponivel === false) {
-                Swal.fire({
-                    title: 'Atenção no período consultado',
-                    html: montarResumoDisponibilidadeHtml(response),
-                    icon: 'warning',
-                    confirmButtonText: 'Entendi'
-                });
+            if (exibirAlertaSeIndisponivel && response && response.success !== false && response.disponivel === false) {
+                const chaveAlerta = [
+                    produtoId,
+                    quantidade,
+                    $('#data_entrega').val(),
+                    $('#hora_entrega').val(),
+                    $('#turno_entrega').val(),
+                    $('#data_devolucao_prevista').val(),
+                    $('#hora_devolucao').val(),
+                    $('#turno_devolucao').val()
+                ].join('|');
+
+                const jaAlertado = $row.data('alerta-indisponivel-chave');
+
+                if (jaAlertado !== chaveAlerta) {
+                    $row.data('alerta-indisponivel-chave', chaveAlerta);
+
+                    Swal.fire({
+                        title: 'Quantidade indisponível no período',
+                        html: montarResumoDisponibilidadeHtml(response),
+                        icon: 'warning',
+                        width: 760,
+                        confirmButtonText: 'Entendi'
+                    });
+                }
+            }
+
+            if (response && response.disponivel !== false) {
+                $row.removeData('alerta-indisponivel-chave');
             }
         }, function() {
             const response = {
@@ -1705,11 +1739,14 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         });
     }
 
-    function revalidarTodasAsLinhasDisponibilidade() {
+    function revalidarTodasAsLinhasDisponibilidade($rowAlerta = null) {
+        const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
+
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
             if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
-                atualizarContextoDisponibilidadeLinha($row, false);
+                const deveAlertar = rowAlertaEl && this === rowAlertaEl;
+                atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
         });
     }
@@ -1785,7 +1822,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                 rolarTabelaItensParaLinha($novaLinha);
             } else if (tipoLinha === 'PRODUTO') {
                 if (dadosItem && dadosItem.id) {
-                    atualizarContextoDisponibilidadeLinha($novaLinha, false);
+                    revalidarTodasAsLinhasDisponibilidade($novaLinha);
                 }
                 rolarTabelaItensParaLinha($novaLinha);
                 setTimeout(function() {
@@ -1959,48 +1996,17 @@ function verificarEstoqueAntes(produto) {
     $('#sugestoes_produtos').empty().hide();
 }
 
-// ✅ FUNÇÃO MELHORADA: Evita mensagens duplicadas e considera o período consultado
+// ✅ FUNÇÃO MELHORADA: revalida todas as linhas para produtos que compartilham componentes.
 function validarEstoqueQuantidade($row) {
-    var produtoId = $row.find('.produto_id').val();
-    var quantidadeAtual = parseInt($row.find('.quantidade_item').val()) || 0;
+    var quantidadeAtual = parseInt($row.find('.quantidade_item').val(), 10) || 0;
 
-    if (!produtoId) return;
+    if (quantidadeAtual < 0) {
+        $row.find('.quantidade_item').val(0);
+    }
 
-    // Calcula a quantidade total deste produto somando linhas repetidas no orçamento atual
-    var quantidadeTotal = 0;
-    $('#tabela_itens_orcamento .produto_id').each(function() {
-        if ($(this).val() == produtoId) {
-            var $outraRow = $(this).closest('tr');
-            quantidadeTotal += parseInt($outraRow.find('.quantidade_item').val(), 10) || 0;
-        }
-    });
-
-    consultarDisponibilidadeAjax(produtoId, quantidadeTotal, function(response) {
-        aplicarContextoDisponibilidadeNaLinha($row, response);
-        revalidarTodasAsLinhasDisponibilidade();
-
-        if (response.success === false) {
-            return;
-        }
-
-        const chaveAlerta = [produtoId, quantidadeTotal, $('#data_entrega').val(), $('#hora_entrega').val(), $('#turno_entrega').val(), $('#data_devolucao_prevista').val(), $('#hora_devolucao').val(), $('#turno_devolucao').val()].join('|');
-        const jaAlertado = $row.data('alerta-indisponivel-chave');
-
-        if (!response.disponivel) {
-            if (jaAlertado !== chaveAlerta) {
-                $row.data('alerta-indisponivel-chave', chaveAlerta);
-                Swal.fire({
-                    title: 'Quantidade indisponível no período',
-                    html: montarResumoDisponibilidadeHtml(response),
-                    icon: 'warning',
-                    width: 760,
-                    confirmButtonText: 'Entendi'
-                });
-            }
-        } else {
-            $row.removeData('alerta-indisponivel-chave');
-        }
-    });
+    // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
+    // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura e os mesmos colchões.
+    revalidarTodasAsLinhasDisponibilidade($row);
 }
 
 function revalidarTodasAsLinhasDisponibilidadeProduto(produtoId, responseCompartilhada) {
