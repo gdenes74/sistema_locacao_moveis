@@ -65,6 +65,16 @@ if (!$produto_data) {
 $componentesAtuais = [];
 $produtosParaComposicao = [];
 
+$secoes = [];
+$categorias = [];
+$subcategorias = [];
+
+$dataHierarchy = json_encode([
+    'secoes' => [],
+    'categorias' => [],
+    'subcategorias' => [],
+], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
 try {
     $secoes = $secaoModel->listar()->fetchAll(PDO::FETCH_ASSOC);
     $categorias = $categoriaModel->listar()->fetchAll(PDO::FETCH_ASSOC);

@@ -101,8 +101,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             exit;
         }
 
-       $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path, p.tipo_produto
-        FROM produtos p";
+       $sql = "SELECT 
+            p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, 
+            p.quantidade_total, p.foto_path, p.tipo_produto, COALESCE(p.eh_conjunto, 0) AS eh_conjunto,
+            p.subcategoria_id,
+            s.categoria_id
+        FROM produtos p
+        LEFT JOIN subcategorias s ON s.id = p.subcategoria_id";
 
 $conditions = [];
 $executeParams = [];
@@ -172,6 +177,50 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
         exit;
     }
 }
+
+// --- Bloco AJAX para buscar grupos/regras de um conjunto ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_conjunto_id = isset($_GET['produto_id']) ? (int) $_GET['produto_id'] : 0;
+
+        if ($produto_conjunto_id <= 0) {
+            echo json_encode([]);
+            exit;
+        }
+
+        $sql = "SELECT 
+                    pcg.id,
+                    pcg.nome_grupo,
+                    pcg.categoria_id,
+                    c.nome AS categoria_nome,
+                    pcg.subcategoria_id,
+                    s.nome AS subcategoria_nome,
+                    pcg.quantidade_por_conjunto,
+                    pcg.obrigatorio,
+                    pcg.ordem,
+                    pcg.observacoes
+                FROM produto_conjunto_grupos pcg
+                LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                WHERE pcg.produto_conjunto_id = :produto_conjunto_id
+                ORDER BY pcg.ordem ASC, pcg.id ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':produto_conjunto_id', $produto_conjunto_id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        exit;
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        error_log("Erro AJAX buscar_grupos_conjunto: " . $e->getMessage());
+        echo json_encode(['error' => 'Erro no banco de dados ao buscar regras do conjunto.']);
+        exit;
+    }
+}
+
 // ✅ AJAX - para verificar estoque / disponibilidade temporal
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
     header('Content-Type: application/json; charset=utf-8');
@@ -409,7 +458,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if ($tipo_linha_atual === 'CABECALHO_SECAO') {
                     $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Título não informado';
                     $item_data['tipo'] = null;
-                } else if ($tipo_linha_atual === 'PRODUTO') {
+                } else if (in_array($tipo_linha_atual, ['PRODUTO', 'CONJUNTO', 'ITEM_CONJUNTO'], true)) {
                     $item_data['produto_id'] = isset($_POST['produto_id'][$index]) && !empty($_POST['produto_id'][$index]) ? (int) $_POST['produto_id'][$index] : null;
 
                     if ($item_data['produto_id'] === null) {
@@ -424,12 +473,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
 
                     $item_data['tipo'] = $_POST['tipo_item'][$index] ?? 'locacao';
-                    $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
-                    $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
 
-                    // ===== PONTO CRÍTICO CORRIGIDO =====
-                    // A fórmula correta, com parênteses, para calcular o preço final.
-                    $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+                    // ITEM_CONJUNTO é produto operacional: consulta estoque normalmente,
+                    // mas não soma preço no orçamento. O preço fica apenas na linha CONJUNTO.
+                    if ($tipo_linha_atual === 'ITEM_CONJUNTO') {
+                        $item_data['preco_unitario'] = 0.00;
+                        $item_data['desconto'] = 0.00;
+                        $item_data['preco_final'] = 0.00;
+                    } else {
+                        $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
+                        $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
+                        $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+                    }
 
                 } else {
                     error_log("Tipo de linha desconhecido ou inválido no índice {$index}: '{$tipo_linha_atual}' - Item ignorado.");
@@ -1335,6 +1390,19 @@ include_once __DIR__ . '/../includes/header.php';
                         border: 1px solid #cbd5e1;
                         color: #475569;
                     }
+                    .item-conjunto-row td {
+                        border-top: 2px solid #0d6efd !important;
+                        border-bottom: 1px solid #b8daff !important;
+                    }
+                    .item-conjunto-filho-row td {
+                        border-left: 0 !important;
+                    }
+                    .item-conjunto-filho-row td:first-child {
+                        border-left: 4px solid #8bbafe !important;
+                    }
+                    .regras-conjunto-resumo {
+                        line-height: 1.35;
+                    }
 
                 </style>
             </form>
@@ -1406,6 +1474,8 @@ $(document).ready(function() {
     $('#btnUsarEnderecoCliente').hide(); // <-- ESCONDE O BOTAO ADIC ENDERECO CLIENTE
     var itemIndex = 0;
     var disponibilidadeRequestSeq = 0;
+    var conjuntoAtivoIndex = null;
+    var conjuntoAtivoNome = '';
     function unformatCurrency(value) {
         if (!value || typeof value !== 'string') { return 0; }
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -1620,7 +1690,7 @@ function coletarItensContextoAtualOrcamento() {
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
 
-            if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+            if (!['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
                 return;
             }
 
@@ -1744,7 +1814,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
 
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
-            if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
+            if (['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '') && $row.find('.produto_id').val()) {
                 const deveAlertar = rowAlertaEl && this === rowAlertaEl;
                 atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
@@ -1770,10 +1840,15 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                         let preco = parseFloat(produto.preco_locacao) || 0;
                         let fotoHtml = produto.foto_path_completo ? `<img src="${produto.foto_path_completo}" alt="Miniatura" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">` : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
                         let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
-                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${produto.tipo_produto === 'COMPOSTO'
-    ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>'
-    : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')
-}</div><span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
+                        let ehConjunto = parseInt(produto.eh_conjunto || 0, 10) === 1;
+                        let etiquetaProduto = ehConjunto
+                            ? '<small class="d-block text-primary font-weight-bold"><i class="fas fa-layer-group"></i> Conjunto comercial</small><small class="d-block text-muted">Selecione para montar os itens internos</small>'
+                            : (produto.tipo_produto === 'COMPOSTO'
+                                ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>'
+                                : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')
+                            );
+
+                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}" data-eh-conjunto="${ehConjunto ? 1 : 0}" data-categoria-id="${produto.categoria_id || ''}" data-subcategoria-id="${produto.subcategoria_id || ''}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${etiquetaProduto}</div><span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
                     });
                 } else {
                     $('#sugestoes_produtos').append('<div class="list-group-item text-muted">Nenhum produto encontrado.</div>');
@@ -1805,12 +1880,70 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         var produtoIdInput = dadosItem ? dadosItem.id : '';
         var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
         var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
+        var categoriaIdItem = dadosItem ? (parseInt(dadosItem.categoria_id || 0, 10) || '') : '';
+        var subcategoriaIdItem = dadosItem ? (parseInt(dadosItem.subcategoria_id || 0, 10) || '') : '';
         var nomeInputName = "nome_produto_display[]";
-        if (tipoLinha === 'PRODUTO') {
+
+        if (tipoLinha === 'CONJUNTO') {
+            var quantidadeConjuntoDefault = 1;
+            var subtotalConjuntoDefault = quantidadeConjuntoDefault * precoUnitarioDefault;
+            var imagemConjuntoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #0d6efd; border-radius: 4px; vertical-align: middle;">` : '';
+            htmlLinha = `<tr class="item-orcamento-row item-conjunto-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #eef6ff !important; border-left: 4px solid #0d6efd;">
+                <td>${imagemConjuntoHtml}
+                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display font-weight-bold text-primary" value="${nomeDisplay}" placeholder="Nome do Conjunto" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" readonly>
+                    <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
+                    <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
+                    <input type="hidden" name="ordem[]" value="${itemIndex}">
+                    <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
+                    <small class="form-text text-primary font-weight-bold"><i class="fas fa-layer-group"></i> Conjunto: preço nesta linha; itens internos entram abaixo com valor zero.</small>
+                    <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Conjunto:</small>
+                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do conjunto">
+                </td>
+                <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
+                <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeConjuntoDefault}" min="1" style="width: 70px;"></td>
+                <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td>
+                <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="0,00"></td>
+                <td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalConjuntoDefault).replace('R$ ', '')}</td>
+                <td>
+                    <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                    <button type="button" class="btn btn-xs btn-primary btn_montar_conjunto" title="Montar/continuar conjunto"><i class="fas fa-plus-circle"></i></button>
+                    <button type="button" class="btn btn-xs btn-secondary btn_encerrar_conjunto" title="Encerrar montagem"><i class="fas fa-check"></i></button>
+                    <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                    <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        } else if (tipoLinha === 'ITEM_CONJUNTO') {
+            var quantidadeFilhoDefault = 0; 
+            var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
+            var conjuntoNomeEscapado = conjuntoAtivoNome ? escapeHtml(conjuntoAtivoNome) : 'conjunto';
+            htmlLinha = `<tr class="item-orcamento-row item-conjunto-filho-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-conjunto-pai-index="${conjuntoAtivoIndex || ''}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #f8fbff !important;">
+                <td style="padding-left: 28px;">
+                    <span class="text-primary mr-1"><i class="fas fa-level-up-alt fa-rotate-90"></i></span>${imagemFilhoHtml}
+                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Item do conjunto" style="display: inline-block; width: calc(100% - 86px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}>
+                    <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
+                    <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
+                    <input type="hidden" name="ordem[]" value="${itemIndex}">
+                    <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
+                    <small class="form-text text-muted">Item interno de: ${conjuntoNomeEscapado}. Consulta estoque normalmente, mas não soma preço.</small>
+                    <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
+                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item do conjunto">
+                </td>
+                <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
+                <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeFilhoDefault}" min="0" style="width: 70px;"></td>
+                <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="0,00" readonly></td>
+                <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="0,00" readonly></td>
+                <td class="subtotal_item_display text-right font-weight-bold">0,00</td>
+                <td>
+                    <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                    <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                    <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        } else if (tipoLinha === 'PRODUTO') {
             var quantidadeDefault = 0; var descontoDefault = 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
             var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
-            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="6"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
@@ -1820,8 +1953,8 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
                 rolarTabelaItensParaLinha($novaLinha);
-            } else if (tipoLinha === 'PRODUTO') {
-                if (dadosItem && dadosItem.id) {
+            } else if (['PRODUTO', 'ITEM_CONJUNTO', 'CONJUNTO'].includes(tipoLinha)) {
+                if (dadosItem && dadosItem.id && tipoLinha !== 'CONJUNTO') {
                     revalidarTodasAsLinhasDisponibilidade($novaLinha);
                 }
                 rolarTabelaItensParaLinha($novaLinha);
@@ -1830,11 +1963,18 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                 }, 220);
             }
             calcularTotaisOrcamento();
+            return $novaLinha;
         }
+
+        return $();
     }
 
     function calcularSubtotalItem($row) {
         if ($row.data('tipo-linha') === 'CABECALHO_SECAO') { return 0; }
+        if ($row.data('tipo-linha') === 'ITEM_CONJUNTO') {
+            $row.find('.subtotal_item_display').text('0,00');
+            return 0;
+        }
         var quantidade = parseFloat($row.find('.item-qtd').val()) || 0;
         var valorUnitario = unformatCurrency($row.find('.item-valor-unitario').val());
         var descontoUnitario = unformatCurrency($row.find('.desconto_item').val());
@@ -1920,10 +2060,25 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
         id: produtoId,
         nome_produto: $(this).data('nome'),
         preco_locacao: $(this).data('preco'),
-        foto_path_completo: $(this).data('foto-completa')
+        foto_path_completo: $(this).data('foto-completa'),
+        eh_conjunto: parseInt($(this).data('eh-conjunto') || 0, 10),
+        categoria_id: parseInt($(this).data('categoria-id') || 0, 10) || null,
+        subcategoria_id: parseInt($(this).data('subcategoria-id') || 0, 10) || null
     };
     
-    // ✅ NOVA VALIDAÇÃO DE ESTOQUE AQUI
+    // Se for conjunto, cria linha pai e ativa modo de montagem.
+    if (produto.eh_conjunto === 1) {
+        adicionarConjuntoAoOrcamento(produto);
+        return;
+    }
+
+    // Se existe conjunto ativo, o produto selecionado entra como item interno do conjunto.
+    if (conjuntoAtivoIndex !== null) {
+        adicionarItemAoConjuntoAtivo(produto);
+        return;
+    }
+
+    // Fluxo normal de produto avulso.
     verificarEstoqueAntes(produto);
 };
 
@@ -1960,7 +2115,11 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     });
 
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
-        $(this).closest('tr').remove();
+        var $rowRemovida = $(this).closest('tr');
+        if (($rowRemovida.data('tipo-linha') || '') === 'CONJUNTO' && parseInt($rowRemovida.data('index'), 10) === conjuntoAtivoIndex) {
+            encerrarMontagemConjunto();
+        }
+        $rowRemovida.remove();
         atualizarOrdemDosItens();
         calcularTotaisOrcamento();
         revalidarTodasAsLinhasDisponibilidade();
@@ -1973,6 +2132,22 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
             $row.find('.observacoes_item_input').focus();
         }
     });
+
+    $('#tabela_itens_orcamento').on('click', '.btn_montar_conjunto', function() {
+        ativarMontagemConjunto($(this).closest('tr'));
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.btn_encerrar_conjunto', function() {
+        encerrarMontagemConjunto();
+        Swal.fire({
+            title: 'Montagem encerrada',
+            text: 'Os próximos produtos selecionados entrarão como itens normais do orçamento.',
+            icon: 'success',
+            timer: 1400,
+            showConfirmButton: false
+        });
+    });
+
 
     $('#tabela_itens_orcamento').on('click', '.disponibilidade-contexto', function() {
         var $row = $(this).closest('tr');
@@ -1990,6 +2165,236 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     // =========================================================================
     // >>>>> FIM DO CÓDIGO RESTAURADO <<<<<
     // =========================================================================
+
+function carregarRegrasConjunto(produtoId, $rowConjunto) {
+    $.ajax({
+        url: 'create.php',
+        type: 'GET',
+        dataType: 'json',
+        data: {
+            ajax: 'buscar_grupos_conjunto',
+            produto_id: produtoId
+        },
+        success: function(grupos) {
+            if (!grupos || !grupos.length) {
+                return;
+            }
+
+            grupos = grupos.map(function(grupo) {
+                grupo.categoria_id = parseInt(grupo.categoria_id || 0, 10) || 0;
+                grupo.subcategoria_id = parseInt(grupo.subcategoria_id || 0, 10) || 0;
+                grupo.quantidade_por_conjunto = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+                return grupo;
+            });
+
+            $rowConjunto.data('regras-conjunto', grupos);
+
+            let resumo = grupos.map(function(grupo) {
+                let qtd = parseFloat(grupo.quantidade_por_conjunto || 0);
+                let origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
+                return `${escapeHtml(grupo.nome_grupo || 'Grupo')}: ${qtd} por conjunto (${escapeHtml(origem)})`;
+            }).join('<br>');
+
+            $rowConjunto.find('td:first small.text-primary').after(`<small class="form-text text-muted regras-conjunto-resumo">${resumo}</small>`);
+        }
+    });
+}
+
+
+function obterLinhaConjuntoPorIndex(conjuntoIndex) {
+    return $('#tabela_itens_orcamento tbody tr.item-conjunto-row').filter(function() {
+        return parseInt($(this).data('index'), 10) === parseInt(conjuntoIndex, 10);
+    }).first();
+}
+
+function regraConjuntoCasaComItem(regra, $rowItem) {
+    const categoriaItem = parseInt($rowItem.data('categoria-id') || 0, 10) || 0;
+    const subcategoriaItem = parseInt($rowItem.data('subcategoria-id') || 0, 10) || 0;
+    const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
+    const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
+
+    if (regraSubcategoria > 0) {
+        return subcategoriaItem === regraSubcategoria;
+    }
+    if (regraCategoria > 0) {
+        return categoriaItem === regraCategoria;
+    }
+    return false;
+}
+
+function obterRegraDoItemConjunto($rowItem) {
+    const conjuntoIndex = parseInt($rowItem.data('conjunto-pai-index') || 0, 10) || 0;
+    if (conjuntoIndex <= 0) { return null; }
+
+    const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+    if (!$rowConjunto.length) { return null; }
+
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    for (let i = 0; i < regras.length; i++) {
+        if (regraConjuntoCasaComItem(regras[i], $rowItem)) {
+            return { regra: regras[i], $rowConjunto: $rowConjunto };
+        }
+    }
+
+    return null;
+}
+
+function somarItensDoGrupoConjunto($rowConjunto, regra, $rowIgnorar = null) {
+    const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+    let total = 0;
+
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+        const $row = $(this);
+        if (parseInt($row.data('conjunto-pai-index') || 0, 10) !== conjuntoIndex) {
+            return;
+        }
+        if ($rowIgnorar && $rowIgnorar.length && this === $rowIgnorar[0]) {
+            return;
+        }
+        if (!regraConjuntoCasaComItem(regra, $row)) {
+            return;
+        }
+        total += parseInt($row.find('.quantidade_item').val(), 10) || 0;
+    });
+
+    return total;
+}
+
+function validarLimiteItemConjunto($rowItem, mostrarAlerta = true) {
+    if (($rowItem.data('tipo-linha') || '') !== 'ITEM_CONJUNTO') {
+        return true;
+    }
+
+    const info = obterRegraDoItemConjunto($rowItem);
+    if (!info) {
+        return true;
+    }
+
+    const qtdConjunto = parseInt(info.$rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const limiteGrupo = qtdConjunto * (parseFloat(info.regra.quantidade_por_conjunto || 0) || 0);
+    const jaUsado = somarItensDoGrupoConjunto(info.$rowConjunto, info.regra, $rowItem);
+    const maxLinha = Math.max(0, Math.floor(limiteGrupo - jaUsado));
+    let qtdLinha = parseInt($rowItem.find('.quantidade_item').val(), 10) || 0;
+
+    if (qtdLinha > maxLinha) {
+        $rowItem.find('.quantidade_item').val(maxLinha);
+        qtdLinha = maxLinha;
+        calcularTotaisOrcamento();
+
+        if (mostrarAlerta) {
+            Swal.fire({
+                title: 'Limite do conjunto',
+                html: 'Este conjunto permite no máximo <strong>' + limiteGrupo + '</strong> item(ns) no grupo <strong>' + escapeHtml(info.regra.nome_grupo || 'Grupo') + '</strong>.<br>Esta linha foi ajustada para <strong>' + maxLinha + '</strong>.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+        }
+        return false;
+    }
+
+    return true;
+}
+
+function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
+    if (!$rowConjunto || !$rowConjunto.length) { return true; }
+
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    if (!regras.length) { return true; }
+
+    const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const problemas = [];
+
+    regras.forEach(function(regra) {
+        const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
+        const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
+        if (atual !== esperado) {
+            problemas.push({
+                grupo: regra.nome_grupo || 'Grupo',
+                esperado: esperado,
+                atual: atual
+            });
+        }
+    });
+
+    if (problemas.length) {
+        if (mostrarAlerta) {
+            const linhas = problemas.map(function(p) {
+                return '<li><strong>' + escapeHtml(p.grupo) + '</strong>: precisa ' + p.esperado + ', lançado ' + p.atual + '</li>';
+            }).join('');
+
+            Swal.fire({
+                title: 'Conjunto incompleto ou excedido',
+                html: '<p>A montagem ainda não fecha com a quantidade do conjunto.</p><ul class="text-left">' + linhas + '</ul>',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+        }
+        return false;
+    }
+
+    return true;
+}
+
+function validarTodosConjuntosAntesSalvar(mostrarAlerta = true) {
+    let ok = true;
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').each(function() {
+        if (!validarFechamentoConjunto($(this), mostrarAlerta)) {
+            ok = false;
+            return false;
+        }
+    });
+    return ok;
+}
+
+function ativarMontagemConjunto($rowConjunto) {
+    conjuntoAtivoIndex = parseInt($rowConjunto.data('index'), 10) || null;
+    conjuntoAtivoNome = $rowConjunto.find('.nome_produto_display').val() || 'Conjunto';
+
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').removeClass('table-primary');
+    $rowConjunto.addClass('table-primary');
+
+    Swal.fire({
+        title: 'Montagem do conjunto ativa',
+        html: 'Agora selecione os produtos internos pela busca normal.<br><strong>' + escapeHtml(conjuntoAtivoNome) + '</strong><br><small>Os itens internos entrarão com valor zero e continuarão consultando estoque.</small>',
+        icon: 'info',
+        confirmButtonText: 'Entendi'
+    });
+}
+
+function encerrarMontagemConjunto() {
+    if (conjuntoAtivoIndex !== null) {
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+        if ($rowConjunto.length && !validarFechamentoConjunto($rowConjunto, true)) {
+            return false;
+        }
+    }
+
+    conjuntoAtivoIndex = null;
+    conjuntoAtivoNome = '';
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').removeClass('table-primary');
+    return true;
+}
+
+function adicionarConjuntoAoOrcamento(produto) {
+    var $rowConjunto = adicionarLinhaItemTabela(produto, 'CONJUNTO');
+    $('#busca_produto').val('').focus();
+    $('#sugestoes_produtos').empty().hide();
+
+    if ($rowConjunto && $rowConjunto.length) {
+        carregarRegrasConjunto(produto.id, $rowConjunto);
+        ativarMontagemConjunto($rowConjunto);
+    }
+}
+
+function adicionarItemAoConjuntoAtivo(produto) {
+    var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
+    if ($rowItem && $rowItem.length) {
+        validarLimiteItemConjunto($rowItem, false);
+    }
+    $('#busca_produto').val('').focus();
+    $('#sugestoes_produtos').empty().hide();
+}
+
 function verificarEstoqueAntes(produto) {
     adicionarLinhaItemTabela(produto, 'PRODUTO');
     $('#busca_produto').val('').focus();
@@ -2002,6 +2407,19 @@ function validarEstoqueQuantidade($row) {
 
     if (quantidadeAtual < 0) {
         $row.find('.quantidade_item').val(0);
+    }
+
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        validarLimiteItemConjunto($row, true);
+    }
+
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        const conjuntoIndex = parseInt($row.data('index'), 10) || 0;
+        $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+            if (parseInt($(this).data('conjunto-pai-index') || 0, 10) === conjuntoIndex) {
+                validarLimiteItemConjunto($(this), false);
+            }
+        });
     }
 
     // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
@@ -2296,6 +2714,11 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
 
     $('#formNovoOrcamento').on('submit', function(e) {
         if (!validarItensQuantidadeZeroCreate()) {
+            e.preventDefault();
+            return false;
+        }
+
+        if (!validarTodosConjuntosAntesSalvar(true)) {
             e.preventDefault();
             return false;
         }
