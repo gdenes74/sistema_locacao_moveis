@@ -14,6 +14,7 @@ class Produto {
     public $cor;
     public $material;
     public $tipo_produto;
+    public $eh_conjunto;
     public $controla_estoque;
     public $quantidade_total;
     public $preco_locacao;
@@ -32,6 +33,7 @@ class Produto {
 
         // Defaults compatíveis com o banco e com o sistema antigo
         $this->tipo_produto = 'SIMPLES';
+        $this->eh_conjunto = 0;
         $this->controla_estoque = 1;
         $this->quantidade_total = 0;
         $this->preco_locacao = 0.00;
@@ -61,6 +63,7 @@ class Produto {
                 case 'disponivel_venda':
                 case 'disponivel_locacao':
                 case 'controla_estoque':
+                case 'eh_conjunto':
                     $this->$name = ($value == '1' || $value === true || $value === 'on') ? 1 : 0;
                     break;
 
@@ -127,6 +130,7 @@ class Produto {
         $stmt->bindValue(':cor', $this->cor ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':material', $this->material ?? null, PDO::PARAM_STR);
         $stmt->bindValue(':tipo_produto', $this->normalizarTipoProduto($this->tipo_produto ?? 'SIMPLES'), PDO::PARAM_STR);
+        $stmt->bindValue(':eh_conjunto', (int)($this->eh_conjunto ?? 0), PDO::PARAM_INT);
         $stmt->bindValue(':controla_estoque', (int)($this->controla_estoque ?? 1), PDO::PARAM_INT);
         $stmt->bindValue(':quantidade_total', (int)($this->quantidade_total ?? 0), PDO::PARAM_INT);
         $stmt->bindValue(':preco_locacao', number_format($this->normalizarMoeda($this->preco_locacao ?? 0.00), 2, '.', ''), PDO::PARAM_STR);
@@ -287,14 +291,14 @@ class Produto {
         $query = "INSERT INTO " . $this->table_name . "
                   (
                     subcategoria_id, codigo, nome_produto, descricao_detalhada, dimensoes,
-                    cor, material, tipo_produto, controla_estoque, quantidade_total,
+                    cor, material, tipo_produto, eh_conjunto, controla_estoque, quantidade_total,
                     preco_locacao, preco_venda, preco_custo,
                     disponivel_venda, disponivel_locacao, foto_path, observacoes, data_cadastro
                   )
                   VALUES
                   (
                     :subcategoria_id, :codigo, :nome_produto, :descricao_detalhada, :dimensoes,
-                    :cor, :material, :tipo_produto, :controla_estoque, :quantidade_total,
+                    :cor, :material, :tipo_produto, :eh_conjunto, :controla_estoque, :quantidade_total,
                     :preco_locacao, :preco_venda, :preco_custo,
                     :disponivel_venda, :disponivel_locacao, :foto_path, :observacoes, NOW()
                   )";
@@ -345,6 +349,7 @@ class Produto {
                     cor = :cor,
                     material = :material,
                     tipo_produto = :tipo_produto,
+                    eh_conjunto = :eh_conjunto,
                     controla_estoque = :controla_estoque,
                     quantidade_total = :quantidade_total,
                     preco_locacao = :preco_locacao,
@@ -687,5 +692,185 @@ class Produto {
             return false;
         }
     }
+
+    /**
+     * =========================================================
+     * CONJUNTOS COMERCIAIS
+     * =========================================================
+     * Métodos usados para cadastrar/editar as regras comerciais de montagem
+     * de conjuntos, sem alterar a lógica de produto composto nem estoque temporal.
+     */
+
+    /**
+     * Lista os grupos configurados de um conjunto comercial.
+     */
+    public function listarGruposConjunto(int $produtoConjuntoId): array {
+        if ($produtoConjuntoId <= 0) {
+            return [];
+        }
+
+        $query = "SELECT
+                    pcg.*,
+                    c.nome AS nome_categoria,
+                    s.nome AS nome_subcategoria
+                  FROM produto_conjunto_grupos pcg
+                  LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                  LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                  WHERE pcg.produto_conjunto_id = :produto_conjunto_id
+                  ORDER BY pcg.ordem ASC, pcg.id ASC";
+
+        try {
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("[Produto::listarGruposConjunto] PDOException: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Remove todos os grupos de um conjunto comercial.
+     */
+    public function removerTodosGruposConjunto(int $produtoConjuntoId): bool {
+        if ($produtoConjuntoId <= 0) {
+            return false;
+        }
+
+        $query = "DELETE FROM produto_conjunto_grupos
+                  WHERE produto_conjunto_id = :produto_conjunto_id";
+
+        try {
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+            return $stmt->execute();
+        } catch (PDOException $e) {
+            error_log("[Produto::removerTodosGruposConjunto] PDOException: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Salva a lista completa de grupos de um conjunto comercial.
+     *
+     * Estratégia segura para tela de edição:
+     * - remove os grupos antigos;
+     * - recria os grupos atuais enviados pelo formulário.
+     *
+     * Importante:
+     * - se já existir transação aberta na view, reaproveita;
+     * - se não existir, abre/commita aqui.
+     */
+    public function salvarGruposConjunto(int $produtoConjuntoId, array $grupos): bool {
+        if ($produtoConjuntoId <= 0) {
+            return false;
+        }
+
+        $transacaoIniciadaAqui = false;
+
+        try {
+            if (!$this->conn->inTransaction()) {
+                $this->conn->beginTransaction();
+                $transacaoIniciadaAqui = true;
+            }
+
+            $stmtDelete = $this->conn->prepare("DELETE FROM produto_conjunto_grupos WHERE produto_conjunto_id = :produto_conjunto_id");
+            $stmtDelete->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+            $stmtDelete->execute();
+
+            $queryInsert = "INSERT INTO produto_conjunto_grupos
+                            (
+                                produto_conjunto_id,
+                                nome_grupo,
+                                categoria_id,
+                                subcategoria_id,
+                                quantidade_por_conjunto,
+                                obrigatorio,
+                                ordem,
+                                observacoes
+                            )
+                            VALUES
+                            (
+                                :produto_conjunto_id,
+                                :nome_grupo,
+                                :categoria_id,
+                                :subcategoria_id,
+                                :quantidade_por_conjunto,
+                                :obrigatorio,
+                                :ordem,
+                                :observacoes
+                            )";
+
+            $stmtInsert = $this->conn->prepare($queryInsert);
+            $ordemReal = 1;
+
+            foreach ($grupos as $ordem => $grupo) {
+                if (!is_array($grupo)) {
+                    continue;
+                }
+
+                $nomeGrupo = trim($grupo['nome_grupo'] ?? '');
+                if ($nomeGrupo === '') {
+                    continue;
+                }
+
+                $categoriaId = !empty($grupo['categoria_id']) ? (int)$grupo['categoria_id'] : null;
+                $subcategoriaId = !empty($grupo['subcategoria_id']) ? (int)$grupo['subcategoria_id'] : null;
+
+                $quantidade = isset($grupo['quantidade_por_conjunto'])
+                    ? (float)str_replace(',', '.', (string)$grupo['quantidade_por_conjunto'])
+                    : 1.00;
+
+                if ($quantidade <= 0) {
+                    $quantidade = 1.00;
+                }
+
+                $obrigatorio = !empty($grupo['obrigatorio']) ? 1 : 0;
+                $observacoes = trim($grupo['observacoes'] ?? '');
+
+                $stmtInsert->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+                $stmtInsert->bindValue(':nome_grupo', $nomeGrupo, PDO::PARAM_STR);
+
+                if ($categoriaId !== null && $categoriaId > 0) {
+                    $stmtInsert->bindValue(':categoria_id', $categoriaId, PDO::PARAM_INT);
+                } else {
+                    $stmtInsert->bindValue(':categoria_id', null, PDO::PARAM_NULL);
+                }
+
+                if ($subcategoriaId !== null && $subcategoriaId > 0) {
+                    $stmtInsert->bindValue(':subcategoria_id', $subcategoriaId, PDO::PARAM_INT);
+                } else {
+                    $stmtInsert->bindValue(':subcategoria_id', null, PDO::PARAM_NULL);
+                }
+
+                $stmtInsert->bindValue(':quantidade_por_conjunto', number_format($quantidade, 2, '.', ''), PDO::PARAM_STR);
+                $stmtInsert->bindValue(':obrigatorio', $obrigatorio, PDO::PARAM_INT);
+                $stmtInsert->bindValue(':ordem', $ordemReal, PDO::PARAM_INT);
+
+                if ($observacoes !== '') {
+                    $stmtInsert->bindValue(':observacoes', $observacoes, PDO::PARAM_STR);
+                } else {
+                    $stmtInsert->bindValue(':observacoes', null, PDO::PARAM_NULL);
+                }
+
+                $stmtInsert->execute();
+                $ordemReal++;
+            }
+
+            if ($transacaoIniciadaAqui && $this->conn->inTransaction()) {
+                $this->conn->commit();
+            }
+
+            return true;
+        } catch (PDOException $e) {
+            if ($transacaoIniciadaAqui && $this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+            error_log("[Produto::salvarGruposConjunto] PDOException: " . $e->getMessage());
+            return false;
+        }
+    }
+
 }
 ?>

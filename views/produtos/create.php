@@ -116,6 +116,87 @@ function salvarComposicaoProdutoCreate(PDO $conn, Produto $produtoModel, int $pr
     }
 }
 
+
+/**
+ * Salva as regras comerciais do conjunto.
+ * Esta tabela NÃO define estoque físico; apenas limita/organiza a montagem no orçamento.
+ */
+function salvarGruposConjuntoProdutoCreate(PDO $conn, Produto $produtoModel, int $produtoConjuntoId, array $grupos): void
+{
+    if ($produtoConjuntoId <= 0) {
+        return;
+    }
+
+    $linhas = [];
+
+    foreach ($grupos as $linha) {
+        $nomeGrupo = isset($linha['nome_grupo']) ? trim((string)$linha['nome_grupo']) : '';
+        $categoriaId = isset($linha['categoria_id']) && $linha['categoria_id'] !== '' ? (int)$linha['categoria_id'] : null;
+        $subcategoriaId = isset($linha['subcategoria_id']) && $linha['subcategoria_id'] !== '' ? (int)$linha['subcategoria_id'] : null;
+        $quantidade = isset($linha['quantidade_por_conjunto'])
+            ? normalizarQuantidadeComposicao($linha['quantidade_por_conjunto'])
+            : 1.00;
+
+        if ($nomeGrupo === '') {
+            continue;
+        }
+
+        if ($categoriaId === null && $subcategoriaId === null) {
+            continue;
+        }
+
+        $linhas[] = [
+            'nome_grupo' => $nomeGrupo,
+            'categoria_id' => $categoriaId,
+            'subcategoria_id' => $subcategoriaId,
+            'quantidade_por_conjunto' => $quantidade,
+            'obrigatorio' => isset($linha['obrigatorio']) ? 1 : 0,
+            'observacoes' => isset($linha['observacoes']) && trim((string)$linha['observacoes']) !== '' ? trim((string)$linha['observacoes']) : null,
+        ];
+    }
+
+    if (method_exists($produtoModel, 'salvarGruposConjunto')) {
+        $produtoModel->salvarGruposConjunto($produtoConjuntoId, $linhas);
+        return;
+    }
+
+    $stmtDelete = $conn->prepare("DELETE FROM produto_conjunto_grupos WHERE produto_conjunto_id = :produto_conjunto_id");
+    $stmtDelete->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+    $stmtDelete->execute();
+
+    if (empty($linhas)) {
+        return;
+    }
+
+    $stmt = $conn->prepare("INSERT INTO produto_conjunto_grupos
+        (produto_conjunto_id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
+        VALUES
+        (:produto_conjunto_id, :nome_grupo, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
+
+    foreach ($linhas as $ordem => $linha) {
+        $stmt->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+        $stmt->bindValue(':nome_grupo', $linha['nome_grupo'], PDO::PARAM_STR);
+
+        if ($linha['categoria_id'] !== null) {
+            $stmt->bindValue(':categoria_id', $linha['categoria_id'], PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue(':categoria_id', null, PDO::PARAM_NULL);
+        }
+
+        if ($linha['subcategoria_id'] !== null) {
+            $stmt->bindValue(':subcategoria_id', $linha['subcategoria_id'], PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue(':subcategoria_id', null, PDO::PARAM_NULL);
+        }
+
+        $stmt->bindValue(':quantidade_por_conjunto', number_format((float)$linha['quantidade_por_conjunto'], 2, '.', ''), PDO::PARAM_STR);
+        $stmt->bindValue(':obrigatorio', (int)$linha['obrigatorio'], PDO::PARAM_INT);
+        $stmt->bindValue(':ordem', $ordem + 1, PDO::PARAM_INT);
+        $stmt->bindValue(':observacoes', $linha['observacoes'], $linha['observacoes'] !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
+        $stmt->execute();
+    }
+}
+
 // Carrega as Seções, Categorias, Subcategorias e Produtos para composição
 try {
     $secoes = $secaoModel->listar()->fetchAll(PDO::FETCH_ASSOC);
@@ -167,7 +248,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tipoProduto = 'SIMPLES';
     }
 
+    $ehConjunto = isset($_POST['eh_conjunto']) ? 1 : 0;
+
+    // Conjunto comercial é apenas agrupador comercial:
+    // preço fica no produto pai, mas o estoque virá dos itens internos escolhidos no orçamento.
+    if ($ehConjunto === 1) {
+        $tipoProduto = 'COMPOSTO';
+        $_POST['controla_estoque'] = '0';
+        $_POST['quantidade_total'] = '0';
+    }
+
     $produto->tipo_produto = $tipoProduto;
+    $produto->eh_conjunto = $ehConjunto;
     $produto->controla_estoque = isset($_POST['controla_estoque']) ? (int)$_POST['controla_estoque'] : 1;
 
     // Atribui outros campos
@@ -211,8 +303,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($produto->criar()) {
                 $novoProdutoId = (int)$produto->id;
 
-                if ($tipoProduto === 'COMPOSTO' && !empty($_POST['componentes']) && is_array($_POST['componentes'])) {
+                if ($tipoProduto === 'COMPOSTO' && $ehConjunto === 0 && !empty($_POST['componentes']) && is_array($_POST['componentes'])) {
                     salvarComposicaoProdutoCreate($conn, $produto, $novoProdutoId, $_POST['componentes']);
+                }
+
+                if ($ehConjunto === 1 && !empty($_POST['grupos_conjunto']) && is_array($_POST['grupos_conjunto'])) {
+                    salvarGruposConjuntoProdutoCreate($conn, $produto, $novoProdutoId, $_POST['grupos_conjunto']);
                 }
 
                 $_SESSION['success'] = "Produto criado com sucesso!";
@@ -350,6 +446,21 @@ include_once __DIR__ . '/../includes/header.php';
                             </div>
                         </div>
 
+                        <div class="form-group row">
+                            <div class="col-md-12">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" id="eh_conjunto" name="eh_conjunto" value="1" class="custom-control-input">
+                                    <label for="eh_conjunto" class="custom-control-label font-weight-bold">
+                                        É conjunto comercial?
+                                    </label>
+                                </div>
+                                <small class="text-muted">
+                                    Use para produtos com preço fechado, mas sem estoque próprio. Ex.: conjunto bistrô com 4 pufes.
+                                    A escolha do bistrô e dos pufes será feita depois no orçamento.
+                                </small>
+                            </div>
+                        </div>
+
                         <div class="form-group">
                             <label for="descricao_detalhada">Descrição Detalhada</label>
                             <textarea id="descricao_detalhada" name="descricao_detalhada" class="form-control" rows="3"></textarea>
@@ -404,6 +515,46 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="preco_custo">Preço Custo (R$)</label>
                                 <input type="text" id="preco_custo" name="preco_custo" class="form-control money" placeholder="0,00">
                                 <small class="text-muted">Referência interna.</small>
+                            </div>
+                        </div>
+
+                        <div id="box_conjunto_comercial" class="card card-outline card-primary" style="display:none;">
+                            <div class="card-header">
+                                <h3 class="card-title">Regras do Conjunto Comercial</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-2">
+                                    Aqui você não escolhe a cor específica do pufe. Você define os grupos permitidos.
+                                    Ex.: grupo <strong>Bistrô</strong> = categoria Bistrôs / subcategoria Ferro pintados / qtd 1.
+                                    Grupo <strong>Pufes</strong> = categoria Pufes / subcategoria Forrados / qtd 4.
+                                </p>
+
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered" id="tabela_grupos_conjunto">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 18%;">Grupo</th>
+                                                <th style="width: 24%;">Categoria</th>
+                                                <th style="width: 24%;">Subcategoria</th>
+                                                <th style="width: 11%;">Qtd/conjunto</th>
+                                                <th style="width: 9%;">Obrig.</th>
+                                                <th>Observação</th>
+                                                <th style="width: 70px;">Ação</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+
+                                <button type="button" class="btn btn-sm btn-primary" id="btn_adicionar_grupo_conjunto">
+                                    <i class="fas fa-plus mr-1"></i> Adicionar Grupo do Conjunto
+                                </button>
+
+                                <div class="alert alert-info mt-3 mb-0">
+                                    <strong>Exemplo:</strong> para “Conjunto Bistrô Baixo com 4 Pufes”, cadastre 2 grupos:
+                                    <br>1) Bistrô — categoria/subcategoria dos bistrôs — qtd 1
+                                    <br>2) Pufes — categoria/subcategoria dos pufes forrados — qtd 4
+                                </div>
                             </div>
                         </div>
 
@@ -538,11 +689,16 @@ document.addEventListener("DOMContentLoaded", function () {
     const controlaEstoque = document.getElementById('controla_estoque');
     const quantidadeTotal = document.getElementById('quantidade_total');
     const ajudaQuantidade = document.getElementById('ajuda_quantidade');
+    const ehConjunto = document.getElementById('eh_conjunto');
+    const boxConjuntoComercial = document.getElementById('box_conjunto_comercial');
+    const tabelaGruposConjuntoBody = document.querySelector('#tabela_grupos_conjunto tbody');
+    const btnAdicionarGrupoConjunto = document.getElementById('btn_adicionar_grupo_conjunto');
     const boxComposicao = document.getElementById('box_composicao');
     const tabelaComponentesBody = document.querySelector('#tabela_componentes tbody');
     const btnAdicionarComponente = document.getElementById('btn_adicionar_componente');
 
     let componenteIndex = 0;
+    let grupoConjuntoIndex = 0;
 
     const produtosOptionsHtml = `<?php foreach ($produtosParaComponentes as $p): ?>
         <option value="<?php echo (int)$p['id']; ?>">
@@ -550,8 +706,41 @@ document.addEventListener("DOMContentLoaded", function () {
         </option>
     <?php endforeach; ?>`;
 
+    function categoriasOptionsHtml() {
+        let html = '<option value="">-- Categoria --</option>';
+        dataHierarchy.categorias.forEach(cat => {
+            html += `<option value="${cat.id}">${cat.nome}</option>`;
+        });
+        return html;
+    }
+
+    function subcategoriasOptionsHtml(categoriaId) {
+        let html = '<option value="">-- Todas / selecione --</option>';
+        if (categoriaId) {
+            dataHierarchy.subcategorias
+                .filter(sub => sub.categoria_id == categoriaId)
+                .forEach(sub => {
+                    html += `<option value="${sub.id}">${sub.nome}</option>`;
+                });
+        }
+        return html;
+    }
+
     function atualizarTipoProduto() {
         const tipo = tipoProduto.value;
+        const conjuntoMarcado = ehConjunto.checked;
+
+        if (conjuntoMarcado) {
+            tipoProduto.value = 'COMPOSTO';
+            controlaEstoque.value = '0';
+            quantidadeTotal.value = '0';
+            boxComposicao.style.display = 'none';
+            boxConjuntoComercial.style.display = 'block';
+            ajudaQuantidade.textContent = 'Conjunto comercial não tem estoque próprio. O estoque virá dos itens internos escolhidos no orçamento.';
+            return;
+        }
+
+        boxConjuntoComercial.style.display = 'none';
 
         if (tipo === 'COMPOSTO') {
             boxComposicao.style.display = 'block';
@@ -572,6 +761,41 @@ document.addEventListener("DOMContentLoaded", function () {
             controlaEstoque.value = '1';
             ajudaQuantidade.textContent = 'Produto simples normalmente controla estoque.';
         }
+    }
+
+    function adicionarLinhaGrupoConjunto(nome = '', qtd = '1.00') {
+        const idx = grupoConjuntoIndex++;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <input type="text" name="grupos_conjunto[${idx}][nome_grupo]" class="form-control form-control-sm" value="${nome}" placeholder="Ex.: Pufes">
+            </td>
+            <td>
+                <select name="grupos_conjunto[${idx}][categoria_id]" class="form-control form-control-sm grupo-categoria">
+                    ${categoriasOptionsHtml()}
+                </select>
+            </td>
+            <td>
+                <select name="grupos_conjunto[${idx}][subcategoria_id]" class="form-control form-control-sm grupo-subcategoria">
+                    <option value="">-- Todas / selecione --</option>
+                </select>
+            </td>
+            <td>
+                <input type="number" name="grupos_conjunto[${idx}][quantidade_por_conjunto]" class="form-control form-control-sm" min="0.01" step="0.01" value="${qtd}">
+            </td>
+            <td class="text-center">
+                <input type="checkbox" name="grupos_conjunto[${idx}][obrigatorio]" value="1" checked>
+            </td>
+            <td>
+                <input type="text" name="grupos_conjunto[${idx}][observacoes]" class="form-control form-control-sm" placeholder="Ex.: escolher 4 pufes por conjunto">
+            </td>
+            <td class="text-center">
+                <button type="button" class="btn btn-xs btn-danger btn-remover-grupo-conjunto">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        `;
+        tabelaGruposConjuntoBody.appendChild(tr);
     }
 
     function adicionarLinhaComponente() {
@@ -603,6 +827,33 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     tipoProduto.addEventListener('change', atualizarTipoProduto);
+    ehConjunto.addEventListener('change', function() {
+        atualizarTipoProduto();
+        if (ehConjunto.checked && tabelaGruposConjuntoBody.children.length === 0) {
+            adicionarLinhaGrupoConjunto('Bistrô', '1.00');
+            adicionarLinhaGrupoConjunto('Pufes', '4.00');
+        }
+    });
+
+    btnAdicionarGrupoConjunto.addEventListener('click', function() {
+        adicionarLinhaGrupoConjunto();
+    });
+
+    tabelaGruposConjuntoBody.addEventListener('change', function(e) {
+        if (e.target.classList.contains('grupo-categoria')) {
+            const tr = e.target.closest('tr');
+            const subSelect = tr.querySelector('.grupo-subcategoria');
+            subSelect.innerHTML = subcategoriasOptionsHtml(e.target.value);
+        }
+    });
+
+    tabelaGruposConjuntoBody.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-remover-grupo-conjunto');
+        if (btn) {
+            btn.closest('tr').remove();
+        }
+    });
+
     btnAdicionarComponente.addEventListener('click', adicionarLinhaComponente);
 
     tabelaComponentesBody.addEventListener('click', function(e) {
@@ -611,6 +862,31 @@ document.addEventListener("DOMContentLoaded", function () {
             btn.closest('tr').remove();
         }
     });
+
+    const formProduto = document.querySelector('form[method="POST"]');
+    if (formProduto) {
+        formProduto.addEventListener('submit', function(e) {
+            if (!ehConjunto.checked) {
+                return;
+            }
+
+            let possuiGrupoValido = false;
+            tabelaGruposConjuntoBody.querySelectorAll('tr').forEach(function(tr) {
+                const nome = tr.querySelector('input[name*="[nome_grupo]"]')?.value.trim();
+                const categoria = tr.querySelector('select[name*="[categoria_id]"]')?.value;
+                const subcategoria = tr.querySelector('select[name*="[subcategoria_id]"]')?.value;
+
+                if (nome && (categoria || subcategoria)) {
+                    possuiGrupoValido = true;
+                }
+            });
+
+            if (!possuiGrupoValido) {
+                e.preventDefault();
+                alert('Cadastre ao menos um grupo válido para o conjunto comercial.');
+            }
+        });
+    }
 
     atualizarTipoProduto();
 });

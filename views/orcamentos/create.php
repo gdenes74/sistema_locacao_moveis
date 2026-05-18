@@ -568,7 +568,7 @@ include_once __DIR__ . '/../includes/header.php';
                 <?php unset($_SESSION['success_message']); ?>
             <?php endif; ?>
 
-            <form id="formNovoOrcamento" action="create.php" method="POST" novalidate>
+            <form id="formNovoOrcamento" action="create.php" method="POST" novalidate autocomplete="off">
                 <div class="card card-primary card-outline">
                     <div class="card-header">
                         <h3 class="card-title">Dados do Orçamento</h3>
@@ -599,7 +599,7 @@ include_once __DIR__ . '/../includes/header.php';
                                         class="text-danger">*</span></label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_orcamento"
-                                        name="data_orcamento" value="<?= date('d/m/Y') ?>" required>
+                                        name="data_orcamento" value="<?= date('d/m/Y') ?>" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false" required>
                                     <div class="input-group-append"><span class="input-group-text"><i
                                                 class="fas fa-calendar-alt"></i></span></div>
                                 </div>
@@ -623,7 +623,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_evento" class="form-label">Data do Evento</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_evento"
-                                        name="data_evento" placeholder="DD/MM/AAAA">
+                                        name="data_evento" placeholder="DD/MM/AAAA" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i
                                                 class="fas fa-calendar-alt"></i></span></div>
                                 </div>
@@ -650,7 +650,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_entrega" class="form-label">Data da Entrega</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_entrega"
-                                        name="data_entrega" placeholder="DD/MM/AAAA">
+                                        name="data_entrega" placeholder="DD/MM/AAAA" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i
                                                 class="fas fa-calendar-alt"></i></span></div>
                                 </div>
@@ -690,7 +690,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_devolucao_prevista" class="form-label">Data Devolução (Prev.)</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_devolucao_prevista"
-                                        name="data_devolucao_prevista" placeholder="DD/MM/AAAA">
+                                        name="data_devolucao_prevista" placeholder="DD/MM/AAAA" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i
                                                 class="fas fa-calendar-alt"></i></span></div>
                                 </div>
@@ -1403,6 +1403,55 @@ include_once __DIR__ . '/../includes/header.php';
                     .regras-conjunto-resumo {
                         line-height: 1.35;
                     }
+                    .conjunto-grupo-guia td {
+                        background: #f8fbff !important;
+                        border-left: 4px solid #6ea8fe !important;
+                        font-size: 0.82rem;
+                        padding-top: 6px !important;
+                        padding-bottom: 6px !important;
+                        cursor: pointer;
+                    }
+                    .conjunto-grupo-guia:hover td {
+                        background: #eef6ff !important;
+                    }
+                    .conjunto-grupo-guia .grupo-status-badge {
+                        display: inline-block;
+                        border-radius: 999px;
+                        padding: 2px 7px;
+                        font-size: 0.70rem;
+                        font-weight: 800;
+                    }
+                    .conjunto-grupo-guia .grupo-ok {
+                        background: #d1e7dd;
+                        color: #0f5132;
+                    }
+                    .conjunto-grupo-guia .grupo-pendente {
+                        background: #fff3cd;
+                        color: #664d03;
+                    }
+                    .foto-produto-linha {
+                        cursor: zoom-in;
+                    }
+                    /* Datepicker: mantém o visual original, mas força o calendário a ficar por cima dos inputs. */
+                    .datepicker-dropdown,
+                    .datepicker-dropdown.dropdown-menu,
+                    body > .datepicker-dropdown,
+                    body > .datepicker-dropdown.dropdown-menu {
+                        z-index: 999999 !important;
+                        background: #ffffff !important;
+                        border: 1px solid #ced4da !important;
+                        box-shadow: 0 8px 18px rgba(0,0,0,0.18) !important;
+                    }
+                    .datepicker-dropdown table,
+                    .datepicker-dropdown .datepicker-days,
+                    .datepicker-dropdown .datepicker-months,
+                    .datepicker-dropdown .datepicker-years {
+                        background: #ffffff !important;
+                    }
+                    .datepicker-dropdown:before,
+                    .datepicker-dropdown:after {
+                        z-index: 1000000 !important;
+                    }
 
                 </style>
             </form>
@@ -1471,6 +1520,18 @@ include_once __DIR__ . '/../includes/header.php';
 <?php
 $custom_js = <<<'JS'
 $(document).ready(function() {
+    // Evita sugestões antigas do navegador cobrindo o calendário.
+    // Truque seguro: campo começa readonly para o Chrome não abrir histórico/autocomplete;
+    // ao focar/clicar, remove readonly e mantém digitação normal.
+    $('.datepicker').attr({
+        'autocomplete': 'off',
+        'aria-autocomplete': 'none',
+        'inputmode': 'numeric',
+        'autocorrect': 'off',
+        'autocapitalize': 'off',
+        'spellcheck': 'false',
+        'readonly': 'readonly'
+    });
     $('#btnUsarEnderecoCliente').hide(); // <-- ESCONDE O BOTAO ADIC ENDERECO CLIENTE
     var itemIndex = 0;
     var disponibilidadeRequestSeq = 0;
@@ -1861,6 +1922,87 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         });
     }
 
+
+
+    function atualizarListaProdutosAposSelecao() {
+        $('#busca_produto').val('').focus();
+        if ($('#busca_categoria_produto').val()) {
+            setTimeout(function() {
+                carregarSugestoesProdutos();
+            }, 80);
+        } else {
+            $('#sugestoes_produtos').empty().hide();
+        }
+    }
+
+    function abrirFotoProduto(fotoUrl, nomeProduto) {
+        if (!fotoUrl) { return; }
+        Swal.fire({
+            title: nomeProduto || 'Produto',
+            imageUrl: fotoUrl,
+            imageAlt: 'Foto ampliada de ' + (nomeProduto || 'Produto'),
+            imageWidth: '90%',
+            confirmButtonText: 'Fechar'
+        });
+    }
+
+    function inserirLinhasGuiaConjunto($rowConjunto, grupos) {
+        if (!$rowConjunto || !$rowConjunto.length || !grupos || !grupos.length) { return; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+
+        let htmlGuias = '';
+        grupos.forEach(function(grupo, idx) {
+            const qtd = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+            const origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
+            htmlGuias += `<tr class="conjunto-grupo-guia" title="Clique para listar opções deste grupo" data-conjunto-pai-index="${conjuntoIndex}" data-regra-index="${idx}" data-categoria-id="${grupo.categoria_id || ''}" data-subcategoria-id="${grupo.subcategoria_id || ''}">
+                <td colspan="7" style="padding-left: 32px;">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap">
+                        <div>
+                            <strong class="text-primary"><i class="fas fa-layer-group mr-1"></i>${escapeHtml(grupo.nome_grupo || 'Grupo')}</strong>
+                            <span class="text-muted ml-2">${qtd} por conjunto · ${escapeHtml(origem)}</span>
+                        </div>
+                        <span class="grupo-status-badge grupo-pendente ml-2">Falta calcular</span>
+                    </div>
+                </td>
+            </tr>`;
+        });
+
+        $rowConjunto.after(htmlGuias);
+        atualizarGuiasConjunto($rowConjunto);
+
+        // Não abre a lista automaticamente: evita que a busca fique sobreposta na tela.
+        // O atendente clica no grupo (Bistrô/Pufes/etc.) quando quiser listar as opções.
+    }
+
+    function atualizarGuiasConjunto($rowConjunto) {
+        if (!$rowConjunto || !$rowConjunto.length) { return; }
+        const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+        const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const $guia = $(this);
+            const regraIndex = parseInt($guia.data('regra-index'), 10) || 0;
+            const regra = regras[regraIndex];
+            if (!regra) { return; }
+
+            const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
+            const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
+            const falta = esperado - atual;
+            const $badge = $guia.find('.grupo-status-badge');
+
+            if (falta === 0) {
+                $badge.removeClass('grupo-pendente').addClass('grupo-ok').text('OK: ' + atual + '/' + esperado);
+            } else if (falta > 0) {
+                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Faltam ' + falta + ' · ' + atual + '/' + esperado);
+            } else {
+                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Excedeu ' + Math.abs(falta) + ' · ' + atual + '/' + esperado);
+            }
+        });
+    }
+
     function rolarTabelaItensParaLinha($row) {
         var $container = $('.itens-scroll-container');
         if (!$container.length || !$row || !$row.length) { return; }
@@ -1887,7 +2029,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         if (tipoLinha === 'CONJUNTO') {
             var quantidadeConjuntoDefault = 1;
             var subtotalConjuntoDefault = quantidadeConjuntoDefault * precoUnitarioDefault;
-            var imagemConjuntoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #0d6efd; border-radius: 4px; vertical-align: middle;">` : '';
+            var imagemConjuntoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #0d6efd; border-radius: 4px; vertical-align: middle;">` : '';
             htmlLinha = `<tr class="item-orcamento-row item-conjunto-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #eef6ff !important; border-left: 4px solid #0d6efd;">
                 <td>${imagemConjuntoHtml}
                     <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display font-weight-bold text-primary" value="${nomeDisplay}" placeholder="Nome do Conjunto" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" readonly>
@@ -1895,7 +2037,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                     <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
                     <input type="hidden" name="ordem[]" value="${itemIndex}">
                     <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
-                    <small class="form-text text-primary font-weight-bold"><i class="fas fa-layer-group"></i> Conjunto: preço nesta linha; itens internos entram abaixo com valor zero.</small>
+                    <small class="text-primary font-weight-bold ml-1"><i class="fas fa-layer-group"></i> Conjunto comercial</small>
                     <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Conjunto:</small>
                     <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do conjunto">
                 </td>
@@ -1914,7 +2056,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
             </tr>`;
         } else if (tipoLinha === 'ITEM_CONJUNTO') {
             var quantidadeFilhoDefault = 0; 
-            var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
+            var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
             var conjuntoNomeEscapado = conjuntoAtivoNome ? escapeHtml(conjuntoAtivoNome) : 'conjunto';
             htmlLinha = `<tr class="item-orcamento-row item-conjunto-filho-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-conjunto-pai-index="${conjuntoAtivoIndex || ''}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #f8fbff !important;">
                 <td style="padding-left: 28px;">
@@ -1942,7 +2084,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         } else if (tipoLinha === 'PRODUTO') {
             var quantidadeDefault = 0; var descontoDefault = 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
-            var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
+            var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
             htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="6"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
@@ -2106,6 +2248,53 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
 });
 
 
+
+    $('#busca_categoria_produto').on('click focus', function() {
+        if ($(this).val()) {
+            setTimeout(carregarSugestoesProdutos, 60);
+        }
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.foto-produto-linha', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        abrirFotoProduto($(this).data('foto-completa'), $(this).data('nome-produto'));
+    });
+
+    function selecionarGrupoConjunto($guia, abrirSugestoes = true) {
+        const conjuntoIndex = parseInt($guia.data('conjunto-pai-index') || 0, 10) || 0;
+        const categoriaId = $guia.data('categoria-id') || '';
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+
+        if ($rowConjunto.length) {
+            ativarMontagemConjunto($rowConjunto, false);
+        }
+
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia').removeClass('table-active');
+        $guia.addClass('table-active');
+
+        if (categoriaId) {
+            $('#busca_categoria_produto').val(String(categoriaId));
+        }
+
+        $('#busca_produto').val('').focus();
+
+        if (abrirSugestoes) {
+            carregarSugestoesProdutos();
+        }
+    }
+
+    $('#tabela_itens_orcamento').on('click', 'tr.conjunto-grupo-guia', function(e) {
+        e.preventDefault();
+        selecionarGrupoConjunto($(this), true);
+    });
+
+    $(document).on('click', function(e) {
+        if ($(e.target).closest('#sugestoes_produtos, #busca_produto, #busca_categoria_produto, .conjunto-grupo-guia').length === 0) {
+            $('#sugestoes_produtos').empty().hide();
+        }
+    });
+
     $('#btn_adicionar_titulo_secao').click(function() {
         adicionarLinhaItemTabela(null, 'CABECALHO_SECAO');
     });
@@ -2119,7 +2308,11 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
         if (($rowRemovida.data('tipo-linha') || '') === 'CONJUNTO' && parseInt($rowRemovida.data('index'), 10) === conjuntoAtivoIndex) {
             encerrarMontagemConjunto();
         }
+        const conjuntoPaiIndexRemovido = $rowRemovida.data('conjunto-pai-index') || null;
         $rowRemovida.remove();
+        if (conjuntoPaiIndexRemovido) {
+            atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoPaiIndexRemovido));
+        }
         atualizarOrdemDosItens();
         calcularTotaisOrcamento();
         revalidarTodasAsLinhasDisponibilidade();
@@ -2138,7 +2331,9 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     });
 
     $('#tabela_itens_orcamento').on('click', '.btn_encerrar_conjunto', function() {
-        encerrarMontagemConjunto();
+        if (!encerrarMontagemConjunto()) {
+            return;
+        }
         Swal.fire({
             title: 'Montagem encerrada',
             text: 'Os próximos produtos selecionados entrarão como itens normais do orçamento.',
@@ -2195,7 +2390,9 @@ function carregarRegrasConjunto(produtoId, $rowConjunto) {
                 return `${escapeHtml(grupo.nome_grupo || 'Grupo')}: ${qtd} por conjunto (${escapeHtml(origem)})`;
             }).join('<br>');
 
+            $rowConjunto.find('.regras-conjunto-resumo').remove();
             $rowConjunto.find('td:first small.text-primary').after(`<small class="form-text text-muted regras-conjunto-resumo">${resumo}</small>`);
+            inserirLinhasGuiaConjunto($rowConjunto, grupos);
         }
     });
 }
@@ -2301,9 +2498,48 @@ function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
     const regras = $rowConjunto.data('regras-conjunto') || [];
     if (!regras.length) { return true; }
 
+    const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
     const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
     const problemas = [];
 
+    // 1) Nenhum item interno pode ficar com quantidade zero.
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+        const $item = $(this);
+        if (parseInt($item.data('conjunto-pai-index') || 0, 10) !== conjuntoIndex) {
+            return;
+        }
+
+        const nomeItem = $item.find('.nome_produto_display').val() || 'Item do conjunto';
+        const qtdItem = parseInt($item.find('.quantidade_item').val(), 10) || 0;
+
+        if (qtdItem <= 0) {
+            problemas.push({
+                grupo: 'Quantidade obrigatória',
+                esperado: 'maior que zero',
+                atual: '0 em ' + nomeItem
+            });
+            return;
+        }
+
+        // 2) Item interno precisa pertencer a algum grupo configurado do conjunto.
+        let casaComAlgumaRegra = false;
+        for (let i = 0; i < regras.length; i++) {
+            if (regraConjuntoCasaComItem(regras[i], $item)) {
+                casaComAlgumaRegra = true;
+                break;
+            }
+        }
+
+        if (!casaComAlgumaRegra) {
+            problemas.push({
+                grupo: 'Produto fora das regras do conjunto',
+                esperado: 'categoria/subcategoria permitida',
+                atual: nomeItem
+            });
+        }
+    });
+
+    // 3) Cada grupo precisa fechar exatamente a quantidade esperada.
     regras.forEach(function(regra) {
         const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
         const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
@@ -2319,12 +2555,12 @@ function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
     if (problemas.length) {
         if (mostrarAlerta) {
             const linhas = problemas.map(function(p) {
-                return '<li><strong>' + escapeHtml(p.grupo) + '</strong>: precisa ' + p.esperado + ', lançado ' + p.atual + '</li>';
+                return '<li><strong>' + escapeHtml(p.grupo) + '</strong>: precisa ' + escapeHtml(String(p.esperado)) + ', lançado ' + escapeHtml(String(p.atual)) + '</li>';
             }).join('');
 
             Swal.fire({
-                title: 'Conjunto incompleto ou excedido',
-                html: '<p>A montagem ainda não fecha com a quantidade do conjunto.</p><ul class="text-left">' + linhas + '</ul>',
+                title: 'Conjunto incompleto ou inválido',
+                html: '<p>Antes de encerrar a montagem, ajuste os itens internos do conjunto.</p><ul class="text-left">' + linhas + '</ul>',
                 icon: 'warning',
                 confirmButtonText: 'Entendi'
             });
@@ -2346,19 +2582,21 @@ function validarTodosConjuntosAntesSalvar(mostrarAlerta = true) {
     return ok;
 }
 
-function ativarMontagemConjunto($rowConjunto) {
+function ativarMontagemConjunto($rowConjunto, mostrarMensagem = true) {
     conjuntoAtivoIndex = parseInt($rowConjunto.data('index'), 10) || null;
     conjuntoAtivoNome = $rowConjunto.find('.nome_produto_display').val() || 'Conjunto';
 
     $('#tabela_itens_orcamento tbody tr.item-conjunto-row').removeClass('table-primary');
     $rowConjunto.addClass('table-primary');
 
-    Swal.fire({
-        title: 'Montagem do conjunto ativa',
-        html: 'Agora selecione os produtos internos pela busca normal.<br><strong>' + escapeHtml(conjuntoAtivoNome) + '</strong><br><small>Os itens internos entrarão com valor zero e continuarão consultando estoque.</small>',
-        icon: 'info',
-        confirmButtonText: 'Entendi'
-    });
+    if (mostrarMensagem) {
+        Swal.fire({
+            title: 'Montagem do conjunto ativa',
+            html: 'Agora selecione os produtos internos pela busca normal.<br><strong>' + escapeHtml(conjuntoAtivoNome) + '</strong><br><small>Os itens internos entrarão com valor zero e continuarão consultando estoque.</small>',
+            icon: 'info',
+            confirmButtonText: 'Entendi'
+        });
+    }
 }
 
 function encerrarMontagemConjunto() {
@@ -2377,7 +2615,7 @@ function encerrarMontagemConjunto() {
 
 function adicionarConjuntoAoOrcamento(produto) {
     var $rowConjunto = adicionarLinhaItemTabela(produto, 'CONJUNTO');
-    $('#busca_produto').val('').focus();
+    $('#busca_produto').val('').blur();
     $('#sugestoes_produtos').empty().hide();
 
     if ($rowConjunto && $rowConjunto.length) {
@@ -2390,15 +2628,18 @@ function adicionarItemAoConjuntoAtivo(produto) {
     var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
     if ($rowItem && $rowItem.length) {
         validarLimiteItemConjunto($rowItem, false);
+        const info = obterRegraDoItemConjunto($rowItem);
+        if (info && info.$rowConjunto) {
+            atualizarGuiasConjunto(info.$rowConjunto);
+        }
     }
-    $('#busca_produto').val('').focus();
+    $('#busca_produto').val('').blur();
     $('#sugestoes_produtos').empty().hide();
 }
 
 function verificarEstoqueAntes(produto) {
     adicionarLinhaItemTabela(produto, 'PRODUTO');
-    $('#busca_produto').val('').focus();
-    $('#sugestoes_produtos').empty().hide();
+    atualizarListaProdutosAposSelecao();
 }
 
 // ✅ FUNÇÃO MELHORADA: revalida todas as linhas para produtos que compartilham componentes.
@@ -2420,6 +2661,26 @@ function validarEstoqueQuantidade($row) {
                 validarLimiteItemConjunto($(this), false);
             }
         });
+    }
+
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        const info = obterRegraDoItemConjunto($row);
+        if (info && info.$rowConjunto) {
+            atualizarGuiasConjunto(info.$rowConjunto);
+        }
+    }
+
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        atualizarGuiasConjunto($row);
+    }
+
+    // Atualiza os indicadores compactos dos grupos do conjunto, quando aplicável.
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        const $rowConjunto = obterLinhaConjuntoPorIndex($row.data('conjunto-pai-index'));
+        atualizarGuiasConjunto($rowConjunto);
+    }
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        atualizarGuiasConjunto($row);
     }
 
     // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
@@ -2605,9 +2866,74 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
         $('#modal_cliente_cidade').val('Porto Alegre');
     });
 
-    if (typeof $.fn.datepicker === 'function') {
-        $('.datepicker').datepicker({ format: 'dd/mm/yyyy', language: 'pt-BR', autoclose: true, todayHighlight: true, orientation: "bottom auto" });
+    function normalizarDataDigitada(valor) {
+        valor = String(valor || '').trim();
+        if (!valor) { return ''; }
+
+        // Já está no formato brasileiro completo.
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(valor)) {
+            return valor;
+        }
+
+        // Aceita 17/05/26.
+        let m = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+        if (m) {
+            const anoAtual = new Date().getFullYear();
+            const seculo = Math.floor(anoAtual / 100) * 100;
+            return String(m[1]).padStart(2, '0') + '/' + String(m[2]).padStart(2, '0') + '/' + (seculo + parseInt(m[3], 10));
+        }
+
+        const digitos = valor.replace(/\D/g, '');
+        if (digitos.length === 4) {
+            // 1705 => 17/05/ano atual
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + new Date().getFullYear();
+        }
+        if (digitos.length === 6) {
+            // 170526 => 17/05/2026
+            const anoAtual = new Date().getFullYear();
+            const seculo = Math.floor(anoAtual / 100) * 100;
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + (seculo + parseInt(digitos.substring(4, 6), 10));
+        }
+        if (digitos.length === 8) {
+            // 17052026 => 17/05/2026
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + digitos.substring(4, 8);
+        }
+
+        return valor;
     }
+
+    function aplicarNormalizacaoData($input) {
+        const antes = $input.val();
+        const depois = normalizarDataDigitada(antes);
+        if (depois && depois !== antes) {
+            $input.val(depois);
+            if (typeof $.fn.datepicker === 'function') {
+                $input.datepicker('update', depois);
+            }
+            $input.trigger('change');
+        }
+    }
+
+    $('.datepicker').on('focus click', function() {
+        $(this).removeAttr('readonly');
+    });
+
+    if (typeof $.fn.datepicker === 'function') {
+        $('.datepicker').datepicker({
+            format: 'dd/mm/yyyy',
+            language: 'pt-BR',
+            autoclose: true,
+            todayHighlight: true,
+            orientation: "bottom auto",
+            container: 'body',
+            zIndexOffset: 999990
+        });
+    }
+
+    $('.datepicker').on('blur', function() {
+        aplicarNormalizacaoData($(this));
+        $(this).attr('readonly', 'readonly');
+    });
 
     function calcularDataValidade() {
         var dataOrcamentoStr = $('#data_orcamento').val();

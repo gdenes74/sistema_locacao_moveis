@@ -703,10 +703,17 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                                     adicionarComponenteResumoProducaoOrcamentoShow($resumoComponentesProducao, $componenteItem, $quantidadeItem, $observacaoItem, $nomeItem);
                                                 }
                                             }
+                                            $tipoLinhaItem = strtoupper(trim((string)($item['tipo_linha'] ?? 'PRODUTO')));
+                                            $ehConjuntoPai = $tipoLinhaItem === 'CONJUNTO';
+                                            $ehItemConjunto = $tipoLinhaItem === 'ITEM_CONJUNTO';
+                                            $classeLinhaItem = $ehConjuntoPai ? 'linha-conjunto-pai' : ($ehItemConjunto ? 'linha-conjunto-filho' : '');
                                             ?>
-                                            <tr>
-                                                <td class="text-center qtd-item"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0), ENT_QUOTES, 'UTF-8') ?></strong></td>
-                                                <td class="descricao-item">
+                                            <tr class="<?= $classeLinhaItem ?>">
+                                                <td class="text-center qtd-item <?= $ehItemConjunto ? 'qtd-item-conjunto-filho' : '' ?>"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0), ENT_QUOTES, 'UTF-8') ?></strong></td>
+                                                <td class="descricao-item <?= $ehItemConjunto ? 'descricao-item-conjunto-filho' : '' ?>">
+                                                    <?php if ($ehItemConjunto): ?>
+                                                        <span class="marcador-item-conjunto">↳</span>
+                                                    <?php endif; ?>
                                                     <?php if (!empty($item['foto_path'])): ?>
                                                         <img src="<?= BASE_URL ?>/<?= ltrim($item['foto_path'], '/') ?>"
                                                              alt="<?= htmlspecialchars($nomeItemExibicao, ENT_QUOTES, 'UTF-8') ?>"
@@ -714,7 +721,10 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                                              onerror="this.style.display='none';">
                                                     <?php endif; ?>
                                                     <div class="texto-produto-impressao">
-                                                        <strong><?= htmlspecialchars(strtoupper($nomeItemExibicao), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                        <strong class="<?= $ehItemConjunto ? 'texto-filho-conjunto' : '' ?>"><?= htmlspecialchars(strtoupper($nomeItemExibicao), ENT_QUOTES, 'UTF-8') ?></strong>
+                                                        <?php if ($ehConjuntoPai): ?>
+                                                            <br><small class="indicador-conjunto-pai">↓ itens internos do conjunto</small>
+                                                        <?php endif; ?>
                                                         <?php if ($observacaoItem !== '' && !$obsFoiConcatenada): ?>
                                                             <br><small class="observacao-item"><?= htmlspecialchars($observacaoItem, ENT_QUOTES, 'UTF-8') ?></small>
                                                         <?php endif; ?>
@@ -737,11 +747,19 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                                         <?php endif; ?>
                                                     </div>
                                                 </td>
-                                                <td class="text-right valor-col col-financeira">R$ <?= formatarValor($precoUnitarioItem) ?></td>
-                                                <?php if ($temDesconto): ?>
-                                                    <td class="text-right valor-col col-financeira"><?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?></td>
+                                                <?php if ($ehItemConjunto): ?>
+                                                    <td class="text-right valor-col col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                    <?php if ($temDesconto): ?>
+                                                        <td class="text-right valor-col col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                    <?php endif; ?>
+                                                    <td class="text-right valor-col total-item col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                <?php else: ?>
+                                                    <td class="text-right valor-col col-financeira">R$ <?= formatarValor($precoUnitarioItem) ?></td>
+                                                    <?php if ($temDesconto): ?>
+                                                        <td class="text-right valor-col col-financeira"><?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?></td>
+                                                    <?php endif; ?>
+                                                    <td class="text-right valor-col total-item col-financeira"><strong>R$ <?= formatarValor($itemSubtotal) ?></strong></td>
                                                 <?php endif; ?>
-                                                <td class="text-right valor-col total-item col-financeira"><strong>R$ <?= formatarValor($itemSubtotal) ?></strong></td>
                                             </tr>
                                         <?php endif; ?>
                                     <?php endforeach; ?>
@@ -1041,6 +1059,67 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         font-size: 11pt;
     }
 
+
+    .linha-conjunto-pai td {
+        background: #f8fbff !important;
+        border-top: 2px solid #000 !important;
+    }
+
+    .linha-conjunto-pai .descricao-item strong {
+        font-weight: 900;
+    }
+
+    .indicador-conjunto-pai {
+        display: inline-block;
+        margin-top: 2px;
+        color: #0b5ed7;
+        font-size: 8.8pt;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+    }
+
+    .linha-conjunto-filho td {
+        background: #ffffff !important;
+        border-top-color: #aaa !important;
+    }
+
+    .linha-conjunto-filho .qtd-item {
+        font-size: 9.8pt !important;
+        color: #0b5ed7 !important;
+    }
+
+    .linha-conjunto-filho .valor-col {
+        font-size: 9.4pt !important;
+        color: transparent !important;
+    }
+
+    .valor-filho-conjunto {
+        color: transparent !important;
+    }
+
+    .descricao-item-conjunto-filho {
+        padding-left: 14px !important;
+    }
+
+    .marcador-item-conjunto {
+        float: left;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 39px;
+        margin-right: 3px;
+        color: #0b5ed7;
+        font-weight: 900;
+        font-size: 14pt;
+        line-height: 1;
+    }
+
+    .texto-filho-conjunto {
+        font-weight: 700 !important;
+        font-size: 10.7pt;
+    }
+
     .produto-foto-impressao {
         width: 46px !important;
         height: 46px !important;
@@ -1316,6 +1395,57 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
             font-size: 8.8pt !important;
         }
 
+
+
+        .linha-conjunto-pai td {
+            background: #f8fbff !important;
+            border-top: 2px solid #000 !important;
+        }
+
+        .indicador-conjunto-pai {
+            font-size: 7.8pt !important;
+            color: #000 !important;
+            font-weight: 700 !important;
+        }
+
+        .linha-conjunto-filho td {
+            background: #fff !important;
+        }
+
+        .descricao-item-conjunto-filho {
+            padding-left: 12px !important;
+        }
+
+        .marcador-item-conjunto {
+            height: 34px !important;
+            font-size: 12pt !important;
+            color: #000 !important;
+        }
+
+        .texto-filho-conjunto {
+            font-size: 9.4pt !important;
+            font-weight: 700 !important;
+        }
+
+        .linha-conjunto-filho .qtd-item {
+            font-size: 9.0pt !important;
+            color: #000 !important;
+        }
+
+        .linha-conjunto-filho .valor-col,
+        .valor-filho-conjunto {
+            color: transparent !important;
+        }
+
+        .linha-conjunto-filho .produto-foto-impressao {
+            width: 34px !important;
+            height: 34px !important;
+            margin-right: 6px !important;
+        }
+
+        .linha-conjunto-filho .texto-produto-impressao {
+            min-height: 34px !important;
+        }
 
         .impressao-producao .somente-producao {
             display: block !important;

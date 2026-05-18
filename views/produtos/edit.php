@@ -37,6 +37,148 @@ function normalizarMoedaProdutoEdit($valor): float
     return is_numeric($valor) ? (float)$valor : 0.00;
 }
 
+function normalizarQuantidadeGrupoConjuntoEdit($valor): float
+{
+    if ($valor === null || $valor === '') {
+        return 1.00;
+    }
+
+    $valor = trim((string)$valor);
+    $valor = str_replace('R$', '', $valor);
+    $valor = str_replace(' ', '', $valor);
+
+    if (strpos($valor, ',') !== false) {
+        $valor = str_replace('.', '', $valor);
+        $valor = str_replace(',', '.', $valor);
+    }
+
+    $numero = (float)$valor;
+    return $numero > 0 ? $numero : 1.00;
+}
+
+function montarGruposConjuntoProdutoEdit(array $postGrupos): array
+{
+    $grupos = [];
+
+    foreach ($postGrupos as $linha) {
+        if (!is_array($linha)) {
+            continue;
+        }
+
+        $nomeGrupo = isset($linha['nome_grupo']) ? trim($linha['nome_grupo']) : '';
+        if ($nomeGrupo === '') {
+            continue;
+        }
+
+        $grupos[] = [
+            'nome_grupo' => $nomeGrupo,
+            'categoria_id' => !empty($linha['categoria_id']) ? (int)$linha['categoria_id'] : null,
+            'subcategoria_id' => !empty($linha['subcategoria_id']) ? (int)$linha['subcategoria_id'] : null,
+            'quantidade_por_conjunto' => normalizarQuantidadeGrupoConjuntoEdit($linha['quantidade_por_conjunto'] ?? 1),
+            'obrigatorio' => !empty($linha['obrigatorio']) ? 1 : 0,
+            'observacoes' => isset($linha['observacoes']) && trim($linha['observacoes']) !== '' ? trim($linha['observacoes']) : null,
+        ];
+    }
+
+    return $grupos;
+}
+
+function salvarGruposConjuntoProdutoEdit(PDO $db, Produto $produtoModel, int $produtoConjuntoId, array $grupos): void
+{
+    if (method_exists($produtoModel, 'salvarGruposConjunto')) {
+        if (!$produtoModel->salvarGruposConjunto($produtoConjuntoId, $grupos)) {
+            throw new Exception('Não foi possível salvar as regras do conjunto comercial.');
+        }
+        return;
+    }
+
+    $stmtDelete = $db->prepare('DELETE FROM produto_conjunto_grupos WHERE produto_conjunto_id = :produto_conjunto_id');
+    $stmtDelete->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+    $stmtDelete->execute();
+
+    if (empty($grupos)) {
+        return;
+    }
+
+    $stmtInsert = $db->prepare("INSERT INTO produto_conjunto_grupos
+        (produto_conjunto_id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
+        VALUES
+        (:produto_conjunto_id, :nome_grupo, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
+
+    foreach ($grupos as $ordem => $grupo) {
+        $stmtInsert->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
+        $stmtInsert->bindValue(':nome_grupo', $grupo['nome_grupo'], PDO::PARAM_STR);
+
+        if (!empty($grupo['categoria_id'])) {
+            $stmtInsert->bindValue(':categoria_id', (int)$grupo['categoria_id'], PDO::PARAM_INT);
+        } else {
+            $stmtInsert->bindValue(':categoria_id', null, PDO::PARAM_NULL);
+        }
+
+        if (!empty($grupo['subcategoria_id'])) {
+            $stmtInsert->bindValue(':subcategoria_id', (int)$grupo['subcategoria_id'], PDO::PARAM_INT);
+        } else {
+            $stmtInsert->bindValue(':subcategoria_id', null, PDO::PARAM_NULL);
+        }
+
+        $stmtInsert->bindValue(':quantidade_por_conjunto', number_format((float)$grupo['quantidade_por_conjunto'], 2, '.', ''), PDO::PARAM_STR);
+        $stmtInsert->bindValue(':obrigatorio', !empty($grupo['obrigatorio']) ? 1 : 0, PDO::PARAM_INT);
+        $stmtInsert->bindValue(':ordem', $ordem + 1, PDO::PARAM_INT);
+
+        if (!empty($grupo['observacoes'])) {
+            $stmtInsert->bindValue(':observacoes', $grupo['observacoes'], PDO::PARAM_STR);
+        } else {
+            $stmtInsert->bindValue(':observacoes', null, PDO::PARAM_NULL);
+        }
+
+        $stmtInsert->execute();
+    }
+}
+
+
+function carregarGruposConjuntoProdutoEdit(PDO $db, int $produtoId): array
+{
+    if ($produtoId <= 0) {
+        return [];
+    }
+
+    $stmt = $db->prepare("SELECT
+            pcg.id,
+            pcg.produto_conjunto_id,
+            pcg.nome_grupo,
+            pcg.categoria_id,
+            pcg.subcategoria_id,
+            pcg.quantidade_por_conjunto,
+            pcg.obrigatorio,
+            pcg.ordem,
+            pcg.observacoes,
+            c.nome AS nome_categoria,
+            s.nome AS nome_subcategoria,
+            s.categoria_id AS categoria_id_da_subcategoria
+        FROM produto_conjunto_grupos pcg
+        LEFT JOIN categorias c ON c.id = pcg.categoria_id
+        LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+        WHERE pcg.produto_conjunto_id = :produto_id
+        ORDER BY pcg.ordem ASC, pcg.id ASC");
+    $stmt->bindValue(':produto_id', $produtoId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $grupos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($grupos as &$grupo) {
+        $grupo['categoria_id'] = !empty($grupo['categoria_id'])
+            ? (int)$grupo['categoria_id']
+            : (!empty($grupo['categoria_id_da_subcategoria']) ? (int)$grupo['categoria_id_da_subcategoria'] : 0);
+
+        $grupo['subcategoria_id'] = !empty($grupo['subcategoria_id']) ? (int)$grupo['subcategoria_id'] : 0;
+        $grupo['quantidade_por_conjunto'] = isset($grupo['quantidade_por_conjunto']) ? (float)$grupo['quantidade_por_conjunto'] : 1.00;
+        $grupo['obrigatorio'] = isset($grupo['obrigatorio']) ? (int)$grupo['obrigatorio'] : 1;
+    }
+    unset($grupo);
+
+    return $grupos;
+}
+
 // --- Conexão e Instâncias ---
 $database = new Database();
 $db = $database->getConnection();
@@ -63,6 +205,7 @@ if (!$produto_data) {
 
 // --- 4. Buscar Seções, Categorias, Subcategorias, Produtos e Componentes ---
 $componentesAtuais = [];
+$gruposConjuntoAtuais = [];
 $produtosParaComposicao = [];
 
 $secoes = [];
@@ -127,6 +270,8 @@ try {
     $stmtComponentes->execute();
     $componentesAtuais = $stmtComponentes->fetchAll(PDO::FETCH_ASSOC);
 
+    $gruposConjuntoAtuais = carregarGruposConjuntoProdutoEdit($db, $produto_id);
+
 } catch (Exception $e) {
     $error = 'Erro ao carregar dados: ' . $e->getMessage();
     error_log("Erro ao carregar dados do edit de produto: " . $e->getMessage());
@@ -155,12 +300,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $tipoProdutoPost = isset($_POST['tipo_produto']) ? strtoupper(trim($_POST['tipo_produto'])) : 'SIMPLES';
     $produto->tipo_produto = in_array($tipoProdutoPost, $tipoProdutoPermitidos, true) ? $tipoProdutoPost : 'SIMPLES';
 
-    $produto->controla_estoque = isset($_POST['controla_estoque']) ? 1 : 0;
-    $produto->quantidade_total = isset($_POST['quantidade_total']) ? (int)$_POST['quantidade_total'] : 0;
+    $produto->eh_conjunto = isset($_POST['eh_conjunto']) ? 1 : 0;
 
-    if ($produto->tipo_produto === 'SERVICO') {
+    if ($produto->eh_conjunto === 1) {
+        $produto->tipo_produto = 'COMPOSTO';
         $produto->controla_estoque = 0;
         $produto->quantidade_total = 0;
+    } else {
+        $produto->controla_estoque = isset($_POST['controla_estoque']) ? 1 : 0;
+        $produto->quantidade_total = isset($_POST['quantidade_total']) ? (int)$_POST['quantidade_total'] : 0;
+
+        if ($produto->tipo_produto === 'SERVICO') {
+            $produto->controla_estoque = 0;
+            $produto->quantidade_total = 0;
+        }
     }
 
     $produto->preco_locacao = normalizarMoedaProdutoEdit($_POST['preco_locacao'] ?? 0);
@@ -298,6 +451,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
+            if ($produto->eh_conjunto === 1) {
+                $gruposConjuntoPost = montarGruposConjuntoProdutoEdit($_POST['grupos_conjunto'] ?? []);
+                salvarGruposConjuntoProdutoEdit($db, $produto, $produto_id, $gruposConjuntoPost);
+            } else {
+                salvarGruposConjuntoProdutoEdit($db, $produto, $produto_id, []);
+            }
+
             $db->commit();
 
             $_SESSION['message'] = "Produto '" . htmlspecialchars($produto->nome_produto) . "' atualizado com sucesso!";
@@ -338,8 +498,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmtComponentes->bindValue(':produto_id', $produto_id, PDO::PARAM_INT);
             $stmtComponentes->execute();
             $componentesAtuais = $stmtComponentes->fetchAll(PDO::FETCH_ASSOC);
+
+            if (method_exists($produto, 'listarGruposConjunto')) {
+                $gruposConjuntoAtuais = $produto->listarGruposConjunto($produto_id);
+            } else {
+                $stmtGruposConjunto = $db->prepare("
+                    SELECT pcg.*, c.nome AS nome_categoria, s.nome AS nome_subcategoria
+                    FROM produto_conjunto_grupos pcg
+                    LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                    LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                    WHERE pcg.produto_conjunto_id = :produto_id
+                    ORDER BY pcg.ordem ASC, pcg.id ASC
+                ");
+                $stmtGruposConjunto->bindValue(':produto_id', $produto_id, PDO::PARAM_INT);
+                $stmtGruposConjunto->execute();
+                $gruposConjuntoAtuais = $stmtGruposConjunto->fetchAll(PDO::FETCH_ASSOC);
+            }
         } catch (Exception $e) {
-            error_log("Erro ao recarregar componentes após falha: " . $e->getMessage());
+            error_log("Erro ao recarregar componentes/regras após falha: " . $e->getMessage());
         }
     }
 }
@@ -350,6 +526,7 @@ include_once __DIR__ . '/../includes/header.php';
 $placeholderImgUrl = (defined('BASE_URL') ? BASE_URL : '/') . 'assets/img/product_placeholder.png';
 
 $tipoAtual = strtoupper($produto_data['tipo_produto'] ?? 'SIMPLES');
+$ehConjuntoAtual = isset($produto_data['eh_conjunto']) ? (int)$produto_data['eh_conjunto'] : 0;
 $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto_data['controla_estoque'] : 1;
 
 ?>
@@ -525,6 +702,21 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
                             </div>
                         </div>
 
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="alert alert-light border">
+                                    <div class="custom-control custom-checkbox">
+                                        <input class="custom-control-input" type="checkbox" id="eh_conjunto" name="eh_conjunto" value="1" <?php echo $ehConjuntoAtual === 1 ? 'checked' : ''; ?>>
+                                        <label for="eh_conjunto" class="custom-control-label font-weight-bold">É conjunto comercial?</label>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Use para produto com preço fechado, mas sem estoque próprio. Ex.: conjunto bistrô com pufes.
+                                        O estoque real continuará vindo dos itens internos escolhidos no orçamento.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Linha 5: Disponibilidades -->
                         <div class="row">
                             <div class="col-md-6">
@@ -673,6 +865,78 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
                             </div>
                         </div>
 
+                        <!-- Regras do Conjunto Comercial -->
+                        <div id="card_conjunto_comercial" class="card card-outline card-primary mt-4" style="<?php echo $ehConjuntoAtual === 1 ? '' : 'display:none;'; ?>">
+                            <div class="card-header">
+                                <h3 class="card-title"><i class="fas fa-layer-group mr-1"></i> Regras do Conjunto Comercial</h3>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-3">
+                                    Esta área define os grupos que serão escolhidos dentro do orçamento.
+                                    Aqui não se escolhe a cor específica do pufe; escolhe-se a categoria/subcategoria permitida.
+                                </p>
+
+                                <div id="grupos-conjunto-container">
+                                    <?php if (!empty($gruposConjuntoAtuais)): ?>
+                                        <?php foreach ($gruposConjuntoAtuais as $idxGrupo => $grupo): ?>
+                                            <div class="row grupo-conjunto-row align-items-end mb-2">
+                                                <div class="col-md-2">
+                                                    <label>Nome do grupo</label>
+                                                    <input type="text" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][nome_grupo]" class="form-control form-control-sm grupo-nome" value="<?php echo htmlspecialchars($grupo['nome_grupo'] ?? ''); ?>" placeholder="Ex.: Pufes">
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label>Categoria</label>
+                                                    <select name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][categoria_id]" class="form-control form-control-sm grupo-categoria">
+                                                        <option value="">-- Categoria --</option>
+                                                        <?php foreach ($categorias as $categoriaGrupo): ?>
+                                                            <option value="<?php echo (int)$categoriaGrupo['id']; ?>" <?php echo ((int)($grupo['categoria_id'] ?? 0) === (int)$categoriaGrupo['id']) ? 'selected' : ''; ?>>
+                                                                <?php echo htmlspecialchars($categoriaGrupo['nome']); ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label>Subcategoria</label>
+                                                    <select name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][subcategoria_id]" class="form-control form-control-sm grupo-subcategoria" data-selected="<?php echo (int)($grupo['subcategoria_id'] ?? 0); ?>">
+                                                        <option value="">-- Subcategoria --</option>
+                                                        <?php foreach ($subcategorias as $subcategoriaGrupo): ?>
+                                                            <?php if ((int)$subcategoriaGrupo['categoria_id'] === (int)($grupo['categoria_id'] ?? 0)): ?>
+                                                                <option value="<?php echo (int)$subcategoriaGrupo['id']; ?>" <?php echo ((int)($grupo['subcategoria_id'] ?? 0) === (int)$subcategoriaGrupo['id']) ? 'selected' : ''; ?>>
+                                                                    <?php echo htmlspecialchars($subcategoriaGrupo['nome']); ?>
+                                                                </option>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <label>Qtd.</label>
+                                                    <input type="number" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][quantidade_por_conjunto]" class="form-control form-control-sm" min="0.01" step="0.01" value="<?php echo htmlspecialchars(number_format((float)($grupo['quantidade_por_conjunto'] ?? 1), 2, '.', '')); ?>">
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <label>Obrig.</label>
+                                                    <div class="custom-control custom-checkbox mt-1">
+                                                        <input type="checkbox" class="custom-control-input grupo-obrigatorio" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][obrigatorio]" value="1" <?php echo !empty($grupo['obrigatorio']) ? 'checked' : ''; ?>>
+                                                        <label class="custom-control-label">Sim</label>
+                                                    </div>
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <label>Obs.</label>
+                                                    <input type="text" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][observacoes]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($grupo['observacoes'] ?? ''); ?>">
+                                                </div>
+                                                <div class="col-md-1">
+                                                    <button type="button" class="btn btn-danger btn-sm btn-block remover-grupo-conjunto"><i class="fas fa-trash"></i></button>
+                                                </div>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+
+                                <button type="button" id="adicionar-grupo-conjunto" class="btn btn-outline-primary mt-2">
+                                    <i class="fas fa-plus mr-1"></i> Adicionar Grupo do Conjunto
+                                </button>
+                            </div>
+                        </div>
+
                     </div>
 
                     <div class="card-footer text-right">
@@ -729,6 +993,48 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
     </div>
 </template>
 
+<template id="template-grupo-conjunto-row">
+    <div class="row grupo-conjunto-row align-items-end mb-2">
+        <div class="col-md-2">
+            <label>Nome do grupo</label>
+            <input type="text" name="grupos_conjunto[][nome_grupo]" class="form-control form-control-sm grupo-nome" placeholder="Ex.: Pufes">
+        </div>
+        <div class="col-md-3">
+            <label>Categoria</label>
+            <select name="grupos_conjunto[][categoria_id]" class="form-control form-control-sm grupo-categoria">
+                <option value="">-- Categoria --</option>
+                <?php foreach ($categorias as $categoriaGrupo): ?>
+                    <option value="<?php echo (int)$categoriaGrupo['id']; ?>"><?php echo htmlspecialchars($categoriaGrupo['nome']); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label>Subcategoria</label>
+            <select name="grupos_conjunto[][subcategoria_id]" class="form-control form-control-sm grupo-subcategoria">
+                <option value="">-- Subcategoria --</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label>Qtd.</label>
+            <input type="number" name="grupos_conjunto[][quantidade_por_conjunto]" class="form-control form-control-sm" min="0.01" step="0.01" value="1.00">
+        </div>
+        <div class="col-md-1">
+            <label>Obrig.</label>
+            <div class="custom-control custom-checkbox mt-1">
+                <input type="checkbox" class="custom-control-input grupo-obrigatorio" name="grupos_conjunto[][obrigatorio]" value="1" checked>
+                <label class="custom-control-label">Sim</label>
+            </div>
+        </div>
+        <div class="col-md-1">
+            <label>Obs.</label>
+            <input type="text" name="grupos_conjunto[][observacoes]" class="form-control form-control-sm" value="">
+        </div>
+        <div class="col-md-1">
+            <button type="button" class="btn btn-danger btn-sm btn-block remover-grupo-conjunto"><i class="fas fa-trash"></i></button>
+        </div>
+    </div>
+</template>
+
 <?php include_once __DIR__ . '/../includes/footer.php'; ?>
 
 <!-- Inicialização do plugin de máscara monetária -->
@@ -760,13 +1066,34 @@ document.addEventListener("DOMContentLoaded", function () {
     const tipoProdutoSelect = document.getElementById("tipo_produto");
     const controlaEstoqueCheckbox = document.getElementById("controla_estoque");
     const quantidadeInput = document.getElementById("quantidade_total");
+    const ehConjuntoCheckbox = document.getElementById("eh_conjunto");
     const cardComposicao = document.getElementById("card_composicao");
+    const cardConjuntoComercial = document.getElementById("card_conjunto_comercial");
     const componentesContainer = document.getElementById("componentes-container");
     const adicionarComponenteBtn = document.getElementById("adicionar-componente");
     const templateComponente = document.getElementById("template-componente-row");
+    const gruposConjuntoContainer = document.getElementById("grupos-conjunto-container");
+    const adicionarGrupoConjuntoBtn = document.getElementById("adicionar-grupo-conjunto");
+    const templateGrupoConjunto = document.getElementById("template-grupo-conjunto-row");
 
     function atualizarVisibilidadeComposicao() {
         const tipo = tipoProdutoSelect.value;
+        const ehConjunto = ehConjuntoCheckbox && ehConjuntoCheckbox.checked;
+
+        if (ehConjunto) {
+            tipoProdutoSelect.value = "COMPOSTO";
+            controlaEstoqueCheckbox.checked = false;
+            quantidadeInput.value = 0;
+            cardComposicao.style.display = "none";
+            if (cardConjuntoComercial) {
+                cardConjuntoComercial.style.display = "";
+            }
+            return;
+        }
+
+        if (cardConjuntoComercial) {
+            cardConjuntoComercial.style.display = "none";
+        }
 
         if (tipo === "COMPOSTO") {
             cardComposicao.style.display = "";
@@ -792,6 +1119,78 @@ document.addEventListener("DOMContentLoaded", function () {
                 label.setAttribute("for", id);
             }
         });
+    }
+
+    function atualizarIdsCheckboxesGruposConjunto() {
+        const rows = document.querySelectorAll(".grupo-conjunto-row");
+        rows.forEach((row, index) => {
+            const campoNome = row.querySelector(".grupo-nome");
+            const campoCategoria = row.querySelector(".grupo-categoria");
+            const campoSubcategoria = row.querySelector(".grupo-subcategoria");
+            const campoQuantidade = row.querySelector('input[name*="quantidade_por_conjunto"]');
+            const campoObrigatorio = row.querySelector(".grupo-obrigatorio");
+            const campoObservacoes = row.querySelector('input[name*="observacoes"]');
+            const label = row.querySelector(".custom-control-label");
+
+            // Importante: cada linha precisa usar o mesmo índice em todos os campos.
+            // Sem isso, o PHP recebe cada campo como uma linha separada e a quantidade volta para 1.
+            if (campoNome) {
+                campoNome.name = `grupos_conjunto[${index}][nome_grupo]`;
+            }
+            if (campoCategoria) {
+                campoCategoria.name = `grupos_conjunto[${index}][categoria_id]`;
+            }
+            if (campoSubcategoria) {
+                campoSubcategoria.name = `grupos_conjunto[${index}][subcategoria_id]`;
+            }
+            if (campoQuantidade) {
+                campoQuantidade.name = `grupos_conjunto[${index}][quantidade_por_conjunto]`;
+            }
+            if (campoObrigatorio) {
+                campoObrigatorio.name = `grupos_conjunto[${index}][obrigatorio]`;
+                const id = "grupo_conjunto_obrigatorio_" + index + "_" + Date.now();
+                campoObrigatorio.id = id;
+                if (label) {
+                    label.setAttribute("for", id);
+                }
+            }
+            if (campoObservacoes) {
+                campoObservacoes.name = `grupos_conjunto[${index}][observacoes]`;
+            }
+        });
+    }
+
+    function carregarSubcategoriasGrupo(row) {
+        const categoriaSelectGrupo = row.querySelector(".grupo-categoria");
+        const subcategoriaSelectGrupo = row.querySelector(".grupo-subcategoria");
+
+        if (!categoriaSelectGrupo || !subcategoriaSelectGrupo) {
+            return;
+        }
+
+        const categoriaId = categoriaSelectGrupo.value;
+        const selectedAtual = subcategoriaSelectGrupo.getAttribute("data-selected") || subcategoriaSelectGrupo.value || "";
+
+        subcategoriaSelectGrupo.innerHTML = '<option value="">-- Subcategoria --</option>';
+
+        if (categoriaId) {
+            const subcategorias = dataHierarchy.subcategorias.filter(sub => sub.categoria_id == categoriaId);
+            subcategorias.forEach(sub => {
+                const option = document.createElement("option");
+                option.value = sub.id;
+                option.textContent = sub.nome;
+                if (String(sub.id) === String(selectedAtual)) {
+                    option.selected = true;
+                }
+                subcategoriaSelectGrupo.appendChild(option);
+            });
+        }
+
+        subcategoriaSelectGrupo.removeAttribute("data-selected");
+    }
+
+    function carregarTodasSubcategoriasGrupos() {
+        document.querySelectorAll(".grupo-conjunto-row").forEach(row => carregarSubcategoriasGrupo(row));
     }
 
     secaoSelect.addEventListener("change", function () {
@@ -835,6 +1234,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
     tipoProdutoSelect.addEventListener("change", atualizarVisibilidadeComposicao);
 
+    if (ehConjuntoCheckbox) {
+        ehConjuntoCheckbox.addEventListener("change", atualizarVisibilidadeComposicao);
+    }
+
     if (adicionarComponenteBtn && templateComponente && componentesContainer) {
         adicionarComponenteBtn.addEventListener("click", function () {
             const clone = document.importNode(templateComponente.content, true);
@@ -856,7 +1259,45 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
+    if (adicionarGrupoConjuntoBtn && templateGrupoConjunto && gruposConjuntoContainer) {
+        adicionarGrupoConjuntoBtn.addEventListener("click", function () {
+            const clone = document.importNode(templateGrupoConjunto.content, true);
+            gruposConjuntoContainer.appendChild(clone);
+            atualizarIdsCheckboxesGruposConjunto();
+            carregarTodasSubcategoriasGrupos();
+        });
+    }
+
+    if (gruposConjuntoContainer) {
+        gruposConjuntoContainer.addEventListener("click", function (event) {
+            const btn = event.target.closest(".remover-grupo-conjunto");
+            if (btn) {
+                const row = btn.closest(".grupo-conjunto-row");
+                if (row) {
+                    row.remove();
+                    atualizarIdsCheckboxesGruposConjunto();
+                }
+            }
+        });
+
+        gruposConjuntoContainer.addEventListener("change", function (event) {
+            const categoriaGrupo = event.target.closest(".grupo-categoria");
+            if (categoriaGrupo) {
+                const row = categoriaGrupo.closest(".grupo-conjunto-row");
+                if (row) {
+                    const sub = row.querySelector(".grupo-subcategoria");
+                    if (sub) {
+                        sub.removeAttribute("data-selected");
+                    }
+                    carregarSubcategoriasGrupo(row);
+                }
+            }
+        });
+    }
+
     atualizarVisibilidadeComposicao();
     atualizarIdsCheckboxesObrigatorio();
+    atualizarIdsCheckboxesGruposConjunto();
+    carregarTodasSubcategoriasGrupos();
 });
 </script>

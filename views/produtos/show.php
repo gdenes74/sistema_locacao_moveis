@@ -35,6 +35,62 @@ if (!$produto_data) {
     redirect('views/produtos/index.php');
 }
 
+// --- Carrega componentes técnicos e regras de conjunto comercial para exibição ---
+$componentesProduto = [];
+$gruposConjunto = [];
+
+try {
+    if (method_exists($produto, 'listarComponentes')) {
+        $componentesProduto = $produto->listarComponentes($produto_id);
+    } else {
+        $stmtComponentes = $conn->prepare("
+            SELECT
+                pc.id,
+                pc.produto_pai_id,
+                pc.produto_filho_id,
+                pc.quantidade,
+                pc.obrigatorio,
+                pc.observacoes,
+                filho.codigo,
+                filho.nome_produto,
+                filho.tipo_produto,
+                filho.controla_estoque,
+                filho.quantidade_total,
+                filho.preco_locacao
+            FROM produto_composicao pc
+            INNER JOIN produtos filho ON filho.id = pc.produto_filho_id
+            WHERE pc.produto_pai_id = :produto_pai_id
+            ORDER BY filho.nome_produto ASC
+        ");
+        $stmtComponentes->bindValue(':produto_pai_id', $produto_id, PDO::PARAM_INT);
+        $stmtComponentes->execute();
+        $componentesProduto = $stmtComponentes->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    if (!empty($produto_data['eh_conjunto'])) {
+        if (method_exists($produto, 'listarGruposConjunto')) {
+            $gruposConjunto = $produto->listarGruposConjunto($produto_id);
+        } else {
+            $stmtGrupos = $conn->prepare("
+                SELECT
+                    pcg.*,
+                    c.nome AS nome_categoria,
+                    s.nome AS nome_subcategoria
+                FROM produto_conjunto_grupos pcg
+                LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                WHERE pcg.produto_conjunto_id = :produto_conjunto_id
+                ORDER BY pcg.ordem ASC, pcg.id ASC
+            ");
+            $stmtGrupos->bindValue(':produto_conjunto_id', $produto_id, PDO::PARAM_INT);
+            $stmtGrupos->execute();
+            $gruposConjunto = $stmtGrupos->fetchAll(PDO::FETCH_ASSOC);
+        }
+    }
+} catch (Exception $e) {
+    error_log("Erro ao carregar detalhes complementares do produto {$produto_id}: " . $e->getMessage());
+}
+
 // --- Incluir Cabeçalho e Barra Lateral (APÓS verificar se o produto existe) ---
 include_once __DIR__ . '/../includes/header.php';
 
@@ -164,6 +220,28 @@ if (!empty($produto_data['foto_path'])) {
                                 <dt class="col-sm-4 col-lg-3">Subcategoria:</dt>
                                 <dd class="col-sm-8 col-lg-9"><?= htmlspecialchars($produto_data['nome_subcategoria'] ?? 'N/A', ENT_QUOTES, 'UTF-8') ?></dd>
 
+                                <dt class="col-sm-4 col-lg-3">Tipo Produto:</dt>
+                                <dd class="col-sm-8 col-lg-9">
+                                    <span class="badge badge-info"><?= htmlspecialchars($produto_data['tipo_produto'] ?? 'SIMPLES', ENT_QUOTES, 'UTF-8') ?></span>
+                                    <?php if (!empty($produto_data['eh_conjunto'])): ?>
+                                        <span class="badge badge-primary ml-1"><i class="fas fa-layer-group"></i> Conjunto comercial</span>
+                                    <?php endif; ?>
+                                </dd>
+
+                                <dt class="col-sm-4 col-lg-3">Controla Estoque:</dt>
+                                <dd class="col-sm-8 col-lg-9">
+                                    <span class="badge badge-<?= !empty($produto_data['controla_estoque']) ? 'success' : 'secondary' ?>">
+                                        <?= !empty($produto_data['controla_estoque']) ? 'Sim' : 'Não' ?>
+                                    </span>
+                                </dd>
+
+                                <dt class="col-sm-4 col-lg-3">É Conjunto:</dt>
+                                <dd class="col-sm-8 col-lg-9">
+                                    <span class="badge badge-<?= !empty($produto_data['eh_conjunto']) ? 'primary' : 'secondary' ?>">
+                                        <?= !empty($produto_data['eh_conjunto']) ? 'Sim' : 'Não' ?>
+                                    </span>
+                                </dd>
+
                                 <dt class="col-sm-4 col-lg-3">Descrição:</dt>
                                 <dd class="col-sm-8 col-lg-9" style="white-space: pre-wrap;"><?= htmlspecialchars($produto_data['descricao_detalhada'] ?? '-', ENT_QUOTES, 'UTF-8') ?></dd>
 
@@ -192,7 +270,7 @@ if (!empty($produto_data['foto_path'])) {
                                 <dd class="col-sm-8 col-lg-9"><span class="badge badge-<?= !empty($produto_data['disponivel_locacao']) ? 'success' : 'secondary' ?>"><?= !empty($produto_data['disponivel_locacao']) ? 'Sim' : 'Não' ?></span></dd>
 
                                 <?php // Seção de Quantidades ?>
-                                <d<?php // Seção de Quantidades ?>t class="col-sm-12 mt-3 pt-2 border-top">Controle de Quantidades:</dt>
+                                <dt class="col-sm-12 mt-3 pt-2 border-top">Controle de Quantidades:</dt>
                                 <dd class="col-sm-12">
                                     <ul class="list-group list-group-flush">
                                         <li class="list-group-item d-flex justify-content-between align-items-center py-1 px-0">
@@ -242,6 +320,106 @@ if (!empty($produto_data['foto_path'])) {
                             </dl>
                         </div>
                     </div>
+
+                    <?php if (!empty($componentesProduto)): ?>
+                        <hr>
+                        <div class="card card-outline card-info mt-3">
+                            <div class="card-header py-2">
+                                <h3 class="card-title mb-0"><i class="fas fa-cubes mr-1"></i> Componentes Técnicos do Produto Composto</h3>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive mb-0">
+                                    <table class="table table-sm table-striped table-bordered mb-0">
+                                        <thead class="thead-light">
+                                            <tr>
+                                                <th>Componente</th>
+                                                <th style="width: 120px;" class="text-center">Qtd. por unidade</th>
+                                                <th style="width: 110px;" class="text-center">Obrigatório</th>
+                                                <th style="width: 120px;" class="text-center">Controla estoque</th>
+                                                <th style="width: 100px;" class="text-center">Estoque</th>
+                                                <th>Observações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($componentesProduto as $comp): ?>
+                                                <tr>
+                                                    <td>
+                                                        <strong><?= htmlspecialchars($comp['nome_produto'] ?? '-', ENT_QUOTES, 'UTF-8') ?></strong>
+                                                        <?php if (!empty($comp['codigo'])): ?>
+                                                            <small class="text-muted d-block">Cód: <?= htmlspecialchars($comp['codigo'], ENT_QUOTES, 'UTF-8') ?></small>
+                                                        <?php endif; ?>
+                                                        <?php if (!empty($comp['tipo_produto'])): ?>
+                                                            <small class="badge badge-light border"><?= htmlspecialchars($comp['tipo_produto'], ENT_QUOTES, 'UTF-8') ?></small>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                    <td class="text-center"><?= number_format((float)($comp['quantidade'] ?? 0), 2, ',', '.') ?></td>
+                                                    <td class="text-center">
+                                                        <span class="badge badge-<?= !empty($comp['obrigatorio']) ? 'success' : 'secondary' ?>">
+                                                            <?= !empty($comp['obrigatorio']) ? 'Sim' : 'Não' ?>
+                                                        </span>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <span class="badge badge-<?= !empty($comp['controla_estoque']) ? 'success' : 'secondary' ?>">
+                                                            <?= !empty($comp['controla_estoque']) ? 'Sim' : 'Não' ?>
+                                                        </span>
+                                                    </td>
+                                                    <td class="text-center"><?= htmlspecialchars($comp['quantidade_total'] ?? 0, ENT_QUOTES, 'UTF-8') ?></td>
+                                                    <td><?= nl2br(htmlspecialchars($comp['observacoes'] ?? '-', ENT_QUOTES, 'UTF-8')) ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($produto_data['eh_conjunto'])): ?>
+                        <hr>
+                        <div class="card card-outline card-primary mt-3">
+                            <div class="card-header py-2">
+                                <h3 class="card-title mb-0"><i class="fas fa-layer-group mr-1"></i> Regras do Conjunto Comercial</h3>
+                            </div>
+                            <div class="card-body p-0">
+                                <?php if (!empty($gruposConjunto)): ?>
+                                    <div class="table-responsive mb-0">
+                                        <table class="table table-sm table-striped table-bordered mb-0">
+                                            <thead class="thead-light">
+                                                <tr>
+                                                    <th style="width: 180px;">Grupo</th>
+                                                    <th>Categoria</th>
+                                                    <th>Subcategoria</th>
+                                                    <th style="width: 130px;" class="text-center">Qtd. por conjunto</th>
+                                                    <th style="width: 110px;" class="text-center">Obrigatório</th>
+                                                    <th>Observações</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php foreach ($gruposConjunto as $grupo): ?>
+                                                    <tr>
+                                                        <td><strong><?= htmlspecialchars($grupo['nome_grupo'] ?? '-', ENT_QUOTES, 'UTF-8') ?></strong></td>
+                                                        <td><?= htmlspecialchars($grupo['nome_categoria'] ?? 'Todas/Não definida', ENT_QUOTES, 'UTF-8') ?></td>
+                                                        <td><?= htmlspecialchars($grupo['nome_subcategoria'] ?? 'Todas/Não definida', ENT_QUOTES, 'UTF-8') ?></td>
+                                                        <td class="text-center"><span class="badge badge-info badge-pill"><?= number_format((float)($grupo['quantidade_por_conjunto'] ?? 0), 2, ',', '.') ?></span></td>
+                                                        <td class="text-center">
+                                                            <span class="badge badge-<?= !empty($grupo['obrigatorio']) ? 'success' : 'secondary' ?>">
+                                                                <?= !empty($grupo['obrigatorio']) ? 'Sim' : 'Não' ?>
+                                                            </span>
+                                                        </td>
+                                                        <td><?= nl2br(htmlspecialchars($grupo['observacoes'] ?? '-', ENT_QUOTES, 'UTF-8')) ?></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="alert alert-warning m-3 mb-3">
+                                        Este produto está marcado como conjunto comercial, mas ainda não possui regras cadastradas.
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
                 <!-- /.card-body -->
                  <div class="card-footer text-right bg-light">
