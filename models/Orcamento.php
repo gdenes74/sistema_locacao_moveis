@@ -548,35 +548,78 @@ public function delete($id) {
             $this->deletarTodosItens($orcamento_id);
 
             $query = "INSERT INTO {$this->table_itens}
-                        (orcamento_id, produto_id, nome_produto_manual, quantidade, tipo,
-                         preco_unitario, desconto, preco_final, observacoes,
+                        (item_pai_id, orcamento_id, produto_id, nome_produto_manual, quantidade, tipo,
+                         preco_unitario, desconto, preco_final, usa_preco_no_total,
+                         exibir_cliente, exibir_producao, grupo_conjunto, observacoes,
                          tipo_linha, ordem)
                       VALUES
-                        (:orcamento_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
-                         :preco_unitario, :desconto, :preco_final, :observacoes,
+                        (:item_pai_id, :orcamento_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
+                         :preco_unitario, :desconto, :preco_final, :usa_preco_no_total,
+                         :exibir_cliente, :exibir_producao, :grupo_conjunto, :observacoes,
                          :tipo_linha, :ordem)";
             $stmt = $this->conn->prepare($query);
 
+            // Mapeia a hierarquia real sem mexer na ordem visual:
+            // o CONJUNTO mais recente vira pai dos ITEM_CONJUNTO seguintes,
+            // até aparecer outra linha que não seja ITEM_CONJUNTO.
+            $itemPaiAtualId = null;
+
             foreach ($itens as $item) {
-                // CORREÇÃO: Confia no preco_final já calculado no create.php
-                // Não fazemos mais o cálculo aqui dentro.
+                $tipoLinha = strtoupper(trim((string)($item['tipo_linha'] ?? 'PRODUTO')));
+
+                if ($tipoLinha !== 'ITEM_CONJUNTO') {
+                    // Produto normal, item manual, seção ou novo conjunto encerram o bloco anterior.
+                    $itemPaiAtualId = null;
+                }
+
+                $itemPaiId = null;
+                if ($tipoLinha === 'ITEM_CONJUNTO') {
+                    $itemPaiId = $itemPaiAtualId;
+                }
+
+                // Mantém compatibilidade com o create atual: se a view não enviar esses campos,
+                // aplica defaults seguros conforme o tipo da linha.
+                $usaPrecoNoTotal = isset($item['usa_preco_no_total'])
+                    ? (int)$item['usa_preco_no_total']
+                    : ($tipoLinha === 'ITEM_CONJUNTO' || $tipoLinha === 'CABECALHO_SECAO' ? 0 : 1);
+
+                $exibirCliente = isset($item['exibir_cliente']) ? (int)$item['exibir_cliente'] : 1;
+                $exibirProducao = isset($item['exibir_producao']) ? (int)$item['exibir_producao'] : 1;
+                $grupoConjunto = $item['grupo_conjunto'] ?? null;
+
+                // CORREÇÃO: Confia no preco_final já calculado no create.php/edit.php.
+                // Não recalcula aqui para não quebrar descontos, conjuntos e itens zerados.
                 $preco_final_correto = (float)($item['preco_final'] ?? 0.00);
 
+                $produtoId = $item['produto_id'] ?? null;
+                $nomeManual = $item['nome_produto_manual'] ?? null;
+                $tipoItem = $item['tipo'] ?? null;
+                $observacoes = $item['observacoes'] ?? null;
+
+                $stmt->bindValue(':item_pai_id', $itemPaiId, $itemPaiId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
                 $stmt->bindValue(':orcamento_id', $orcamento_id, PDO::PARAM_INT);
-                $stmt->bindValue(':produto_id', $item['produto_id'], $item['produto_id'] === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
-                $stmt->bindValue(':nome_produto_manual', $item['nome_produto_manual'], $item['nome_produto_manual'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmt->bindValue(':quantidade', $item['quantidade'], PDO::PARAM_INT);
-                $stmt->bindValue(':tipo', $item['tipo'], $item['tipo'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmt->bindValue(':preco_unitario', $item['preco_unitario']);
-                $stmt->bindValue(':desconto', $item['desconto']);
+                $stmt->bindValue(':produto_id', $produtoId, $produtoId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
+                $stmt->bindValue(':nome_produto_manual', $nomeManual, $nomeManual === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':quantidade', (int)($item['quantidade'] ?? 0), PDO::PARAM_INT);
+                $stmt->bindValue(':tipo', $tipoItem, $tipoItem === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':preco_unitario', (float)($item['preco_unitario'] ?? 0.00));
+                $stmt->bindValue(':desconto', (float)($item['desconto'] ?? 0.00));
                 $stmt->bindValue(':preco_final', $preco_final_correto);
-                $stmt->bindValue(':observacoes', $item['observacoes'], $item['observacoes'] === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
-                $stmt->bindValue(':tipo_linha', $item['tipo_linha']);
-                $stmt->bindValue(':ordem', $item['ordem'], PDO::PARAM_INT);
+                $stmt->bindValue(':usa_preco_no_total', $usaPrecoNoTotal, PDO::PARAM_INT);
+                $stmt->bindValue(':exibir_cliente', $exibirCliente, PDO::PARAM_INT);
+                $stmt->bindValue(':exibir_producao', $exibirProducao, PDO::PARAM_INT);
+                $stmt->bindValue(':grupo_conjunto', $grupoConjunto, $grupoConjunto === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':observacoes', $observacoes, $observacoes === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+                $stmt->bindValue(':tipo_linha', $tipoLinha, PDO::PARAM_STR);
+                $stmt->bindValue(':ordem', (int)($item['ordem'] ?? 0), PDO::PARAM_INT);
 
                 if (!$stmt->execute()) {
                     error_log("Erro ao inserir item de orçamento (ID: {$orcamento_id}): " . print_r($stmt->errorInfo(), true));
                     return false;
+                }
+
+                if ($tipoLinha === 'CONJUNTO') {
+                    $itemPaiAtualId = (int)$this->conn->lastInsertId();
                 }
             }
             return true;
@@ -616,9 +659,16 @@ public function getItens($orcamento_id) {
                 io.*,
                 p.nome_produto AS nome_produto_catalogo,
                 p.codigo AS codigo_produto,
-                p.foto_path                           -- ADICIONADO: para buscar a foto
+                p.foto_path,
+                p.tipo_produto,
+                p.eh_conjunto,
+                p.controla_estoque,
+                p.subcategoria_id,
+                c.id AS categoria_id
               FROM {$this->table_itens} io
               LEFT JOIN produtos p ON io.produto_id = p.id
+              LEFT JOIN subcategorias s ON p.subcategoria_id = s.id
+              LEFT JOIN categorias c ON s.categoria_id = c.id
               WHERE io.orcamento_id = :orcamento_id
               ORDER BY io.ordem ASC, io.id ASC";
     try {
@@ -685,8 +735,8 @@ public function getItens($orcamento_id) {
         try {
             // PASSO 1: Somar os totais da tabela de itens
             $sqlSubtotal = "SELECT
-                                COALESCE(SUM(CASE WHEN tipo = 'locacao' THEN preco_final ELSE 0 END), 0) as subtotal_locacao,
-                                COALESCE(SUM(CASE WHEN tipo = 'venda' THEN preco_final ELSE 0 END), 0) as subtotal_venda
+                                COALESCE(SUM(CASE WHEN tipo = 'locacao' AND usa_preco_no_total = 1 THEN preco_final ELSE 0 END), 0) as subtotal_locacao,
+                                COALESCE(SUM(CASE WHEN tipo = 'venda' AND usa_preco_no_total = 1 THEN preco_final ELSE 0 END), 0) as subtotal_venda
                             FROM {$this->table_itens}
                             WHERE orcamento_id = :orcamento_id";
             $stmtSubtotal = $this->conn->prepare($sqlSubtotal);

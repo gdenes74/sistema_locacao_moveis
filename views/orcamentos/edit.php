@@ -58,6 +58,30 @@ foreach ($itensOrcamento as &$item_processado) {
     } else {
         $item_processado['foto_path_completo'] = null;
     }
+
+    $item_processado['categoria_id'] = null;
+    $item_processado['subcategoria_id'] = null;
+    $item_processado['eh_conjunto'] = 0;
+
+    if (!empty($item_processado['produto_id'])) {
+        try {
+            $stmtMetaProduto = $db->prepare("SELECT p.subcategoria_id, COALESCE(p.eh_conjunto, 0) AS eh_conjunto, sc.categoria_id
+                                             FROM produtos p
+                                             LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+                                             WHERE p.id = ?
+                                             LIMIT 1");
+            $stmtMetaProduto->execute([(int) $item_processado['produto_id']]);
+            $metaProduto = $stmtMetaProduto->fetch(PDO::FETCH_ASSOC);
+
+            if ($metaProduto) {
+                $item_processado['categoria_id'] = $metaProduto['categoria_id'] !== null ? (int) $metaProduto['categoria_id'] : null;
+                $item_processado['subcategoria_id'] = $metaProduto['subcategoria_id'] !== null ? (int) $metaProduto['subcategoria_id'] : null;
+                $item_processado['eh_conjunto'] = (int) ($metaProduto['eh_conjunto'] ?? 0);
+            }
+        } catch (PDOException $e) {
+            error_log('Erro ao carregar metadados do produto no edit orçamento: ' . $e->getMessage());
+        }
+    }
 }
 unset($item_processado); // Limpa a referência do loop
 
@@ -196,8 +220,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             exit;
         }
 
-        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path, p.tipo_produto
-        FROM produtos p";
+        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path, p.tipo_produto, p.eh_conjunto, p.subcategoria_id, c.id AS categoria_id
+        FROM produtos p
+        LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+        LEFT JOIN categorias c ON c.id = sc.categoria_id";
 
 $conditions = [];
 $executeParams = [];
@@ -251,6 +277,20 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             } else {
                 $produto_item['foto_path_completo'] = null;
             }
+
+            $produto_item['eh_conjunto'] = isset($produto_item['eh_conjunto']) ? (int) $produto_item['eh_conjunto'] : 0;
+            $produto_item['categoria_id'] = isset($produto_item['categoria_id']) ? (int) $produto_item['categoria_id'] : null;
+            $produto_item['subcategoria_id'] = isset($produto_item['subcategoria_id']) ? (int) $produto_item['subcategoria_id'] : null;
+            $produto_item['regras_conjunto'] = [];
+
+            if ($produto_item['eh_conjunto'] === 1) {
+                $stmtRegras = $db->prepare("SELECT id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes
+                                            FROM produto_conjunto_grupos
+                                            WHERE produto_conjunto_id = ?
+                                            ORDER BY ordem ASC, id ASC");
+                $stmtRegras->execute([(int) $produto_item['id']]);
+                $produto_item['regras_conjunto'] = $stmtRegras->fetchAll(PDO::FETCH_ASSOC);
+            }
         }
         unset($produto_item);
 
@@ -266,6 +306,50 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
         exit;
     }
 }
+
+// --- Bloco AJAX para buscar grupos/regras de um conjunto ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_conjunto_id = isset($_GET['produto_id']) ? (int) $_GET['produto_id'] : 0;
+
+        if ($produto_conjunto_id <= 0) {
+            echo json_encode([]);
+            exit;
+        }
+
+        $sql = "SELECT 
+                    pcg.id,
+                    pcg.nome_grupo,
+                    pcg.categoria_id,
+                    c.nome AS categoria_nome,
+                    pcg.subcategoria_id,
+                    s.nome AS subcategoria_nome,
+                    pcg.quantidade_por_conjunto,
+                    pcg.obrigatorio,
+                    pcg.ordem,
+                    pcg.observacoes
+                FROM produto_conjunto_grupos pcg
+                LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                WHERE pcg.produto_conjunto_id = :produto_conjunto_id
+                ORDER BY pcg.ordem ASC, pcg.id ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':produto_conjunto_id', $produto_conjunto_id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        exit;
+
+    } catch (PDOException $e) {
+        http_response_code(500);
+        error_log("Erro AJAX buscar_grupos_conjunto: " . $e->getMessage());
+        echo json_encode(['error' => 'Erro no banco de dados ao buscar regras do conjunto.']);
+        exit;
+    }
+}
+
 
 // --- 5. AJAX PARA VERIFICAR ESTOQUE NO EDIT ---
 if (isset($_GET['ajax']) && $_GET['ajax'] == 'verificar_estoque') {
@@ -461,7 +545,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 if ($tipo_linha_atual === 'CABECALHO_SECAO') {
                     $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Título não informado';
                     $item_data['tipo'] = null; // Seção não tem tipo de item (locação/venda)
-                } else if ($tipo_linha_atual === 'PRODUTO') {
+                } else if (in_array($tipo_linha_atual, ['PRODUTO', 'CONJUNTO', 'ITEM_CONJUNTO'], true)) {
                     $item_data['produto_id'] = isset($_POST['produto_id'][$index]) && !empty($_POST['produto_id'][$index]) ? (int) $_POST['produto_id'][$index] : null;
 
                     if ($item_data['produto_id'] === null) {
@@ -476,11 +560,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
 
                     $item_data['tipo'] = $_POST['tipo_item'][$index] ?? 'locacao'; // Tipo de locação/venda
-                    $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
-                    $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
 
-                    // Calculo do preco_final para o item antes de salvar
-                    $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+                    // Filho de conjunto comercial consulta estoque, mas não compõe preço do orçamento.
+                    // O preço fica somente na linha-pai CONJUNTO.
+                    if ($tipo_linha_atual === 'ITEM_CONJUNTO') {
+                        $item_data['preco_unitario'] = 0.00;
+                        $item_data['desconto'] = 0.00;
+                        $item_data['preco_final'] = 0.00;
+                    } else {
+                        $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
+                        $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
+                        $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+                    }
 
                 } else {
                     error_log("Tipo de linha desconhecido ou inválido no índice {$index}: '{$tipo_linha_atual}' - Item ignorado.");
@@ -639,7 +730,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_evento" class="form-label">Data do Evento</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_evento" name="data_evento"
-                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_evento']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_evento']))) : '' ?>">
+                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_evento']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_evento']))) : '' ?>" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
                                 </div>
                                 <small id="dia_semana_evento" class="form-text text-muted"></small>
@@ -667,7 +758,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_entrega" class="form-label">Data da Entrega</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_entrega" name="data_entrega"
-                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_entrega']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_entrega']))) : '' ?>">
+                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_entrega']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_entrega']))) : '' ?>" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
                                 </div>
                                 <small id="dia_semana_entrega" class="form-text text-muted font-weight-bold"></small>
@@ -687,7 +778,7 @@ include_once __DIR__ . '/../includes/header.php';
                                     <option value="Horário Específico" <?= ($orcamentoDados['turno_entrega'] ?? '') == 'Horário Específico' ? 'selected' : '' ?>>Horário Específico</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-4 mt-md-3">
                                 <label for="status_orcamento" class="form-label">Status do Orçamento</label>
                                 <select class="form-control" id="status_orcamento" name="status_orcamento"
                                         <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
@@ -716,7 +807,7 @@ include_once __DIR__ . '/../includes/header.php';
                                 <label for="data_devolucao_prevista" class="form-label">Data Devolução (Prev.)</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control datepicker" id="data_devolucao_prevista" name="data_devolucao_prevista"
-                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_devolucao_prevista']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_devolucao_prevista']))) : '' ?>">
+                                           placeholder="DD/MM/AAAA" value="<?= !empty($orcamentoDados['data_devolucao_prevista']) ? htmlspecialchars(date('d/m/Y', strtotime($orcamentoDados['data_devolucao_prevista']))) : '' ?>" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
                                     <div class="input-group-append"><span class="input-group-text"><i class="fas fa-calendar-alt"></i></span></div>
                                 </div>
                                 <small id="dia_semana_devolucao" class="form-text text-muted font-weight-bold"></small>
@@ -827,6 +918,10 @@ include_once __DIR__ . '/../includes/header.php';
                                                 $precoUnitario = number_format($item['preco_unitario'] ?? 0, 2, ',', '.');
                                                 $descontoItem = number_format($item['desconto'] ?? 0, 2, ',', '.');
                                                 $subtotalItem = number_format($item['preco_final'] ?? 0, 2, ',', '.');
+                                                $isLinhaConjunto = ($tipoLinha === 'CONJUNTO');
+                                                $isLinhaItemConjunto = ($tipoLinha === 'ITEM_CONJUNTO');
+                                                $classeLinhaConjunto = $isLinhaConjunto ? ' item-conjunto-row' : ($isLinhaItemConjunto ? ' item-conjunto-filho-row' : '');
+                                                $estiloLinhaConjunto = $isLinhaConjunto ? 'background-color: #eef6ff !important; border-left: 4px solid #0d6efd;' : ($isLinhaItemConjunto ? 'background-color: #f8fbff !important;' : 'background-color: #ffffff !important;');
                                             ?>
 
                                             <?php if ($tipoLinha === 'CABECALHO_SECAO'): ?>
@@ -850,27 +945,39 @@ include_once __DIR__ . '/../includes/header.php';
                                                     $isItemManual = empty($item['produto_id']);
                                                     $observacoesEstilo = empty($item['observacoes']) ? 'display:none;' : '';
                                                 ?>
-                                                <tr class="item-orcamento-row" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" style="background-color: #ffffff !important;">
-                                                    <td>
-                                                        <?php if (!empty($item['foto_path_completo'])): ?>
-                                                            <img src="<?= htmlspecialchars($item['foto_path_completo']) ?>" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">
+                                                <tr class="item-orcamento-row<?= $classeLinhaConjunto ?>" data-index="<?= $itemIndex ?>" data-tipo-linha="<?= $tipoLinha ?>" data-categoria-id="<?= htmlspecialchars($item['categoria_id'] ?? '') ?>" data-subcategoria-id="<?= htmlspecialchars($item['subcategoria_id'] ?? '') ?>" data-eh-conjunto="<?= htmlspecialchars($item['eh_conjunto'] ?? 0) ?>" style="<?= $estiloLinhaConjunto ?>">
+                                                    <td style="<?= $isLinhaItemConjunto ? 'padding-left: 28px;' : '' ?>">
+                                                        <?php if ($isLinhaItemConjunto): ?>
+                                                            <span class="text-primary mr-1" title="Item interno do conjunto"><i class="fas fa-level-up-alt fa-rotate-90"></i></span>
                                                         <?php endif; ?>
-                                                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_produto_display" value="<?= $nomeDisplay ?>" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" <?= !$isItemManual ? 'readonly' : '' ?>>
+                                                        <?php if (!empty($item['foto_path_completo'])): ?>
+                                                            <img src="<?= htmlspecialchars($item['foto_path_completo']) ?>" alt="Miniatura" class="foto-produto-linha" data-foto-completa="<?= htmlspecialchars($item['foto_path_completo']) ?>" data-nome-produto="<?= $nomeDisplay ?>" title="Clique para ampliar a foto" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">
+                                                        <?php endif; ?>
+                                                        <input type="text" name="nome_produto_display[]" class="form-control form-control-sm nome_produto_display <?= $isLinhaConjunto ? 'font-weight-bold text-primary' : '' ?>" value="<?= $nomeDisplay ?>" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: <?= $isLinhaItemConjunto ? 'calc(100% - 86px)' : 'calc(100% - 65px)' ?>; vertical-align: middle;" <?= !$isItemManual ? 'readonly' : '' ?>>
                                                         <input type="hidden" name="produto_id[]" class="produto_id" value="<?= htmlspecialchars($item['produto_id'] ?? '') ?>">
                                                         <input type="hidden" name="tipo_linha[]" value="<?= $tipoLinha ?>">
                                                         <input type="hidden" name="ordem[]" value="<?= $itemIndex ?>">
                                                         <input type="hidden" name="tipo_item[]" value="<?= htmlspecialchars($item['tipo'] ?? 'locacao') ?>">
+                                                        <?php if ($isLinhaConjunto): ?>
+                                                            <small class="text-primary font-weight-bold ml-1"><i class="fas fa-layer-group"></i> Conjunto comercial</small>
+                                                        <?php elseif ($isLinhaItemConjunto): ?>
+                                                            <small class="form-text text-muted">Interno do conjunto · sem preço</small>
+                                                        <?php endif; ?>
                                                         <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
                                                         <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
                                                     </td>
                                                     <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
-                                                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>" min="0" style="width: 70px;" data-valor-original="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>"></td>
-                                                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $precoUnitario ?>"></td>
-                                                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $descontoItem ?>"></td>
-                                                    <td class="subtotal_item_display text-right font-weight-bold"><?= $subtotalItem ?></td>
+                                                    <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>" min="0" style="width: 70px;" data-valor-original="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>"></td>
+                                                    <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $isLinhaItemConjunto ? '0,00' : $precoUnitario ?>" <?= $isLinhaItemConjunto ? 'readonly' : '' ?>></td>
+                                                    <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $isLinhaItemConjunto ? '0,00' : $descontoItem ?>" <?= $isLinhaItemConjunto ? 'readonly' : '' ?>></td>
+                                                    <td class="subtotal_item_display text-right font-weight-bold"><?= $isLinhaItemConjunto ? '0,00' : $subtotalItem ?></td>
                                                     <td>
                                                         <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
                                                         <button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button>
+                                                        <?php if ($isLinhaConjunto): ?>
+                                                            <button type="button" class="btn btn-xs btn-primary btn_montar_conjunto" title="Montar/continuar conjunto"><i class="fas fa-plus-circle"></i></button>
+                                                            <button type="button" class="btn btn-xs btn-secondary btn_encerrar_conjunto" title="Encerrar montagem"><i class="fas fa-check"></i></button>
+                                                        <?php endif; ?>
                                                         <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
                                                         <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
                                                     </td>
@@ -1386,46 +1493,103 @@ include_once __DIR__ . '/../includes/header.php';
         outline-offset: -2px;
     }
 
+
+    .item-conjunto-row td {
+        background-color: #eef6ff !important;
+        border-top: 2px solid #b6d4fe !important;
+    }
+    .item-conjunto-filho-row td {
+        background-color: #f8fbff !important;
+        font-size: 0.94rem;
+    }
+    .item-conjunto-filho-row .item-qtd {
+        font-size: 0.82rem;
+        height: calc(1.5em + .5rem + 2px);
+    }
+    .item-conjunto-filho-row .valor_unitario_item,
+    .item-conjunto-filho-row .desconto_item {
+        color: transparent !important;
+        background-color: #f8fbff !important;
+        border-color: #eef2f7 !important;
+        pointer-events: none;
+    }
+
+
+    .conjunto-grupo-guia td {
+        padding-top: 3px !important;
+        padding-bottom: 3px !important;
+        font-size: 0.72rem;
+        line-height: 1.15;
+        background: #fbfdff !important;
+        cursor: pointer;
+    }
+    .conjunto-grupo-guia .grupo-status-badge {
+        font-size: 0.68rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .item-conjunto-filho-row small.form-text {
+        font-size: 0.66rem;
+        margin-top: 1px;
+        line-height: 1.15;
+    }
+
+    /* Foto dos produtos: clique na miniatura amplia sem selecionar/trocar o item */
+    .foto-produto-sugestao,
+    .foto-produto-linha {
+        cursor: zoom-in !important;
+    }
+    .foto-produto-sugestao:hover,
+    .foto-produto-linha:hover {
+        opacity: 0.86;
+        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.20);
+    }
+
+    /* Datepicker igual ao create: visual original, só garantindo sobreposição correta */
+    .datepicker-dropdown,
+    .datepicker-dropdown.dropdown-menu,
+    body > .datepicker-dropdown,
+    body > .datepicker-dropdown.dropdown-menu {
+        z-index: 999999 !important;
+        background: #ffffff !important;
+        border: 1px solid #ced4da !important;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.18) !important;
+    }
+    .datepicker-dropdown table,
+    .datepicker-dropdown .datepicker-days,
+    .datepicker-dropdown .datepicker-months,
+    .datepicker-dropdown .datepicker-years {
+        background: #ffffff !important;
+    }
+    .datepicker-dropdown:before,
+    .datepicker-dropdown:after {
+        z-index: 1000000 !important;
+    }
 </style>
 
 <?php
 // === JAVASCRIPT CORRIGIDO COMPLETO ===
 $custom_js = <<<'JS'
 $(document).ready(function() {
-    // Variáveis para guardar os estados atuais
-    let dadosClienteAtual = null;
-    let localEventoOriginal = $('#local_evento').val(); // Memoriza o valor original do campo na carga
-
-    // Função para ler os dados do cliente que está selecionado
-    function carregarDadosClienteAtual() {
-        const $selectedOption = $('#cliente_id option:selected');
-        const dataString = $selectedOption.attr('data-cliente-full-data');
-        
-        if (dataString && typeof dataString === 'string') {
-            try {
-                dadosClienteAtual = JSON.parse(dataString);
-            } catch(e) {
-                console.error("Falha ao ler dados do cliente na inicialização:", e);
-                dadosClienteAtual = null;
-            }
-        } else {
-            dadosClienteAtual = null;
-        }
-    }
-
-    // Executa a função assim que a página carrega
-    carregarDadosClienteAtual();
-
-    // Se o usuário editar o campo manualmente, o novo valor se torna o "original" para o toggle
-    $('#local_evento').on('input', function() {
-        localEventoOriginal = $(this).val();
+    // Evita sugestões antigas do navegador cobrindo o calendário.
+    // Truque seguro: campo começa readonly para o Chrome não abrir histórico/autocomplete;
+    // ao focar/clicar, remove readonly e mantém digitação normal.
+    $('.datepicker').attr({
+        'autocomplete': 'off',
+        'aria-autocomplete': 'none',
+        'inputmode': 'numeric',
+        'autocorrect': 'off',
+        'autocapitalize': 'off',
+        'spellcheck': 'false',
+        'readonly': 'readonly'
     });
-
+    $('#btnUsarEnderecoCliente').hide(); // <-- ESCONDE O BOTAO ADIC ENDERECO CLIENTE
     var itemIndex = $('#tabela_itens_orcamento tbody tr.item-orcamento-row').length;
     var disponibilidadeRequestSeq = 0;
+    var conjuntoAtivoIndex = null;
+    var conjuntoAtivoNome = '';
     function unformatCurrency(value) {
-        if (value === null || typeof value === 'undefined' || value === '') return 0;
-        if (typeof value !== 'string') value = String(value);
+        if (!value || typeof value !== 'string') { return 0; }
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
         return isNaN(number) ? 0 : number;
     }
@@ -1443,14 +1607,6 @@ $(document).ready(function() {
 
     let linhaSelecionadaParaTrocaProduto = null;
 
-    function normalizarTextoComparacaoJS(texto) {
-        return String(texto || '')
-            .trim()
-            .toUpperCase()
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '');
-    }
-
     function limparSelecaoTrocaProduto() {
         if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
             linhaSelecionadaParaTrocaProduto.removeClass('row-em-troca-produto');
@@ -1463,65 +1619,121 @@ $(document).ready(function() {
         linhaSelecionadaParaTrocaProduto = $row;
         $row.addClass('row-em-troca-produto');
 
-        const nomeAtual = $row.find('.nome_produto_display').val() || 'produto atual';
-        $('#busca_produto').focus().select();
+        const tipoLinha = $row.data('tipo-linha') || '';
+        if (tipoLinha === 'ITEM_CONJUNTO') {
+            const info = obterRegraDoItemConjunto($row);
+            if (info && info.regra && info.regra.categoria_id) {
+                $('#busca_categoria_produto').val(String(info.regra.categoria_id));
+            }
+        } else if (tipoLinha === 'CONJUNTO') {
+            $('#busca_categoria_produto').val('');
+        }
+
+        $('#busca_produto').val('').focus().select();
+        carregarSugestoesProdutos();
 
         if (typeof toastr !== 'undefined') {
-            toastr.info('Escolha na busca o novo produto para substituir: ' + nomeAtual);
+            if (tipoLinha === 'CONJUNTO') {
+                toastr.info('Escolha outro conjunto comercial para substituir esta linha.');
+            } else if (tipoLinha === 'ITEM_CONJUNTO') {
+                toastr.info('Escolha outro produto permitido para este grupo do conjunto.');
+            } else {
+                toastr.info('Escolha na busca o novo produto para substituir esta linha.');
+            }
         }
+    }
+
+    function regraCasaComProduto(regra, produto) {
+        if (!regra || !produto) { return false; }
+        const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
+        const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
+        const produtoSubcategoria = parseInt(produto.subcategoria_id || 0, 10) || 0;
+        const produtoCategoria = parseInt(produto.categoria_id || 0, 10) || 0;
+        if (regraSubcategoria > 0) { return produtoSubcategoria === regraSubcategoria; }
+        if (regraCategoria > 0) { return produtoCategoria === regraCategoria; }
+        return false;
     }
 
     function substituirProdutoNaLinha($row, produto) {
-        if (!$row || !$row.length || !produto || !produto.id) {
-            return;
+        if (!$row || !$row.length || !produto || !produto.id) { return false; }
+
+        const tipoLinhaAtual = $row.data('tipo-linha') || $row.attr('data-tipo-linha') || 'PRODUTO';
+        const ehConjuntoProduto = parseInt(produto.eh_conjunto || 0, 10) === 1;
+
+        if (tipoLinhaAtual === 'CONJUNTO' && !ehConjuntoProduto) {
+            Swal.fire('Produto incompatível', 'Para trocar esta linha, selecione outro conjunto comercial.', 'warning');
+            return false;
         }
 
-        const nomeAnterior = $row.find('.nome_produto_display').val() || '';
+        if (tipoLinhaAtual !== 'CONJUNTO' && ehConjuntoProduto) {
+            Swal.fire('Produto incompatível', 'Conjunto comercial deve ser incluído como linha de conjunto, não substituindo produto comum ou item interno.', 'warning');
+            return false;
+        }
+
+        if (tipoLinhaAtual === 'ITEM_CONJUNTO') {
+            const info = obterRegraDoItemConjunto($row);
+            if (!info || !info.regra || !regraCasaComProduto(info.regra, produto)) {
+                Swal.fire('Produto fora do grupo', 'Este produto não pertence à categoria/subcategoria permitida para este item do conjunto.', 'warning');
+                return false;
+            }
+        }
+
         const nomeNovo = produto.nome_produto || produto.nome || 'Sem nome';
         const precoNovo = parseFloat(produto.preco_locacao) || 0;
         const fotoNova = produto.foto_path_completo || '';
-
+        const categoriaId = parseInt(produto.categoria_id || 0, 10) || '';
+        const subcategoriaId = parseInt(produto.subcategoria_id || 0, 10) || '';
         const $tdProduto = $row.children('td').first();
         $tdProduto.children('img').remove();
-
         if (fotoNova) {
-            const imgHtml = `<img src="${escapeHtml(fotoNova)}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">`;
-            $tdProduto.prepend(imgHtml);
+            $tdProduto.prepend(`<img src="${escapeHtml(fotoNova)}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${escapeHtml(fotoNova)}" data-nome-produto="${escapeHtml(nomeNovo)}" title="Clique para ampliar a foto" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">`);
+        }
+        $row.find('.nome_produto_display').val(nomeNovo).prop('readonly', true).attr('readonly', 'readonly');
+        $row.find('.produto_id').val(produto.id);
+        $row.attr('data-categoria-id', categoriaId).data('categoria-id', categoriaId);
+        $row.attr('data-subcategoria-id', subcategoriaId).data('subcategoria-id', subcategoriaId);
+        $row.attr('data-eh-conjunto', ehConjuntoProduto ? 1 : 0).data('eh-conjunto', ehConjuntoProduto ? 1 : 0);
+
+        if (tipoLinhaAtual === 'ITEM_CONJUNTO') {
+            $row.find('.item-valor-unitario').val('0,00').prop('readonly', true).attr('readonly', 'readonly');
+            $row.find('.desconto_item').val('0,00').prop('readonly', true).attr('readonly', 'readonly');
+            $row.find('.subtotal_item_display').text('0,00');
+        } else {
+            $row.find('.item-valor-unitario').val(precoNovo.toFixed(2).replace('.', ','));
         }
 
-        $row.find('.nome_produto_display')
-            .val(nomeNovo)
-            .prop('readonly', true)
-            .attr('readonly', 'readonly');
+        if (tipoLinhaAtual === 'CONJUNTO') {
+            $row.data('regras-conjunto', []);
+            const conjuntoIndex = parseInt($row.data('index') || 0, 10) || 0;
 
-        $row.find('.produto_id').val(produto.id);
-        $row.find('input[name="tipo_linha[]"]').val('PRODUTO');
-        $row.attr('data-tipo-linha', 'PRODUTO').data('tipo-linha', 'PRODUTO');
+            // Trocar o conjunto inteiro deve limpar a montagem antiga.
+            // Os filhos anteriores pertenciam ao conjunto antigo e não devem ficar presos no novo.
+            $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').filter(function() {
+                return parseInt($(this).data('conjunto-pai-index') || 0, 10) === conjuntoIndex;
+            }).remove();
+            $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+            $row.find('.regras-conjunto-resumo').remove();
 
-        $row.find('.item-valor-unitario').val(precoNovo.toFixed(2).replace('.', ','));
-
-        const obsAtual = ($row.find('.observacoes_item_input').val() || '').trim();
-        const nomeAnteriorNorm = normalizarTextoComparacaoJS(nomeAnterior);
-        const nomeNovoNorm = normalizarTextoComparacaoJS(nomeNovo);
-
-        if (obsAtual !== '' && nomeAnteriorNorm.indexOf('COR A DEFINIR') !== -1 && nomeNovoNorm.indexOf('COR A DEFINIR') === -1) {
-            $row.find('.observacoes_item_input').val('').hide();
-            $row.find('.observacoes_item_label').hide();
+            carregarRegrasConjunto(produto.id, $row, function() {
+                ativarMontagemConjunto($row, true);
+                // Igual ao create: após trocar o conjunto, mostra as guias e aguarda o clique do usuário.
+            });
         }
 
         $row.removeData('disponibilidade-response');
-        $row.find('.disponibilidade-contexto')
-            .removeClass('status-ok status-atencao status-indisponivel')
-            .addClass('status-neutro')
-            .hide()
-            .html('');
-
-        limparStatusLinhaDisponibilidade($row);
         calcularSubtotalItem($row);
         calcularTotaisOrcamento();
-        atualizarOrdemDosItens();
+        if (tipoLinhaAtual === 'ITEM_CONJUNTO') {
+            validarLimiteItemConjunto($row, true);
+            const infoNovo = obterRegraDoItemConjunto($row);
+            if (infoNovo && infoNovo.$rowConjunto) {
+                atualizarGuiasConjunto(infoNovo.$rowConjunto);
+            }
+        }
         revalidarTodasAsLinhasDisponibilidade($row);
+        return true;
     }
+
 
     function obterPeriodoConsultaAtual() {
         return {
@@ -1566,6 +1778,8 @@ $(document).ready(function() {
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
+        const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
+        const produtoConsultadoNome = response.produto_nome || '';
 
         let html = `<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap"><span class="painel-status-badge">${statusTexto}</span><small class="ml-2" style="opacity:.9;">Clique no resumo da linha para reabrir este painel.</small></div>`;
         html += '<div class="painel-disponibilidade-grid">';
@@ -1580,9 +1794,6 @@ $(document).ready(function() {
         }
 
         if (response.conflitos && response.conflitos.length > 0) {
-            const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
-            const produtoConsultadoNome = response.produto_nome || '';
-
             let conflitosHtml = response.conflitos.map(function(item) {
                 const quantidade = parseInt(item.quantidade || 0, 10);
                 const produtoOrigemId = parseInt(item.produto_origem_id || item.produto_id || 0, 10);
@@ -1601,7 +1812,6 @@ $(document).ready(function() {
                     <span style="opacity:.85;">(${escapeHtml(item.inicio_formatado || '')} → ${escapeHtml(item.fim_formatado || '')})</span>${linkPedido}
                 </li>`;
             }).join('');
-
             html += `<div class="painel-box mt-2"><strong>Pedidos confirmados no período</strong><ul class="mb-0 pl-3 mt-1">${conflitosHtml}</ul></div>`;
         }
 
@@ -1651,7 +1861,6 @@ if (response.produto_composto && response.componentes && response.componentes.le
         <ul class="mb-0 pl-3 mt-1">${componentesHtml}</ul>
     </div>`;
 }
-
         if (response.observacoes_produto) {
             html += `<div class="painel-box mt-2"><strong>Observações do produto</strong><div class="mt-1">${escapeHtml(response.observacoes_produto)}</div></div>`;
         }
@@ -1685,7 +1894,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
         return `<span class="status-principal">${statusTexto}</span><span class="status-detalhe">${detalhe}</span>`;
     }
 
-    function atualizarPainelConsultaDisponibilidade(nomeProduto, response, exibirPainel = true) {
+    function atualizarPainelConsultaDisponibilidade(nomeProduto, response) {
         const $painel = $('#painel_consulta_disponibilidade');
         const $conteudo = $('#conteudo_consulta_disponibilidade');
         const classe = obterClasseStatusDisponibilidade(response);
@@ -1694,10 +1903,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
         let titulo = nomeProduto ? `<div class="font-weight-bold mb-2" style="font-size:1rem;">${escapeHtml(nomeProduto)}</div>` : '';
         $conteudo.html(titulo + montarResumoDisponibilidadeHtml(response));
-
-        if (exibirPainel) {
-            $painel.show();
-        }
+        $painel.show();
     }
 
     function aplicarContextoDisponibilidadeNaLinha($row, response) {
@@ -1720,18 +1926,18 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }
     }
 
-    function coletarItensContextoAtualOrcamento() {
+function coletarItensContextoAtualOrcamento() {
         const itens = [];
 
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
 
-            if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+            if (!['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
                 return;
             }
 
             const produtoId = parseInt($row.find('.produto_id').val(), 10) || 0;
-            const quantidade = parseInt($row.find('.item-qtd').val(), 10) || 0;
+            const quantidade = parseInt($row.find('.quantidade_item').val(), 10) || 0;
 
             if (produtoId > 0 && quantidade > 0) {
                 itens.push({
@@ -1744,7 +1950,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
         return itens;
     }
 
-    function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, callbackErro) {
+function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, callbackErro) {
         const periodo = obterPeriodoConsultaAtual();
         const itensContexto = coletarItensContextoAtualOrcamento();
 
@@ -1784,20 +1990,21 @@ if (response.produto_composto && response.componentes && response.componentes.le
         let quantidade = 0;
 
         // Mantém a soma de linhas repetidas do mesmo produto.
-        // A disputa entre produtos diferentes que compartilham componentes é resolvida pelo contexto completo.
+        // O contexto completo enviado ao backend continua considerando todos os itens do orçamento,
+        // inclusive produtos diferentes que compartilham componentes.
         $('#tabela_itens_orcamento .produto_id').each(function() {
             if ($(this).val() == produtoId) {
-                quantidade += parseInt($(this).closest('tr').find('.item-qtd').val(), 10) || 0;
+                quantidade += parseInt($(this).closest('tr').find('.quantidade_item').val(), 10) || 0;
             }
         });
+
         if (quantidade < 0) { quantidade = 0; }
 
-        const nomeProduto = $row.find('.nome_produto_display').val() || '';
         const requestSeq = ++disponibilidadeRequestSeq;
         $row.data('disponibilidade-request-seq', requestSeq);
 
         consultarDisponibilidadeAjax(produtoId, quantidade, function(response) {
-            // Evita que uma resposta AJAX antiga sobrescreva uma consulta mais recente da mesma linha.
+            // Evita resposta AJAX antiga sobrescrever consulta mais recente.
             if ($row.data('disponibilidade-request-seq') !== requestSeq) {
                 return;
             }
@@ -1834,8 +2041,6 @@ if (response.produto_composto && response.componentes && response.componentes.le
             if (response && response.disponivel !== false) {
                 $row.removeData('alerta-indisponivel-chave');
             }
-
-            atualizarPainelConsultaDisponibilidade(nomeProduto, response, false);
         }, function() {
             const response = {
                 success: false,
@@ -1851,7 +2056,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
             const $row = $(this);
-            if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
+            if (['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '') && $row.find('.produto_id').val()) {
                 const deveAlertar = rowAlertaEl && this === rowAlertaEl;
                 atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
@@ -1875,13 +2080,103 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 if (produtos && produtos.length > 0) {
                     $.each(produtos, function(i, produto) {
                         let preco = parseFloat(produto.preco_locacao) || 0;
-                        let fotoHtml = produto.foto_path_completo ? `<img src="${produto.foto_path_completo}" alt="Miniatura" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">` : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
+                        let fotoHtml = produto.foto_path_completo ? `<img src="${produto.foto_path_completo}" alt="Miniatura" class="img-thumbnail mr-2 foto-produto-sugestao" title="Clique para ampliar a foto" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">` : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
                         let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
-                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${produto.tipo_produto === 'COMPOSTO' ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>' : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')}</div><span class="ml-auto text-primary font-weight-bold">R\$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
+                        let ehConjunto = parseInt(produto.eh_conjunto || 0, 10) === 1;
+                        let etiquetaProduto = ehConjunto
+                            ? '<small class="d-block text-primary font-weight-bold"><i class="fas fa-layer-group"></i> Conjunto comercial</small><small class="d-block text-muted">Selecione para montar os itens internos</small>'
+                            : (produto.tipo_produto === 'COMPOSTO'
+                                ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>'
+                                : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')
+                            );
+
+                        $('#sugestoes_produtos').append(`<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2" data-id="${produto.id}" data-nome="${produto.nome_produto || 'Sem nome'}" data-codigo="${produto.codigo || ''}" data-preco="${preco}" data-foto-completa="${fotoPathParaDataAttribute}" data-eh-conjunto="${ehConjunto ? 1 : 0}" data-categoria-id="${produto.categoria_id || ''}" data-subcategoria-id="${produto.subcategoria_id || ''}">${fotoHtml}<div class="flex-grow-1"><strong>${produto.nome_produto || 'Sem nome'}</strong>${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}${etiquetaProduto}</div><span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span></a>`);
                     });
                 } else {
                     $('#sugestoes_produtos').append('<div class="list-group-item text-muted">Nenhum produto encontrado.</div>');
                 }
+            },
+            error: function(xhr) {
+                console.error("Erro AJAX buscar_produtos:", xhr.responseText);
+                $('#sugestoes_produtos').empty().show().append('<div class="list-group-item text-danger">Erro ao buscar.</div>');
+            }
+        });
+    }
+
+
+
+    function atualizarListaProdutosAposSelecao() {
+        $('#busca_produto').val('').focus();
+        if ($('#busca_categoria_produto').val()) {
+            setTimeout(function() {
+                carregarSugestoesProdutos();
+            }, 80);
+        } else {
+            $('#sugestoes_produtos').empty().hide();
+        }
+    }
+
+    function abrirFotoProduto(fotoUrl, nomeProduto) {
+        if (!fotoUrl) { return; }
+        Swal.fire({
+            title: nomeProduto || 'Produto',
+            imageUrl: fotoUrl,
+            imageAlt: 'Foto ampliada de ' + (nomeProduto || 'Produto'),
+            imageWidth: '90%',
+            confirmButtonText: 'Fechar'
+        });
+    }
+
+    function inserirLinhasGuiaConjunto($rowConjunto, grupos) {
+        if (!$rowConjunto || !$rowConjunto.length || !grupos || !grupos.length) { return; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+
+        let htmlGuias = '';
+        grupos.forEach(function(grupo, idx) {
+            const qtd = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+            const origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
+            htmlGuias += `<tr class="conjunto-grupo-guia" title="Clique para listar opções deste grupo" data-conjunto-pai-index="${conjuntoIndex}" data-regra-index="${idx}" data-categoria-id="${grupo.categoria_id || ''}" data-subcategoria-id="${grupo.subcategoria_id || ''}">
+                <td colspan="7" style="padding-left: 32px;">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <span><strong class="text-primary"><i class="fas fa-layer-group mr-1"></i>${escapeHtml(grupo.nome_grupo || 'Grupo')}</strong><span class="text-muted ml-2">${qtd}/conj. · ${escapeHtml(origem)}</span></span>
+                        <span class="grupo-status-badge grupo-pendente ml-2">...</span>
+                    </div>
+                </td>
+            </tr>`;
+        });
+
+        $rowConjunto.after(htmlGuias);
+        atualizarOrdemDosItens();
+        atualizarGuiasConjunto($rowConjunto);
+
+        // Igual ao create: as guias ficam visíveis; o usuário clica em Bistrô/Pufes para listar opções.
+    }
+
+    function atualizarGuiasConjunto($rowConjunto) {
+        if (!$rowConjunto || !$rowConjunto.length) { return; }
+        const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+        const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const $guia = $(this);
+            const regraIndex = parseInt($guia.data('regra-index'), 10) || 0;
+            const regra = regras[regraIndex];
+            if (!regra) { return; }
+
+            const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
+            const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
+            const falta = esperado - atual;
+            const $badge = $guia.find('.grupo-status-badge');
+
+            if (falta === 0) {
+                $badge.removeClass('grupo-pendente').addClass('grupo-ok').text('OK: ' + atual + '/' + esperado);
+            } else if (falta > 0) {
+                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Faltam ' + falta + ' · ' + atual + '/' + esperado);
+            } else {
+                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Excedeu ' + Math.abs(falta) + ' · ' + atual + '/' + esperado);
             }
         });
     }
@@ -1897,6 +2192,28 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }, 60);
     }
 
+    function obterUltimaLinhaDoBlocoConjunto($rowConjunto) {
+        if (!$rowConjunto || !$rowConjunto.length) { return $(); }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || $rowConjunto.attr('data-index') || 0, 10) || 0;
+        let $referencia = $rowConjunto;
+
+        // As guias vêm logo após o conjunto.
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            $referencia = $(this);
+        });
+
+        // Filhos existentes devem vir depois das guias; o novo filho entra após o último filho.
+        $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+            const $filho = $(this);
+            if (parseInt($filho.data('conjunto-pai-index') || $filho.attr('data-conjunto-pai-index') || 0, 10) === conjuntoIndex) {
+                $referencia = $filho;
+            }
+        });
+
+        return $referencia;
+    }
+
     function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
         itemIndex++;
         var tipoLinha = tipoLinhaParam;
@@ -1905,641 +2222,880 @@ if (response.produto_composto && response.componentes && response.componentes.le
         var produtoIdInput = dadosItem ? dadosItem.id : '';
         var precoUnitarioDefault = dadosItem ? (parseFloat(dadosItem.preco_locacao) || 0) : 0;
         var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
+        var categoriaIdItem = dadosItem ? (parseInt(dadosItem.categoria_id || 0, 10) || '') : '';
+        var subcategoriaIdItem = dadosItem ? (parseInt(dadosItem.subcategoria_id || 0, 10) || '') : '';
         var nomeInputName = "nome_produto_display[]";
-        
-        if (tipoLinha === 'PRODUTO') {
-            var quantidadeDefault = 0;
-            var descontoDefault = 0;
+
+        if (tipoLinha === 'CONJUNTO') {
+            var quantidadeConjuntoDefault = 1;
+            var subtotalConjuntoDefault = quantidadeConjuntoDefault * precoUnitarioDefault;
+            var imagemConjuntoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" title="Clique para ampliar a foto" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #0d6efd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">` : '';
+            htmlLinha = `<tr class="item-orcamento-row item-conjunto-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #eef6ff !important; border-left: 4px solid #0d6efd;">
+                <td>${imagemConjuntoHtml}
+                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display font-weight-bold text-primary" value="${nomeDisplay}" placeholder="Nome do Conjunto" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" readonly>
+                    <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
+                    <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
+                    <input type="hidden" name="ordem[]" value="${itemIndex}">
+                    <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
+                    <small class="text-primary font-weight-bold ml-1"><i class="fas fa-layer-group"></i> Conjunto comercial</small>
+                    <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Conjunto:</small>
+                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do conjunto">
+                </td>
+                <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
+                <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeConjuntoDefault}" min="1" style="width: 70px;"></td>
+                <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td>
+                <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="0,00"></td>
+                <td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalConjuntoDefault).replace('R$ ', '')}</td>
+                <td>
+                    <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                    <button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar conjunto comercial"><i class="fas fa-exchange-alt"></i></button> <button type="button" class="btn btn-xs btn-primary btn_montar_conjunto" title="Montar/continuar conjunto"><i class="fas fa-plus-circle"></i></button>
+                    <button type="button" class="btn btn-xs btn-secondary btn_encerrar_conjunto" title="Encerrar montagem"><i class="fas fa-check"></i></button>
+                    <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                    <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        } else if (tipoLinha === 'ITEM_CONJUNTO') {
+            var quantidadeFilhoDefault = 0; 
+            var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" title="Clique para ampliar a foto" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">` : '';
+            var conjuntoNomeEscapado = conjuntoAtivoNome ? escapeHtml(conjuntoAtivoNome) : 'conjunto';
+            htmlLinha = `<tr class="item-orcamento-row item-conjunto-filho-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-conjunto-pai-index="${conjuntoAtivoIndex || ''}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #f8fbff !important;">
+                <td style="padding-left: 28px;">
+                    <span class="text-primary mr-1"><i class="fas fa-level-up-alt fa-rotate-90"></i></span>${imagemFilhoHtml}
+                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Item do conjunto" style="display: inline-block; width: calc(100% - 86px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}>
+                    <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
+                    <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
+                    <input type="hidden" name="ordem[]" value="${itemIndex}">
+                    <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
+                    <small class="form-text text-muted">Interno de: ${conjuntoNomeEscapado} · sem preço</small>
+                    <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
+                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item do conjunto">
+                </td>
+                <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
+                <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeFilhoDefault}" min="0" style="width: 70px;"></td>
+                <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="0,00" readonly></td>
+                <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="0,00" readonly></td>
+                <td class="subtotal_item_display text-right font-weight-bold">0,00</td>
+                <td>
+                    <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                    <button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar item interno"><i class="fas fa-exchange-alt"></i></button>
+                    <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
+                    <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>`;
+        } else if (tipoLinha === 'PRODUTO') {
+            var quantidadeDefault = 0; var descontoDefault = 0;
             var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
-            var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
-            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantity-input item-qtd text-center" value="${quantidadeDefault}" min="0" style="width: 70px;" data-valor-original="${quantidadeDefault}"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R\$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button> <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
+            var imagemHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" title="Clique para ampliar a foto" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">` : '';
+            htmlLinha = `<tr class="item-orcamento-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #ffffff !important;"><td>${imagemHtml}<input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}><input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}"><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}"><small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small><input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item"></td><td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td><td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" style="width: 70px;"></td><td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}"></td><td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}"></td><td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ', '')}</td><td><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><button type="button" class="btn btn-xs btn-outline-primary btn_trocar_produto" title="Trocar produto desta linha"><i class="fas fa-exchange-alt"></i></button> <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button> <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button></td></tr>`;
         } else if (tipoLinha === 'CABECALHO_SECAO') {
             htmlLinha = `<tr class="item-orcamento-row item-titulo-secao" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #e7f1ff !important;"><td colspan="6"><span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span><input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_titulo_secao" placeholder="Digite o Título da Seção aqui..." required style="font-weight: bold; border: none; background-color: transparent; display: inline-block; width: calc(100% - 30px);"><input type="hidden" name="produto_id[]" value=""><input type="hidden" name="tipo_linha[]" value="${tipoLinha}"><input type="hidden" name="ordem[]" value="${itemIndex}"><input type="hidden" name="quantidade[]" value="0"><input type="hidden" name="tipo_item[]" value=""><input type="hidden" name="valor_unitario[]" value="0.00"><input type="hidden" name="desconto_item[]" value="0.00"><input type="hidden" name="observacoes_item[]" value=""></td><td><button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover Título"><i class="fas fa-trash"></i></button></td></tr>`;
         }
         if (htmlLinha) {
-            $('#tabela_itens_orcamento tbody').append(htmlLinha);
-            var $novaLinha = $('#tabela_itens_orcamento tbody tr:last-child');
-            atualizarOrdemDosItens();
+            $('#tabela_itens_orcamento tbody .no-items-row').remove();
+
+            var $novaLinha;
+            if (tipoLinha === 'ITEM_CONJUNTO' && conjuntoAtivoIndex !== null) {
+                const $rowConjuntoAtivo = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+                const $referenciaBloco = obterUltimaLinhaDoBlocoConjunto($rowConjuntoAtivo);
+
+                if ($referenciaBloco && $referenciaBloco.length) {
+                    $referenciaBloco.after(htmlLinha);
+                    $novaLinha = $referenciaBloco.next('tr.item-orcamento-row');
+                } else {
+                    $('#tabela_itens_orcamento tbody').append(htmlLinha);
+                    $novaLinha = $('#tabela_itens_orcamento tbody tr:last-child');
+                }
+            } else {
+                $('#tabela_itens_orcamento tbody').append(htmlLinha);
+                $novaLinha = $('#tabela_itens_orcamento tbody tr:last-child');
+            }
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
-            } else if (tipoLinha === 'PRODUTO' && dadosItem && dadosItem.id) {
-                revalidarTodasAsLinhasDisponibilidade($novaLinha);
+                rolarTabelaItensParaLinha($novaLinha);
+            } else if (['PRODUTO', 'ITEM_CONJUNTO', 'CONJUNTO'].includes(tipoLinha)) {
+                if (dadosItem && dadosItem.id && tipoLinha !== 'CONJUNTO') {
+                    revalidarTodasAsLinhasDisponibilidade($novaLinha);
+                }
+                rolarTabelaItensParaLinha($novaLinha);
+                setTimeout(function() {
+                    $novaLinha.find('.quantidade_item').focus().select();
+                }, 220);
             }
             calcularTotaisOrcamento();
-            rolarTabelaItensParaLinha($novaLinha);
-            if (tipoLinha === 'PRODUTO') {
-                $novaLinha.find('.item-qtd').focus().select();
-            }
+            return $novaLinha;
         }
+
+        return $();
     }
 
     function calcularSubtotalItem($row) {
         if ($row.data('tipo-linha') === 'CABECALHO_SECAO') { return 0; }
+        if ($row.data('tipo-linha') === 'ITEM_CONJUNTO') {
+            $row.find('.subtotal_item_display').text('0,00');
+            return 0;
+        }
         var quantidade = parseFloat($row.find('.item-qtd').val()) || 0;
         var valorUnitario = unformatCurrency($row.find('.item-valor-unitario').val());
         var descontoUnitario = unformatCurrency($row.find('.desconto_item').val());
         var subtotal = quantidade * (valorUnitario - descontoUnitario);
-        $row.find('.subtotal_item_display').text(formatCurrency(subtotal).replace('R\$ ', ''));
+        $row.find('.subtotal_item_display').text(formatCurrency(subtotal).replace('R$ ', ''));
         return subtotal;
     }
 
-    function calcularTotaisOrcamento() {
-        var subtotalGeralItens = 0;
-        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
-            subtotalGeralItens += calcularSubtotalItem($(this));
-        });
+    // Versão robusta que calcula sempre e decide a exibição no final
 
-        function getValorTaxaSeAtiva(inputId) {
-            const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + inputId + '"]');
-            if ($checkbox.length > 0 && $checkbox.is(':checked')) {
-                return unformatCurrency($('#' + inputId).val());
-            }
-            return 0;
-        }
-
-        var taxaDomingo = getValorTaxaSeAtiva('taxa_domingo_feriado');
-        var taxaMadrugada = getValorTaxaSeAtiva('taxa_madrugada');
-        var taxaHorarioEspecial = getValorTaxaSeAtiva('taxa_horario_especial');
-        var taxaHoraMarcada = getValorTaxaSeAtiva('taxa_hora_marcada');
-        var freteTerreo = getValorTaxaSeAtiva('frete_terreo');
-        var freteElevador = getValorTaxaSeAtiva('frete_elevador');
-        var freteEscadas = getValorTaxaSeAtiva('frete_escadas');
-        var descontoTotalGeral = getValorTaxaSeAtiva('desconto_total');
-
-        var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
-
-        if (subtotalGeralItens === 0 && valorFinalCalculado === 0) {
-            $('#subtotal_geral_itens').text('A confirmar');
-            $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
-        } else {
-            $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
-            $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
-        }
-    }
-
-    // ✅ VALIDAÇÃO DE ESTOQUE NO EDIT
-    function verificarEstoqueAntes(produto) {
-        adicionarLinhaItemTabela(produto, 'PRODUTO');
-        $('#busca_produto').val('').focus();
-        $('#sugestoes_produtos').empty().hide();
-    }
-
-    function validarEstoqueQuantidade($row) {
-        var quantidadeAtual = parseInt($row.find('.item-qtd').val(), 10) || 0;
-
-        if (quantidadeAtual < 0) {
-            $row.find('.item-qtd').val(0);
-            quantidadeAtual = 0;
-        }
-
-        // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
-        // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura e colchões.
-        revalidarTodasAsLinhasDisponibilidade($row);
-        $row.find('.item-qtd').data('valor-original', quantidadeAtual);
-    }
-
-    // Event Listeners
-    $('#busca_produto, #busca_categoria_produto').on('keyup change', carregarSugestoesProdutos);
-    
-    $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) { 
-        e.preventDefault(); 
-        if ($(e.target).closest('.foto-produto-sugestao').length > 0) { 
-            var fotoUrl = $(this).data('foto-completa'); 
-            if (fotoUrl) { 
-                Swal.fire({ 
-                    title: $(this).data('nome'), 
-                    imageUrl: fotoUrl, 
-                    imageAlt: 'Foto', 
-                    imageWidth: '90%', 
-                    confirmButtonText: 'Fechar' 
-                }); 
-            } 
-            return; 
-        } 
-        var produtoId = $(this).data('id'); 
-        var produtoJaExiste = false; 
-        $('#tabela_itens_orcamento .produto_id').each(function() { 
-            if ($(this).val() == produtoId) { 
-                produtoJaExiste = true; 
-                return false; 
-            } 
-        }); 
-        const adicionarItem = () => { 
-            var produto = { 
-                id: produtoId, 
-                nome_produto: $(this).data('nome'), 
-                preco_locacao: $(this).data('preco'), 
-                foto_path_completo: $(this).data('foto-completa') 
-            }; 
-
-            if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
-                substituirProdutoNaLinha(linhaSelecionadaParaTrocaProduto, produto);
-                limparSelecaoTrocaProduto();
-                $('#busca_produto').val('').focus();
-                $('#sugestoes_produtos').empty().hide();
-                return;
-            }
-
-            verificarEstoqueAntes(produto); 
-        }; 
-        if (produtoJaExiste && !(linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length)) { 
-            Swal.fire({ 
-                title: 'Produto Repetido', 
-                text: "Deseja adicionar este item novamente?", 
-                icon: 'question', 
-                showCancelButton: true, 
-                confirmButtonText: 'Sim', 
-                cancelButtonText: 'Não' 
-            }).then((result) => { 
-                if (result.isConfirmed) { 
-                    adicionarItem(); 
-                } 
-            }); 
-        } else { 
-            adicionarItem(); 
-        } 
+function calcularTotaisOrcamento() {
+    var subtotalGeralItens = 0;
+    $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+        subtotalGeralItens += calcularSubtotalItem($(this));
     });
 
-    $('#btn_adicionar_titulo_secao').click(function() { adicionarLinhaItemTabela(null, 'CABECALHO_SECAO'); });
-    $('#btn_adicionar_item_manual').click(function() { adicionarLinhaItemTabela(null, 'PRODUTO'); });
-    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
-        const $row = $(this).closest('tr');
-        if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto[0] === $row[0]) {
-            limparSelecaoTrocaProduto();
+    var descontoTotalGeral = unformatCurrency($('#desconto_total').val());
+    var taxaDomingo = unformatCurrency($('#taxa_domingo_feriado').val());
+    var taxaMadrugada = unformatCurrency($('#taxa_madrugada').val());
+    var taxaHorarioEspecial = unformatCurrency($('#taxa_horario_especial').val());
+    var taxaHoraMarcada = unformatCurrency($('#taxa_hora_marcada').val());
+    var freteTerreo = unformatCurrency($('#frete_terreo').val());
+    var freteElevador = unformatCurrency($('#frete_elevador').val());
+    var freteEscadas = unformatCurrency($('#frete_escadas').val());
+
+    var valorFinalCalculado = subtotalGeralItens - descontoTotalGeral + taxaDomingo + taxaMadrugada + taxaHorarioEspecial + taxaHoraMarcada + freteTerreo + freteElevador + freteEscadas;
+
+    // Lógica de exibição que controla o "a confirmar"
+    if (subtotalGeralItens === 0 && valorFinalCalculado === 0 && !$('#ajuste_manual_valor_final').is(':checked')) {
+        $('#subtotal_geral_itens').text('A confirmar');
+        $('#valor_final_display').val('').attr('placeholder', 'A confirmar');
+    } else {
+        $('#subtotal_geral_itens').text(formatCurrency(subtotalGeralItens));
+        $('#valor_final_display').val(formatCurrency(valorFinalCalculado));
+    }
+}
+    
+    // =========================================================================
+    // >>>>> CÓDIGO RESTAURADO AQUI <<<<<
+    // Este é o bloco que conecta os botões da seção de itens às suas funções.
+    // =========================================================================
+    
+    // --- EVENTOS PARA SEÇÃO DE ITENS ---
+    $('#busca_produto, #busca_categoria_produto').on('keyup change', carregarSugestoesProdutos);
+
+// AJUSTE GERAL: LÓGICA DE CLIQUE INTELIGENTE (ZOOM vs ADICIONAR) E CONFIRMAÇÃO DE DUPLICADOS
+$('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
+    e.preventDefault();
+
+    // --- Parte 1: Lógica do Zoom Inteligente ---
+    // Verifica se o elemento clicado foi a imagem ou um ícone dentro dela.
+    if ($(e.target).closest('.foto-produto-sugestao').length > 0) {
+        var fotoUrl = $(this).data('foto-completa');
+        var nomeProduto = $(this).data('nome');
+        
+        if (fotoUrl) {
+            abrirFotoProduto(fotoUrl, nomeProduto);
         }
-        $row.remove();
+        // IMPORTANTE: Encerra a função aqui para não adicionar o item.
+        // A lista de sugestões permanecerá visível.
+        return; 
+    }
+
+    // --- Parte 2: Lógica de Adicionar o Item (com confirmação de duplicidade) ---
+    var produtoId = $(this).data('id');
+    var produtoJaExiste = false;
+    $('#tabela_itens_orcamento .produto_id').each(function() {
+        if ($(this).val() == produtoId) {
+            produtoJaExiste = true;
+            return false; // Interrompe o loop
+        }
+    });
+
+    // Função para adicionar o item, será chamada diretamente ou após confirmação
+   const adicionarItem = () => {
+    var produto = {
+        id: produtoId,
+        nome_produto: $(this).data('nome'),
+        preco_locacao: $(this).data('preco'),
+        foto_path_completo: $(this).data('foto-completa'),
+        eh_conjunto: parseInt($(this).data('eh-conjunto') || 0, 10),
+        categoria_id: parseInt($(this).data('categoria-id') || 0, 10) || null,
+        subcategoria_id: parseInt($(this).data('subcategoria-id') || 0, 10) || null
+    };
+    
+    if (linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length) {
+        const trocaOk = substituirProdutoNaLinha(linhaSelecionadaParaTrocaProduto, produto);
+        if (trocaOk) {
+            limparSelecaoTrocaProduto();
+            atualizarListaProdutosAposSelecao();
+        }
+        return;
+    }
+
+    // Se for conjunto, cria linha pai e ativa modo de montagem.
+    if (produto.eh_conjunto === 1) {
+        adicionarConjuntoAoOrcamento(produto);
+        return;
+    }
+
+    // Se existe conjunto ativo, o produto selecionado entra como item interno do conjunto.
+    if (conjuntoAtivoIndex !== null) {
+        adicionarItemAoConjuntoAtivo(produto);
+        return;
+    }
+
+    // Fluxo normal de produto avulso.
+    verificarEstoqueAntes(produto);
+};
+
+    if (produtoJaExiste && !(linhaSelecionadaParaTrocaProduto && linhaSelecionadaParaTrocaProduto.length)) {
+        // Se o produto já existe, PERGUNTA ao invés de bloquear
+        Swal.fire({
+            title: 'Produto Repetido',
+            text: "Este item já foi adicionado. Deseja adicioná-lo novamente em outra linha?",
+            icon: 'question', // Ícone de pergunta
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Sim, adicionar!',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Se o usuário confirmar, adiciona o item
+                adicionarItem();
+            }
+        });
+    } else {
+        // Se não existe, adiciona diretamente
+        adicionarItem();
+    }
+});
+
+
+
+    $('#busca_categoria_produto').on('click focus', function() {
+        if ($(this).val()) {
+            setTimeout(carregarSugestoesProdutos, 60);
+        }
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.foto-produto-linha', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        abrirFotoProduto($(this).data('foto-completa'), $(this).data('nome-produto'));
+    });
+
+    function selecionarGrupoConjunto($guia, abrirSugestoes = true) {
+        const conjuntoIndex = parseInt($guia.data('conjunto-pai-index') || 0, 10) || 0;
+        const categoriaId = $guia.data('categoria-id') || '';
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+
+        if ($rowConjunto.length) {
+            ativarMontagemConjunto($rowConjunto, false);
+        }
+
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia').removeClass('table-active');
+        $guia.addClass('table-active');
+
+        if (categoriaId) {
+            $('#busca_categoria_produto').val(String(categoriaId));
+        }
+
+        $('#busca_produto').val('').focus();
+
+        if (abrirSugestoes) {
+            carregarSugestoesProdutos();
+        }
+    }
+
+    $('#tabela_itens_orcamento').on('click', 'tr.conjunto-grupo-guia', function(e) {
+        e.preventDefault();
+        selecionarGrupoConjunto($(this), true);
+    });
+
+    $(document).on('click', function(e) {
+        if ($(e.target).closest('#sugestoes_produtos, #busca_produto, #busca_categoria_produto, .conjunto-grupo-guia').length === 0) {
+            $('#sugestoes_produtos').empty().hide();
+        }
+    });
+
+    $('#btn_adicionar_titulo_secao').click(function() {
+        adicionarLinhaItemTabela(null, 'CABECALHO_SECAO');
+    });
+
+    $('#btn_adicionar_item_manual').click(function() {
+        adicionarLinhaItemTabela(null, 'PRODUTO');
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
+        var $rowRemovida = $(this).closest('tr');
+        if (($rowRemovida.data('tipo-linha') || '') === 'CONJUNTO' && parseInt($rowRemovida.data('index'), 10) === conjuntoAtivoIndex) {
+            encerrarMontagemConjunto();
+        }
+        const conjuntoPaiIndexRemovido = $rowRemovida.data('conjunto-pai-index') || null;
+        $rowRemovida.remove();
+        if (conjuntoPaiIndexRemovido) {
+            atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoPaiIndexRemovido));
+        }
         atualizarOrdemDosItens();
         calcularTotaisOrcamento();
         revalidarTodasAsLinhasDisponibilidade();
     });
+
     $('#tabela_itens_orcamento').on('click', '.btn_trocar_produto', function() {
-        const $row = $(this).closest('tr');
-        if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+        selecionarLinhaParaTrocaProduto($(this).closest('tr'));
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() {
+        var $row = $(this).closest('tr');
+        $row.find('.observacoes_item_label, .observacoes_item_input').toggle();
+        if ($row.find('.observacoes_item_input').is(':visible')) {
+            $row.find('.observacoes_item_input').focus();
+        }
+    });
+
+    $('#tabela_itens_orcamento').on('click', '.btn_montar_conjunto', function() {
+        const $rowConjunto = $(this).closest('tr');
+        const produtoId = parseInt($rowConjunto.find('.produto_id').val(), 10) || 0;
+
+        if (!$rowConjunto.data('regras-conjunto') || !($rowConjunto.data('regras-conjunto') || []).length) {
+            carregarRegrasConjunto(produtoId, $rowConjunto, function() {
+                ativarMontagemConjunto($rowConjunto, true);
+                // Igual ao create: mostra as guias e aguarda o clique do usuário.
+            });
             return;
         }
-        selecionarLinhaParaTrocaProduto($row);
-    });
-        $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() { 
-        var $row = $(this).closest('tr'); 
-        $row.find('.observacoes_item_label, .observacoes_item_input').toggle(); 
-        if ($row.find('.observacoes_item_input').is(':visible')) { 
-            $row.find('.observacoes_item_input').focus(); 
-        } 
+
+        ativarMontagemConjunto($rowConjunto, true);
+        // Igual ao create: mostra as guias e aguarda o clique do usuário.
     });
 
-    // ✅ EVENTO: Validar quando quantidade muda
-    $('#tabela_itens_orcamento').on('input keyup change blur', '.item-qtd', function(e) {
-        var $input = $(this);
-        var $row = $input.closest('tr');
-
-        clearTimeout($input.data('validacao-timeout'));
-
-        $input.data('validacao-timeout', setTimeout(function() {
-            validarEstoqueQuantidade($row);
-        }, 800));
+    $('#tabela_itens_orcamento').on('click', '.btn_encerrar_conjunto', function() {
+        if (!encerrarMontagemConjunto()) {
+            return;
+        }
+        Swal.fire({
+            title: 'Montagem encerrada',
+            text: 'Os próximos produtos selecionados entrarão como itens normais do orçamento.',
+            icon: 'success',
+            timer: 1400,
+            showConfirmButton: false
+        });
     });
+
 
     $('#tabela_itens_orcamento').on('click', '.disponibilidade-contexto', function() {
         var $row = $(this).closest('tr');
-        var response = $row.data('disponibilidade-response') || null;
-        var nomeProduto = $row.find('.nome_produto_display').val() || '';
+        var response = $row.data('disponibilidade-response');
+        var nomeProduto = $row.find('.nome_produto_display').val() || 'Produto';
         if (response) {
             atualizarPainelConsultaDisponibilidade(nomeProduto, response);
+            $('html, body').animate({ scrollTop: $('#painel_consulta_disponibilidade').offset().top - 90 }, 200);
         }
     });
 
-    $('.btn-fechar-painel-disponibilidade').on('click', function() {
+    $(document).on('click', '.btn-fechar-painel-disponibilidade', function() {
         $('#painel_consulta_disponibilidade').hide();
     });
+    // =========================================================================
+    // >>>>> FIM DO CÓDIGO RESTAURADO <<<<<
+    // =========================================================================
 
-    $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
-        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').removeData('alerta-indisponivel-chave');
-        revalidarTodasAsLinhasDisponibilidade();
-    });
-
-    // === CONFIGURAÇÃO DOS CAMPOS DE TAXAS E FRETES ===
-    const campoIdsTaxasFretes = [
-        'taxa_domingo_feriado', 'taxa_madrugada', 'taxa_horario_especial',
-        'taxa_hora_marcada', 'frete_terreo', 'frete_elevador', 'frete_escadas'
-    ];
-
-    function getAssociatedButton($campo) {
-        return $campo.closest('.input-group').find('.btn-usar-padrao');
+function carregarRegrasConjunto(produtoId, $rowConjunto, callback) {
+    if (!$rowConjunto || !$rowConjunto.length || !produtoId) {
+        if (typeof callback === 'function') { callback([]); }
+        return;
     }
 
-    function atualizarEstadoVarinha($campo) {
-        const $button = getAssociatedButton($campo);
-        if (!$button.length) return;
+    $.ajax({
+        url: `edit.php?id=${ORCAMENTO_ID}`,
+        type: 'GET',
+        dataType: 'json',
+        data: {
+            ajax: 'buscar_grupos_conjunto',
+            produto_id: produtoId
+        },
+        success: function(grupos) {
+            if (!Array.isArray(grupos)) { grupos = []; }
 
-        const usandoPadrao = $campo.data('usandoPadrao') === 'true';
-        
-        if (usandoPadrao) {
-            $button.removeClass('btn-outline-secondary').addClass('btn-primary');
-            $button.attr('title', 'Clique para voltar ao valor anterior/digitado');
-        } else {
-            $button.removeClass('btn-primary').addClass('btn-outline-secondary');
-            $button.attr('title', 'Clique para usar valor padrão');
-        }
-    }
-
-    function alternarValor($campo) {
-        let usandoPadrao = $campo.data('usandoPadrao') === 'true';
-        let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao'));
-
-        if (usandoPadrao) {
-            let valorOriginalArmazenado = $campo.data('valorOriginal');
-            $campo.val(formatCurrency(valorOriginalArmazenado));
-            $campo.data('usandoPadrao', 'false');
-        } else {
-            $campo.data('valorOriginal', unformatCurrency($campo.val()));
-            $campo.val(formatCurrency(valorPadraoNumerico));
-            $campo.data('usandoPadrao', 'true');
-        }
-        atualizarEstadoVarinha($campo);
-        calcularTotaisOrcamento();
-    }
-
-    function toggleCampo($campo, $checkbox) {
-        if ($checkbox.is(':checked')) {
-            $campo.prop('disabled', false);
-
-            let valorOriginalArmazenado = $campo.data('valorOriginal');
-            let valorPadraoNumerico = unformatCurrency($campo.data('valor-padrao'));
-            
-            if (valorOriginalArmazenado > 0 && valorOriginalArmazenado !== valorPadraoNumerico) {
-                $campo.val(formatCurrency(valorOriginalArmazenado));
-                $campo.data('usandoPadrao', 'false');
-            } else if (valorPadraoNumerico > 0) {
-                $campo.val(formatCurrency(valorPadraoNumerico));
-                $campo.data('usandoPadrao', 'true');
-            } else {
-                $campo.val(formatCurrency(0));
-                $campo.data('usandoPadrao', 'false');
-            }
-            $campo.focus();
-        } else {
-            const currentValNum = unformatCurrency($campo.val());
-            const valorPadraoNum = unformatCurrency($campo.data('valor-padrao'));
-
-            if (currentValNum > 0 && $campo.data('usandoPadrao') === 'false' && currentValNum !== valorPadraoNum) {
-                 $campo.data('valorOriginal', currentValNum);
-            }
-            
-            $campo.prop('disabled', true);
-            $campo.val(formatCurrency(0));
-            $campo.data('usandoPadrao', 'false');
-        }
-        atualizarEstadoVarinha($campo);
-        calcularTotaisOrcamento();
-    }
-
-    // Inicialização dos campos de taxa/frete
-    campoIdsTaxasFretes.forEach(function(campoId) {
-        const $campo = $('#' + campoId);
-        const $checkbox = $('.taxa-frete-checkbox[data-target-input="' + campoId + '"]'); 
-
-        if ($campo.length) {
-            const initialValFromHTML = unformatCurrency($campo.val());
-            $campo.data('valorOriginal', initialValFromHTML); 
-            $campo.val(formatCurrency(initialValFromHTML));
-
-            $campo.off('input').on('input', function() {
-                $campo.data('usandoPadrao', 'false');
-                atualizarEstadoVarinha($campo);
-            }).off('blur').on('blur', function() {
-                $campo.val(formatCurrency(unformatCurrency($campo.val())));
-                calcularTotaisOrcamento(); 
+            grupos = grupos.map(function(grupo) {
+                grupo.categoria_id = parseInt(grupo.categoria_id || 0, 10) || 0;
+                grupo.subcategoria_id = parseInt(grupo.subcategoria_id || 0, 10) || 0;
+                grupo.quantidade_por_conjunto = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+                return grupo;
             });
-        }
 
-        const $button = getAssociatedButton($campo);
-        if ($button.length) {
-            $button.off('click').on('click', function() {
-                const targetInputId = $(this).data('target-input');
-                const $targetCampo = $('#' + targetInputId);
-                const targetCheckboxId = $(this).data('target-checkbox');
-                const $targetCheckbox = $('#' + targetCheckboxId);
-                
-                if ($targetCampo.prop('disabled')) {
-                    $targetCheckbox.prop('checked', true);
-                    $targetCheckbox.trigger('change');
-                } else {
-                    alternarValor($targetCampo);
-                }
-            });
-        }
+            $rowConjunto.data('regras-conjunto', grupos);
+            $rowConjunto.attr('data-regras-carregadas', '1');
 
-        if ($checkbox.length) {
-            $checkbox.off('change').on('change', function() {
-                toggleCampo($campo, $checkbox);
-            });
-            toggleCampo($campo, $checkbox);
-        }
-        
-        atualizarEstadoVarinha($campo);
-    });
+            $rowConjunto.find('.regras-conjunto-resumo').remove();
 
-    // === Lógica para Ajuste Manual do Valor Final ===
-    $('#ajuste_manual_valor_final').on('change', function() {
-        const $motivoAjusteCampo = $('#campo_motivo_ajuste');
-        const $descontoGeralCheckbox = $('#aplicar_desconto_geral');
-        const $descontoGeralInput = $('#desconto_total');
-
-        if ($(this).is(':checked')) {
-            $motivoAjusteCampo.show();
-            $descontoGeralCheckbox.prop('checked', true);
-            $descontoGeralInput.prop('disabled', false);
-            
-            if (unformatCurrency($descontoGeralInput.val()) === 0) {
-                $descontoGeralInput.val(formatCurrency(0));
-            }
-            $descontoGeralInput.focus();
-        } else {
-            $motivoAjusteCampo.hide();
-            $descontoGeralCheckbox.prop('checked', false);
-            $descontoGeralInput.prop('disabled', true);
-            $descontoGeralInput.val(formatCurrency(0));
-        }
-        calcularTotaisOrcamento();
-    }).trigger('change');
-
-    // === Lógica para Desconto Geral ===
-    $('#aplicar_desconto_geral').off('change').on('change', function() {
-        const $descontoInput = $('#desconto_total');
-        if ($(this).is(':checked')) {
-            $descontoInput.prop('disabled', false);
-            if (unformatCurrency($descontoInput.val()) === 0) {
-                 $descontoInput.val(formatCurrency(0)); 
-            }
-            $descontoInput.focus();
-        } else {
-            $descontoInput.prop('disabled', true);
-            $descontoInput.val(formatCurrency(0));
-        }
-        calcularTotaisOrcamento();
-    });
-
-    $('#desconto_total').off('blur').on('blur', function() {
-        $(this).val(formatCurrency(unformatCurrency($(this).val())));
-        calcularTotaisOrcamento();
-    }).off('input').on('input', function() {
-        calcularTotaisOrcamento();
-    });
-
-    const $descontoInput = $('#desconto_total');
-    if ($('#aplicar_desconto_geral').is(':checked')) {
-        $descontoInput.prop('disabled', false);
-    } else {
-        $descontoInput.prop('disabled', true);
-        $descontoInput.val(formatCurrency(0));
-    }
-    $descontoInput.val(formatCurrency(unformatCurrency($descontoInput.val())));
-
-    $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item', calcularTotaisOrcamento);
-
-    // === INICIALIZAÇÕES GERAIS ===
-    if (typeof $.fn.select2 === 'function') { 
-        $('#cliente_id').select2({ 
-            theme: 'bootstrap4', 
-            language: 'pt-BR', 
-            placeholder: 'Digite para buscar...', 
-            allowClear: true, 
-            minimumInputLength: 0, 
-            ajax: { 
-                url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`, 
-                dataType: 'json', 
-                delay: 250, 
-                data: function (params) { 
-                    return { termo: params.term || '' }; 
-                }, 
-                processResults: function (data) { 
-                    return { 
-                        results: $.map(data, function (cliente) { 
-                            return { 
-                                id: cliente.id, 
-                                text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), 
-                                clienteData: cliente 
-                            }; 
-                        }) 
-                    }; 
-                }, 
-                cache: true 
-            } 
-        }).on('select2:select', function (e) { 
-            dadosClienteAtual = e.params.data.clienteData; 
-            $(this).find('option:selected').attr('data-cliente-full-data', JSON.stringify(dadosClienteAtual)); 
-        }); 
-    }
-
-    if (typeof $.fn.datepicker === 'function') { 
-        $('.datepicker').datepicker({ 
-            format: 'dd/mm/yyyy', 
-            language: 'pt-BR', 
-            autoclose: true, 
-            todayHighlight: true, 
-            orientation: "bottom auto" 
-        }); 
-    }
-
-    function calcularDataValidade() { 
-        var dataOrcamentoStr = $('#data_orcamento').val(); 
-        var validadeDias = parseInt($('#validade_dias').val()); 
-        if (dataOrcamentoStr && validadeDias > 0) { 
-            var partesData = dataOrcamentoStr.split('/'); 
-            if (partesData.length === 3) { 
-                var dataOrcamento = new Date(partesData[2], partesData[1] - 1, partesData[0]); 
-                if (!isNaN(dataOrcamento.valueOf())) { 
-                    dataOrcamento.setDate(dataOrcamento.getDate() + validadeDias); 
-                    var dia = String(dataOrcamento.getDate()).padStart(2, '0'); 
-                    var mes = String(dataOrcamento.getMonth() + 1).padStart(2, '0'); 
-                    var ano = dataOrcamento.getFullYear(); 
-                    $('#data_validade_display').text('Validade: ' + dia + '/' + mes + '/' + ano); 
-                    $('#data_validade_calculada_hidden').val(ano + '-' + mes + '-' + dia); 
-                } 
-            } 
-        } else { 
-            $('#data_validade_display').text(''); 
-            $('#data_validade_calculada_hidden').val(''); 
-        } 
-    }
-
-    $('#validade_dias').on('change keyup blur', calcularDataValidade);
-
-    const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO']; 
-    function exibirDiaSemana(inputId, displayId) { 
-        var dataStr = $(inputId).val(); 
-        if(dataStr) { 
-            var partes = dataStr.split('/'); 
-            if (partes.length === 3) { 
-                var dataObj = new Date(partes[2], partes[1] - 1, partes[0]); 
-                if (!isNaN(dataObj.valueOf())) { 
-                    var diaSemana = diasDaSemana[dataObj.getDay()]; 
-                    $(displayId).text(diaSemana).addClass('font-weight-bold').removeClass('text-danger text-success').addClass(dataObj.getDay() === 0 || dataObj.getDay() === 6 ? 'text-danger' : 'text-success'); 
-                } 
-            } 
-        } 
-    }
-
-    $('#data_evento, #data_entrega, #data_devolucao_prevista').on('change dp.change', function() { 
-        exibirDiaSemana('#' + $(this).attr('id'), '#' + $(this).attr('id').replace('data_', 'dia_semana_')); 
-    }).trigger('change');
-    
-    $('#btnUsarEnderecoCliente').on('click', function() {
-        if (!dadosClienteAtual) { carregarDadosClienteAtual(); }
-        if (!dadosClienteAtual) { toastr.warning('Não foi possível obter os dados do cliente selecionado.'); return; }
-        let enderecoCliente = (dadosClienteAtual.endereco || '').trim();
-        if (dadosClienteAtual.cidade) { enderecoCliente += (enderecoCliente ? ', ' : '') + dadosClienteAtual.cidade.trim(); }
-        if (enderecoCliente === '') { toastr.info('O cliente selecionado não possui um endereço em seu cadastro.'); return; }
-        const $localEventoInput = $('#local_evento');
-        const localEventoAtual = $localEventoInput.val().trim();
-        if (localEventoAtual === enderecoCliente) {
-            $localEventoInput.val(localEventoOriginal);
-        } else {
-            $localEventoInput.val(enderecoCliente);
-        }
-    });
-
-    revalidarTodasAsLinhasDisponibilidade();
-
-    function validarItensQuantidadeZeroEdit() {
-        let mensagemErro = '';
-        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
-            const $row = $(this);
-            if (($row.data('tipo-linha') || '') === 'CABECALHO_SECAO') {
+            if (!grupos.length) {
+                $rowConjunto.find('td:first small.text-primary').after(`<small class="form-text text-warning regras-conjunto-resumo">Este conjunto não possui grupos cadastrados.</small>`);
+                if (typeof callback === 'function') { callback(grupos); }
                 return;
             }
 
-            const produtoId = String($row.find('.produto_id').val() || '').trim();
-            const nomeProduto = String($row.find('.nome_produto_display').val() || '').trim();
-            const quantidade = parseInt($row.find('.item-qtd').val() || '0', 10);
+            let resumo = grupos.map(function(grupo) {
+                let qtd = parseFloat(grupo.quantidade_por_conjunto || 0);
+                let origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
+                return `${escapeHtml(grupo.nome_grupo || 'Grupo')}: ${qtd} por conjunto (${escapeHtml(origem)})`;
+            }).join('<br>');
 
-            const linhaTemProduto = produtoId !== '' || nomeProduto !== '';
+            $rowConjunto.find('td:first small.text-primary').after(`<small class="form-text text-muted regras-conjunto-resumo">${resumo}</small>`);
+            inserirLinhasGuiaConjunto($rowConjunto, grupos);
 
-            if (linhaTemProduto && quantidade <= 0) {
-                mensagemErro = 'Há produto cadastrado com quantidade zero. Ajuste a quantidade ou remova a linha antes de salvar.';
-                return false;
-            }
-        });
-
-        if (mensagemErro) {
             if (typeof toastr !== 'undefined') {
-                toastr.error(mensagemErro);
-            } else {
-                alert(mensagemErro);
+                toastr.info('Clique em uma guia do conjunto, como Bistrô ou Pufes, para listar os produtos compatíveis.');
             }
-            return false;
-        }
 
+            if (typeof callback === 'function') { callback(grupos); }
+        },
+        error: function(xhr) {
+            console.error('Erro ao buscar grupos do conjunto:', xhr.responseText || xhr.statusText);
+            if (typeof toastr !== 'undefined') {
+                toastr.error('Não foi possível carregar os grupos deste conjunto.');
+            }
+            if (typeof callback === 'function') { callback([]); }
+        }
+    });
+}
+
+
+function obterLinhaConjuntoPorIndex(conjuntoIndex) {
+    return $('#tabela_itens_orcamento tbody tr.item-conjunto-row').filter(function() {
+        return parseInt($(this).data('index'), 10) === parseInt(conjuntoIndex, 10);
+    }).first();
+}
+
+function regraConjuntoCasaComItem(regra, $rowItem) {
+    const categoriaItem = parseInt($rowItem.data('categoria-id') || 0, 10) || 0;
+    const subcategoriaItem = parseInt($rowItem.data('subcategoria-id') || 0, 10) || 0;
+    const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
+    const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
+
+    if (regraSubcategoria > 0) {
+        return subcategoriaItem === regraSubcategoria;
+    }
+    if (regraCategoria > 0) {
+        return categoriaItem === regraCategoria;
+    }
+    return false;
+}
+
+function obterRegraDoItemConjunto($rowItem) {
+    const conjuntoIndex = parseInt($rowItem.data('conjunto-pai-index') || 0, 10) || 0;
+    if (conjuntoIndex <= 0) { return null; }
+
+    const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+    if (!$rowConjunto.length) { return null; }
+
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    for (let i = 0; i < regras.length; i++) {
+        if (regraConjuntoCasaComItem(regras[i], $rowItem)) {
+            return { regra: regras[i], $rowConjunto: $rowConjunto };
+        }
+    }
+
+    return null;
+}
+
+function somarItensDoGrupoConjunto($rowConjunto, regra, $rowIgnorar = null) {
+    const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+    let total = 0;
+
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+        const $row = $(this);
+        if (parseInt($row.data('conjunto-pai-index') || 0, 10) !== conjuntoIndex) {
+            return;
+        }
+        if ($rowIgnorar && $rowIgnorar.length && this === $rowIgnorar[0]) {
+            return;
+        }
+        if (!regraConjuntoCasaComItem(regra, $row)) {
+            return;
+        }
+        total += parseInt($row.find('.quantidade_item').val(), 10) || 0;
+    });
+
+    return total;
+}
+
+function validarLimiteItemConjunto($rowItem, mostrarAlerta = true) {
+    if (($rowItem.data('tipo-linha') || '') !== 'ITEM_CONJUNTO') {
         return true;
     }
 
-    $('#formEditarOrcamento').on('submit', function(e) {
-        atualizarOrdemDosItens();
+    const info = obterRegraDoItemConjunto($rowItem);
+    if (!info) {
+        return true;
+    }
 
-        if (!validarItensQuantidadeZeroEdit()) {
-            e.preventDefault();
-            return false;
+    const qtdConjunto = parseInt(info.$rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const limiteGrupo = qtdConjunto * (parseFloat(info.regra.quantidade_por_conjunto || 0) || 0);
+    const jaUsado = somarItensDoGrupoConjunto(info.$rowConjunto, info.regra, $rowItem);
+    const maxLinha = Math.max(0, Math.floor(limiteGrupo - jaUsado));
+    let qtdLinha = parseInt($rowItem.find('.quantidade_item').val(), 10) || 0;
+
+    if (qtdLinha > maxLinha) {
+        $rowItem.find('.quantidade_item').val(maxLinha);
+        qtdLinha = maxLinha;
+        calcularTotaisOrcamento();
+
+        if (mostrarAlerta) {
+            Swal.fire({
+                title: 'Limite do conjunto',
+                html: 'Este conjunto permite no máximo <strong>' + limiteGrupo + '</strong> item(ns) no grupo <strong>' + escapeHtml(info.regra.nome_grupo || 'Grupo') + '</strong>.<br>Esta linha foi ajustada para <strong>' + maxLinha + '</strong>.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+        }
+        return false;
+    }
+
+    return true;
+}
+
+function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
+    if (!$rowConjunto || !$rowConjunto.length) { return true; }
+
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    if (!regras.length) { return true; }
+
+    const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+    const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const problemas = [];
+
+    // 1) Nenhum item interno pode ficar com quantidade zero.
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+        const $item = $(this);
+        if (parseInt($item.data('conjunto-pai-index') || 0, 10) !== conjuntoIndex) {
+            return;
+        }
+
+        const nomeItem = $item.find('.nome_produto_display').val() || 'Item do conjunto';
+        const qtdItem = parseInt($item.find('.quantidade_item').val(), 10) || 0;
+
+        if (qtdItem <= 0) {
+            problemas.push({
+                grupo: 'Quantidade obrigatória',
+                esperado: 'maior que zero',
+                atual: '0 em ' + nomeItem
+            });
+            return;
+        }
+
+        // 2) Item interno precisa pertencer a algum grupo configurado do conjunto.
+        let casaComAlgumaRegra = false;
+        for (let i = 0; i < regras.length; i++) {
+            if (regraConjuntoCasaComItem(regras[i], $item)) {
+                casaComAlgumaRegra = true;
+                break;
+            }
+        }
+
+        if (!casaComAlgumaRegra) {
+            problemas.push({
+                grupo: 'Produto fora das regras do conjunto',
+                esperado: 'categoria/subcategoria permitida',
+                atual: nomeItem
+            });
         }
     });
 
-    $('#formEditarOrcamento').on('keydown', function(e) { 
-        if (e.keyCode === 13 && !$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) { 
-            e.preventDefault(); 
-        } 
+    // 3) Cada grupo precisa fechar exatamente a quantidade esperada.
+    regras.forEach(function(regra) {
+        const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
+        const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
+        if (atual !== esperado) {
+            problemas.push({
+                grupo: regra.nome_grupo || 'Grupo',
+                esperado: esperado,
+                atual: atual
+            });
+        }
     });
 
-    function atualizarOrdemDosItens() { 
-        $('#tabela_itens_orcamento tbody tr').each(function(index) { 
-            $(this).attr('data-index', index + 1); 
-            $(this).find('input[name="ordem[]"]').val(index + 1); 
-        }); 
+    if (problemas.length) {
+        if (mostrarAlerta) {
+            const linhas = problemas.map(function(p) {
+                return '<li><strong>' + escapeHtml(p.grupo) + '</strong>: precisa ' + escapeHtml(String(p.esperado)) + ', lançado ' + escapeHtml(String(p.atual)) + '</li>';
+            }).join('');
+
+            Swal.fire({
+                title: 'Conjunto incompleto ou inválido',
+                html: '<p>Antes de encerrar a montagem, ajuste os itens internos do conjunto.</p><ul class="text-left">' + linhas + '</ul>',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+        }
+        return false;
     }
 
-    $('#tabela_itens_orcamento tbody').sortable({ 
-        handle: '.drag-handle', 
-        placeholder: 'sortable-placeholder', 
-        helper: function(e, ui) { 
-            ui.children().each(function() { 
-                $(this).width($(this).width()); 
-            }); 
-            return ui; 
-        }, 
-        stop: function(event, ui) { 
-            atualizarOrdemDosItens(); 
-        } 
-    }).disableSelection();
-    
-    calcularTotaisOrcamento();
-    
-    $('#tabela_itens_orcamento .item-qtd').each(function() {
-        var valorOriginal = $(this).val();
-        $(this).data('valor-original', valorOriginal);
+    return true;
+}
+
+function validarTodosConjuntosAntesSalvar(mostrarAlerta = true) {
+    let ok = true;
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').each(function() {
+        if (!validarFechamentoConjunto($(this), mostrarAlerta)) {
+            ok = false;
+            return false;
+        }
     });
+    return ok;
+}
 
-    // --- Lógica para o botão "Converter para Pedido" ---
-    $('#btnConverterPedido').on('click', function(e) {
-        e.preventDefault();
-        const orcamentoIdParaConverter = $(this).data('orcamento-id');
+function ativarMontagemConjunto($rowConjunto, mostrarMensagem = true) {
+    conjuntoAtivoIndex = parseInt($rowConjunto.data('index'), 10) || null;
+    conjuntoAtivoNome = $rowConjunto.find('.nome_produto_display').val() || 'Conjunto';
 
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').removeClass('table-primary');
+    $rowConjunto.addClass('table-primary');
+
+    const conjuntoIndex = parseInt($rowConjunto.data('index'), 10) || 0;
+    const produtoConjuntoId = parseInt($rowConjunto.find('.produto_id').val(), 10) || 0;
+    const temGuias = $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').length > 0;
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+
+    if ((!temGuias || !regras.length) && produtoConjuntoId > 0) {
+        carregarRegrasConjunto(produtoConjuntoId, $rowConjunto);
+    }
+
+    if (mostrarMensagem) {
         Swal.fire({
-            title: 'Confirmar Conversão?',
-            text: "Deseja realmente converter este Orçamento em um Pedido? Esta ação marcará o Orçamento como 'Convertido'.",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonColor: '#28a745',
-            cancelButtonColor: '#dc3545',
-            confirmButtonText: 'Sim, converter!',
-            cancelButtonText: 'Não, cancelar'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                $('#btnConverterPedido').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Convertendo...');
-                
-                $.ajax({
-                    url: `${BASE_URL}/views/orcamentos/converter_pedido.php`,
-                    type: 'POST',
-                    dataType: 'json',
-                    data: { orcamento_id: orcamentoIdParaConverter },
-                    success: function(response) {
-                        if (response.success) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Sucesso!',
-                                text: response.message + (response.pedido_numero ? ' Pedido #' + response.pedido_numero + ' criado.' : ''),
-                                confirmButtonText: 'OK'
-                            }).then(() => {
-                                if (response.pedido_id) {
-                                    window.location.href = `${BASE_URL}/views/pedidos/show.php?id=${response.pedido_id}`;
-                                } else {
-                                    location.reload(); 
-                                }
-                            });
-                        } else {
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'Erro!',
-                                text: response.message
-                            }).then(() => {
-                                $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido');
-                            });
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        console.error("Erro na requisição AJAX:", status, error, xhr.responseText);
-                        Swal.fire({
-                            icon: 'error',
-                            title: 'Erro de Conexão!',
-                            text: 'Não foi possível converter o orçamento. Verifique sua conexão ou tente novamente.'
-                        }).then(() => {
-                            $('#btnConverterPedido').prop('disabled', false).html('<i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido');
-                        });
-                    }
-                });
+            title: 'Montagem do conjunto ativa',
+            html: 'Agora selecione os produtos internos pela busca normal.<br><strong>' + escapeHtml(conjuntoAtivoNome) + '</strong><br><small>Os itens internos entrarão com valor zero e continuarão consultando estoque.</small>',
+            icon: 'info',
+            confirmButtonText: 'Entendi'
+        });
+    }
+}
+
+function encerrarMontagemConjunto() {
+    if (conjuntoAtivoIndex !== null) {
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+        if ($rowConjunto.length && !validarFechamentoConjunto($rowConjunto, true)) {
+            return false;
+        }
+    }
+
+    conjuntoAtivoIndex = null;
+    conjuntoAtivoNome = '';
+    $('#tabela_itens_orcamento tbody tr.item-conjunto-row').removeClass('table-primary');
+    return true;
+}
+
+function adicionarConjuntoAoOrcamento(produto) {
+    var $rowConjunto = adicionarLinhaItemTabela(produto, 'CONJUNTO');
+    $('#busca_produto').val('').blur();
+    $('#sugestoes_produtos').empty().hide();
+
+    if ($rowConjunto && $rowConjunto.length) {
+        carregarRegrasConjunto(produto.id, $rowConjunto, function(grupos) {
+            ativarMontagemConjunto($rowConjunto, true);
+
+            // Igual ao create: deixa as guias Bistrô/Pufes visíveis.
+            // O usuário clica na guia desejada para listar os produtos compatíveis.
+        });
+    }
+}
+
+
+function adicionarItemAoConjuntoAtivo(produto) {
+    const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+    const regras = $rowConjunto.length ? ($rowConjunto.data('regras-conjunto') || []) : [];
+
+    if (!$rowConjunto.length) {
+        Swal.fire('Conjunto não localizado', 'Ative novamente a montagem do conjunto antes de adicionar itens internos.', 'warning');
+        return false;
+    }
+
+    if (!regras.length) {
+        Swal.fire('Regras não carregadas', 'Aguarde carregar as regras do conjunto e tente novamente.', 'warning');
+        carregarRegrasConjunto(parseInt($rowConjunto.find('.produto_id').val(), 10) || 0, $rowConjunto);
+        return false;
+    }
+
+    let casaComAlgumaRegra = false;
+    for (let i = 0; i < regras.length; i++) {
+        if (regraCasaComProduto(regras[i], produto)) {
+            casaComAlgumaRegra = true;
+            break;
+        }
+    }
+
+    if (!casaComAlgumaRegra) {
+        Swal.fire('Produto fora da montagem', 'Este produto não pertence aos grupos configurados para este conjunto. Nada foi alterado.', 'warning');
+        return false;
+    }
+
+    var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
+    if ($rowItem && $rowItem.length) {
+        validarLimiteItemConjunto($rowItem, false);
+        const info = obterRegraDoItemConjunto($rowItem);
+        if (info && info.$rowConjunto) {
+            atualizarGuiasConjunto(info.$rowConjunto);
+        }
+    }
+    $('#busca_produto').val('').blur();
+    $('#sugestoes_produtos').empty().hide();
+    return true;
+}
+
+function verificarEstoqueAntes(produto) {
+    adicionarLinhaItemTabela(produto, 'PRODUTO');
+    atualizarListaProdutosAposSelecao();
+}
+
+// ✅ FUNÇÃO MELHORADA: revalida todas as linhas para produtos que compartilham componentes.
+function validarEstoqueQuantidade($row) {
+    var quantidadeAtual = parseInt($row.find('.quantidade_item').val(), 10) || 0;
+
+    if (quantidadeAtual < 0) {
+        $row.find('.quantidade_item').val(0);
+    }
+
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        validarLimiteItemConjunto($row, true);
+    }
+
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        const conjuntoIndex = parseInt($row.data('index'), 10) || 0;
+        $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row').each(function() {
+            if (parseInt($(this).data('conjunto-pai-index') || 0, 10) === conjuntoIndex) {
+                validarLimiteItemConjunto($(this), false);
             }
         });
+    }
+
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        const info = obterRegraDoItemConjunto($row);
+        if (info && info.$rowConjunto) {
+            atualizarGuiasConjunto(info.$rowConjunto);
+        }
+    }
+
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        atualizarGuiasConjunto($row);
+    }
+
+    // Atualiza os indicadores compactos dos grupos do conjunto, quando aplicável.
+    if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+        const $rowConjunto = obterLinhaConjuntoPorIndex($row.data('conjunto-pai-index'));
+        atualizarGuiasConjunto($rowConjunto);
+    }
+    if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+        atualizarGuiasConjunto($row);
+    }
+
+    // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
+    // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura e os mesmos colchões.
+    revalidarTodasAsLinhasDisponibilidade($row);
+}
+
+function revalidarTodasAsLinhasDisponibilidadeProduto(produtoId, responseCompartilhada) {
+    $('#tabela_itens_orcamento .produto_id').each(function() {
+        if ($(this).val() == produtoId) {
+            aplicarContextoDisponibilidadeNaLinha($(this).closest('tr'), responseCompartilhada);
+        }
+    });
+}
+
+// ✅ EVENTO INTELIGENTE: Valida automaticamente quando para de digitar
+$('#tabela_itens_orcamento').on('input change', '.quantidade_item', function(e) {
+    var $input = $(this);
+    var $row = $input.closest('tr');
+
+    clearTimeout($input.data('validacao-timeout'));
+
+    $input.data('validacao-timeout', setTimeout(function() {
+        validarEstoqueQuantidade($row);
+    }, 800));
+});
+
+// Revalida todas as linhas quando o período logístico muda
+$('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+    $('#tabela_itens_orcamento tbody tr.item-orcamento-row').removeData('alerta-indisponivel-chave');
+    revalidarTodasAsLinhasDisponibilidade();
+});
+
+    $(document).on('change keyup blur', '.item-qtd, .item-valor-unitario, .desconto_item, #desconto_total, .taxa-frete-input', function() {
+        calcularTotaisOrcamento();
     });
 
-    // === SALVAR CLIENTE PELO MODAL ===
-    $('#btnSalvarClienteModal').off('click').on('click', function() {
+    $('.btn-usar-padrao').on('click', function() {
+        var $button = $(this);
+        var targetInputId = $button.data('target-input');
+        var $targetInput = $('#' + targetInputId);
+        if (!$targetInput.length) { return; }
+        var valorSugeridoStr = $targetInput.data('valor-padrao');
+        if (typeof valorSugeridoStr === 'undefined') { return; }
+        var valorNumerico = unformatCurrency(valorSugeridoStr.toString());
+        $targetInput.val(formatCurrency(valorNumerico));
+        var targetCheckboxId = $button.data('target-checkbox');
+        if (targetCheckboxId) { $('#' + targetCheckboxId).prop('checked', true); }
+        $targetInput.trigger('change');
+    });
+
+    $('.taxa-frete-input').on('blur', function() {
+        var $input = $(this);
+        var $checkbox = $('.taxa-frete-checkbox[data-target-input="' + $input.attr('id') + '"]');
+        if ($checkbox.length) {
+            if (unformatCurrency($input.val()) > 0) { $checkbox.prop('checked', true); } 
+            else { $checkbox.prop('checked', false); $input.val(''); }
+        }
+    });
+
+    $('.taxa-frete-checkbox').on('change', function() {
+        var $checkbox = $(this);
+        var $targetInput = $('#' + $checkbox.data('target-input'));
+        if ($targetInput.length) {
+            if ($checkbox.is(':checked')) {
+                if (unformatCurrency($targetInput.val()) <= 0) {
+                    var valorPadraoStr = $targetInput.data('valor-padrao');
+                    if (typeof valorPadraoStr !== 'undefined') {
+                        $targetInput.val(formatCurrency(unformatCurrency(valorPadraoStr.toString())));
+                    }
+                }
+            } else { $targetInput.val(''); }
+            $targetInput.trigger('change');
+        }
+    });
+
+    if (typeof $.fn.select2 === 'function') {
+        $('#cliente_id').select2({
+            theme: 'bootstrap4',
+            language: 'pt-BR',
+            placeholder: 'Digite para buscar ou clique para ver os recentes',
+            allowClear: true,
+            minimumInputLength: 0,
+            ajax: {
+                url: `edit.php?id=${ORCAMENTO_ID}&ajax=buscar_clientes`,
+                dataType: 'json',
+                delay: 250,
+                data: function (params) { return { termo: params.term || '' }; },
+                processResults: function (data) {
+                    return { results: $.map(data, function (cliente) {
+                        return { id: cliente.id, text: cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : ''), clienteData: cliente };
+                    }) };
+                },
+                cache: true
+            }
+        }).on('select2:select', function (e) {
+            var data = e.params.data.clienteData;
+            if (data) {
+                $('#cliente_telefone').val(data.telefone || '');
+                $('#cliente_email').val(data.email || '');
+                $('#cliente_cpf_cnpj').val(data.cpf_cnpj || '');
+                $('#cliente_endereco').val(data.endereco || '');
+                $('#cliente_cidade').val(data.cidade || '');
+                
+            }
+            $('#btnUsarEnderecoCliente').show(); // <-- MOSTRA ENDERECO CLIENTE AO CLICAR BOTAO USAR END CLIENTE
+            $('#cliente_id').on('select2:unselect select2:clear', function(e) {
+    $('#btnUsarEnderecoCliente').hide(); // <-- ADICIONE ESTE NOVO BLOCO
+});
+        });
+    }
+
+    $('#btnSalvarClienteModal').on('click', function() {
         var $btn = $(this);
         var $feedback = $('#modalClienteFeedback');
         var nome = $('#modal_cliente_nome').val().trim();
@@ -2570,7 +3126,6 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 var cliente = response.cliente;
                 var textoOpcao = cliente.nome + (cliente.cpf_cnpj ? ' - ' + cliente.cpf_cnpj : '');
                 var novaOption = new Option(textoOpcao, cliente.id, true, true);
-                $(novaOption).attr('data-cliente-full-data', JSON.stringify(cliente));
                 $(novaOption).data('clienteData', cliente);
 
                 $('#cliente_id').append(novaOption).trigger('change');
@@ -2585,7 +3140,6 @@ if (response.produto_composto && response.componentes && response.componentes.le
                     }
                 });
 
-                dadosClienteAtual = cliente;
                 $feedback.html('<div class="alert alert-success mb-0">Cliente cadastrado com sucesso!</div>');
 
                 setTimeout(function() {
@@ -2613,6 +3167,306 @@ if (response.produto_composto && response.componentes && response.componentes.le
         $('#modalClienteFeedback').html('');
         $('#modal_cliente_cidade').val('Porto Alegre');
     });
+
+    function normalizarDataDigitada(valor) {
+        valor = String(valor || '').trim();
+        if (!valor) { return ''; }
+
+        // Já está no formato brasileiro completo.
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(valor)) {
+            return valor;
+        }
+
+        // Aceita 17/05/26.
+        let m = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+        if (m) {
+            const anoAtual = new Date().getFullYear();
+            const seculo = Math.floor(anoAtual / 100) * 100;
+            return String(m[1]).padStart(2, '0') + '/' + String(m[2]).padStart(2, '0') + '/' + (seculo + parseInt(m[3], 10));
+        }
+
+        const digitos = valor.replace(/\D/g, '');
+        if (digitos.length === 4) {
+            // 1705 => 17/05/ano atual
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + new Date().getFullYear();
+        }
+        if (digitos.length === 6) {
+            // 170526 => 17/05/2026
+            const anoAtual = new Date().getFullYear();
+            const seculo = Math.floor(anoAtual / 100) * 100;
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + (seculo + parseInt(digitos.substring(4, 6), 10));
+        }
+        if (digitos.length === 8) {
+            // 17052026 => 17/05/2026
+            return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + digitos.substring(4, 8);
+        }
+
+        return valor;
+    }
+
+    function aplicarNormalizacaoData($input) {
+        const antes = $input.val();
+        const depois = normalizarDataDigitada(antes);
+        if (depois && depois !== antes) {
+            $input.val(depois);
+            if (typeof $.fn.datepicker === 'function') {
+                $input.datepicker('update', depois);
+            }
+            $input.trigger('change');
+        }
+    }
+
+    $('.datepicker').on('focus click', function() {
+        $(this).removeAttr('readonly');
+    });
+
+    if (typeof $.fn.datepicker === 'function') {
+        $('.datepicker').datepicker({
+            format: 'dd/mm/yyyy',
+            language: 'pt-BR',
+            autoclose: true,
+            todayHighlight: true,
+            orientation: "bottom auto",
+            container: 'body',
+            zIndexOffset: 999990
+        });
+    }
+
+    $('.datepicker').on('blur', function() {
+        aplicarNormalizacaoData($(this));
+        $(this).attr('readonly', 'readonly');
+    });
+
+    function calcularDataValidade() {
+        var dataOrcamentoStr = $('#data_orcamento').val();
+        var validadeDias = parseInt($('#validade_dias').val());
+        if (dataOrcamentoStr && validadeDias > 0) {
+            var partesData = dataOrcamentoStr.split('/');
+            if (partesData.length === 3) {
+                var dataOrcamento = new Date(partesData[2], partesData[1] - 1, partesData[0]);
+                if (!isNaN(dataOrcamento.valueOf())) {
+                    dataOrcamento.setDate(dataOrcamento.getDate() + validadeDias);
+                    var dia = String(dataOrcamento.getDate()).padStart(2, '0');
+                    var mes = String(dataOrcamento.getMonth() + 1).padStart(2, '0');
+                    var ano = dataOrcamento.getFullYear();
+                    $('#data_validade_display').text('Validade até: ' + dia + '/' + mes + '/' + ano);
+                    $('#data_validade_calculada_hidden').val(ano + '-' + mes + '-' + dia);
+                    return;
+                }
+            }
+        }
+        $('#data_validade_display').text('');
+        $('#data_validade_calculada_hidden').val('');
+    }
+    $('#data_orcamento, #validade_dias').on('change keyup blur dp.change', calcularDataValidade);
+
+    const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
+    function exibirDiaSemana(inputId, displayId) {
+        var dataStr = $(inputId).val();
+        var displayEl = $(displayId);
+        displayEl.text('').removeClass('text-danger font-weight-bold text-success');
+        if (dataStr) {
+            var partes = dataStr.split('/');
+            if (partes.length === 3) {
+                var dataObj = new Date(partes[2], partes[1] - 1, partes[0]);
+                if (!isNaN(dataObj.valueOf())) {
+                    var diaSemana = diasDaSemana[dataObj.getDay()];
+                    displayEl.text(diaSemana).addClass('font-weight-bold');
+                    if (dataObj.getDay() === 0 || dataObj.getDay() === 6) { displayEl.addClass('text-danger'); } 
+                    else { displayEl.addClass('text-success'); }
+                    return;
+                }
+            }
+        }
+    }
+    $('#data_evento').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_evento'); }).trigger('change');
+    $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
+    $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
+    
+    $('#btnUsarEnderecoCliente').on('click', function() {
+    // 1. Pega os dados do cliente selecionado
+    var clienteSelecionado = $('#cliente_id').select2('data');
+
+    // 2. Garante que há um cliente selecionado
+    if (!clienteSelecionado || clienteSelecionado.length === 0 || !clienteSelecionado[0].clienteData) {
+        toastr.info('Por favor, selecione um cliente primeiro.', 'Aviso');
+        return;
+    }
+    
+    let data = clienteSelecionado[0].clienteData;
+    let enderecoCompleto = (data.endereco || '') + (data.cidade ? ((data.endereco ? ', ' : '') + data.cidade) : '');
+    let localEventoInput = $('#local_evento');
+
+    // 3. NOVA LÓGICA DE TOGGLE (LIGA/DESLIGA)
+    // Se o campo já contém o endereço EXATO do cliente, o clique vai LIMPAR o campo.
+    if (localEventoInput.val().trim() === enderecoCompleto.trim()) {
+        localEventoInput.val(''); // Limpa o campo
+    } else {
+        // Senão (se o campo está vazio ou tem outra coisa), ele vai PREENCHER com o endereço.
+        localEventoInput.val(enderecoCompleto.trim());
+    }
+});
+
+    function validarItensQuantidadeZeroCreate() {
+        let produtoErro = null;
+
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            const $row = $(this);
+            if (($row.data('tipo-linha') || '') === 'CABECALHO_SECAO') {
+                return;
+            }
+
+            const produtoId = String($row.find('.produto_id').val() || '').trim();
+            const nomeProduto = String($row.find('.nome_produto_display').val() || '').trim();
+            const quantidade = parseInt($row.find('.item-qtd').val() || '0', 10);
+            const linhaTemProduto = produtoId !== '' || nomeProduto !== '';
+
+            if (linhaTemProduto && quantidade <= 0) {
+                produtoErro = nomeProduto || 'Produto sem nome';
+                return false;
+            }
+        });
+
+        if (produtoErro) {
+            Swal.fire({
+                title: 'Quantidade obrigatória',
+                text: 'Há produto com quantidade zero no orçamento: ' + produtoErro + '. Ajuste a quantidade ou remova a linha antes de salvar.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+            return false;
+        }
+
+        return true;
+    }
+
+    $('#formEditarOrcamento').on('submit', function(e) {
+        if (!validarItensQuantidadeZeroCreate()) {
+            e.preventDefault();
+            return false;
+        }
+
+        if (!validarTodosConjuntosAntesSalvar(true)) {
+            e.preventDefault();
+            return false;
+        }
+    });
+
+    $('#formEditarOrcamento').on('keydown', function(e) {
+        if (e.keyCode === 13) {
+            if (!$(e.target).is('textarea') && !$(e.target).is('[type=submit]')) {
+                e.preventDefault();
+                return false;
+            }
+        }
+    });
+
+    // ... (resto do seu código, como a parte do modal, etc) ...
+
+    calcularDataValidade();
+    calcularTotaisOrcamento();
+    
+    function atualizarOrdemDosItens() {
+        // IMPORTANTE: data-index é identidade temporária da linha/conjunto durante a edição.
+        // Não pode ser regravado ao ordenar, senão guias e filhos perdem o vínculo do conjunto.
+        // A ordem visual salva no banco continua sendo atualizada apenas pelo input ordem[].
+        let ordem = 1;
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            $(this).find('input[name="ordem[]"]').val(ordem);
+            ordem++;
+        });
+    }
+
+
+    $('#tabela_itens_orcamento tbody').sortable({
+        handle: '.drag-handle',
+        placeholder: 'sortable-placeholder',
+        helper: function(e, ui) { ui.children().each(function() { $(this).width($(this).width()); }); return ui; },
+        stop: function(event, ui) { atualizarOrdemDosItens(); }
+    }).disableSelection();
+
+    $('head').append('<style>.sortable-placeholder { height: 50px; background-color: #f0f8ff; border: 2px dashed #cce5ff; }</style>');
+
+    // --- INÍCIO DO CÓDIGO FINAL E SINCRONIZADO ---
+
+// ▼▼▼ COLE ESTES DOIS BLOCOS NOVOS NO LUGAR ▼▼▼
+
+// Bloco 1: O evento de change, agora limpo e correto.
+$('#ajuste_manual_valor_final, #aplicar_desconto_geral').on('change', function() {
+    const isChecked = $(this).is(':checked');
+    $('#ajuste_manual_valor_final, #aplicar_desconto_geral').prop('checked', isChecked);
+
+    const $campoDesconto = $('#desconto_total');
+    const $divMotivo = $('#campo_motivo_ajuste');
+    const $inputMotivo = $('#motivo_ajuste');
+
+    if (isChecked) {
+        $campoDesconto.prop('disabled', false);
+        $divMotivo.slideDown();
+        $inputMotivo.prop('disabled', false);
+        $campoDesconto.focus();
+    } else {
+        $campoDesconto.prop('disabled', true).val('');
+        $divMotivo.slideUp();
+        $inputMotivo.prop('disabled', true).val('');
+    }
+    calcularTotaisOrcamento();
+});
+
+
+// Bloco 2: A lógica do "a confirmar", agora no lugar certo para rodar na carga da página.
+// CÓDIGO PARA GARANTIR O "A CONFIRMAR" NA CARGA DA PÁGINA
+$('.taxa-frete-input').each(function() {
+    var valorNumerico = unformatCurrency($(this).val());
+    if (valorNumerico === 0) {
+        $(this).val(''); // Força o campo a ficar vazio para o placeholder aparecer
+    }
+});
+
+
+
+function inicializarConjuntosExistentesNoEdit() {
+    let conjuntoAtualIndex = null;
+    let conjuntoAtualNome = '';
+
+    $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+        const $row = $(this);
+        const tipoLinha = $row.data('tipo-linha') || $row.attr('data-tipo-linha') || '';
+
+        if (tipoLinha === 'CONJUNTO') {
+            conjuntoAtualIndex = parseInt($row.data('index') || $row.attr('data-index') || 0, 10) || null;
+            conjuntoAtualNome = $row.find('.nome_produto_display').val() || 'Conjunto';
+            const produtoId = parseInt($row.find('.produto_id').val(), 10) || 0;
+            if (produtoId > 0) {
+                carregarRegrasConjunto(produtoId, $row);
+            }
+            return;
+        }
+
+        if (tipoLinha === 'ITEM_CONJUNTO') {
+            if (conjuntoAtualIndex) {
+                $row.attr('data-conjunto-pai-index', conjuntoAtualIndex).data('conjunto-pai-index', conjuntoAtualIndex);
+                const $small = $row.find('small.form-text.text-muted').first();
+                if ($small.length && $small.text().indexOf('Item interno de:') === -1) {
+                    $small.text('Item interno de: ' + conjuntoAtualNome + '. Consulta estoque normalmente, mas não soma preço.');
+                }
+            }
+            return;
+        }
+
+        if (tipoLinha !== 'ITEM_CONJUNTO') {
+            conjuntoAtualIndex = null;
+            conjuntoAtualNome = '';
+        }
+    });
+}
+
+inicializarConjuntosExistentesNoEdit();
+
+// Roda o cálculo final uma última vez para garantir que todos os totais estejam corretos
+calcularTotaisOrcamento();
+
+// ▲▲▲ FIM DOS BLOCOS PARA COLAR ▲▲▲
 
 });
 JS;
