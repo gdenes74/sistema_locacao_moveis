@@ -351,34 +351,55 @@ class Pedido
 
     private function copiarItensOrcamento($orcamentoId, $pedidoId)
     {
-        $queryItens = "SELECT * FROM itens_orcamento WHERE orcamento_id = :orcamento_id";
+        $queryItens = "SELECT * FROM itens_orcamento WHERE orcamento_id = :orcamento_id ORDER BY ordem ASC, id ASC";
         $stmtItens = $this->conn->prepare($queryItens);
         $stmtItens->bindParam(':orcamento_id', $orcamentoId, PDO::PARAM_INT);
         $stmtItens->execute();
         $itens = $stmtItens->fetchAll(PDO::FETCH_ASSOC);
 
         $queryInsert = "INSERT INTO {$this->table_itens}
-            (pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
-             preco_unitario, desconto, preco_final, observacoes, tipo_linha, ordem)
+            (item_pai_id, pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
+             preco_unitario, desconto, preco_final, usa_preco_no_total, exibir_cliente, exibir_producao,
+             grupo_conjunto, observacoes, tipo_linha, ordem)
             VALUES
-            (:pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
-             :preco_unitario, :desconto, :preco_final, :observacoes, :tipo_linha, :ordem)";
+            (:item_pai_id, :pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
+             :preco_unitario, :desconto, :preco_final, :usa_preco_no_total, :exibir_cliente, :exibir_producao,
+             :grupo_conjunto, :observacoes, :tipo_linha, :ordem)";
         $stmtInsert = $this->conn->prepare($queryInsert);
 
+        $mapaIds = [];
+
         foreach ($itens as $item) {
+            $tipoLinha = !empty($item['tipo_linha']) ? $item['tipo_linha'] : 'PRODUTO';
+            $itemPaiPedidoId = null;
+
+            if (!empty($item['item_pai_id']) && isset($mapaIds[(int)$item['item_pai_id']])) {
+                $itemPaiPedidoId = $mapaIds[(int)$item['item_pai_id']];
+            }
+
             $stmtInsert->execute([
+                ':item_pai_id' => $itemPaiPedidoId,
                 ':pedido_id' => $pedidoId,
-                ':produto_id' => $item['produto_id'],
-                ':nome_produto_manual' => $item['nome_produto_manual'],
-                ':quantidade' => $item['quantidade'],
-                ':tipo' => $item['tipo'],
-                ':preco_unitario' => $item['preco_unitario'],
-                ':desconto' => $item['desconto'],
-                ':preco_final' => $item['preco_final'],
-                ':observacoes' => $item['observacoes'],
-                ':tipo_linha' => $item['tipo_linha'],
-                ':ordem' => $item['ordem']
+                ':produto_id' => !empty($item['produto_id']) ? (int)$item['produto_id'] : null,
+                ':nome_produto_manual' => $item['nome_produto_manual'] ?? null,
+                ':quantidade' => (int)($item['quantidade'] ?? 0),
+                ':tipo' => $item['tipo'] ?? null,
+                ':preco_unitario' => (float)($item['preco_unitario'] ?? 0),
+                ':desconto' => (float)($item['desconto'] ?? 0),
+                ':preco_final' => (float)($item['preco_final'] ?? 0),
+                ':usa_preco_no_total' => isset($item['usa_preco_no_total']) ? (int)$item['usa_preco_no_total'] : ($tipoLinha === 'ITEM_CONJUNTO' ? 0 : 1),
+                ':exibir_cliente' => isset($item['exibir_cliente']) ? (int)$item['exibir_cliente'] : 1,
+                ':exibir_producao' => isset($item['exibir_producao']) ? (int)$item['exibir_producao'] : 1,
+                ':grupo_conjunto' => $item['grupo_conjunto'] ?? null,
+                ':observacoes' => $item['observacoes'] ?? null,
+                ':tipo_linha' => $tipoLinha,
+                ':ordem' => (int)($item['ordem'] ?? 0)
             ]);
+
+            $novoItemId = (int)$this->conn->lastInsertId();
+            if (!empty($item['id'])) {
+                $mapaIds[(int)$item['id']] = $novoItemId;
+            }
         }
     }
 
@@ -603,12 +624,20 @@ class Pedido
             }
 
             $queryInsert = "INSERT INTO {$this->table_itens}
-                (pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
-                 preco_unitario, desconto, preco_final, observacoes, tipo_linha, ordem)
+                (item_pai_id, pedido_id, produto_id, nome_produto_manual, quantidade, tipo,
+                 preco_unitario, desconto, preco_final, usa_preco_no_total, exibir_cliente, exibir_producao,
+                 grupo_conjunto, observacoes, tipo_linha, ordem)
                 VALUES
-                (:pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
-                 :preco_unitario, :desconto, :preco_final, :observacoes, :tipo_linha, :ordem)";
+                (:item_pai_id, :pedido_id, :produto_id, :nome_produto_manual, :quantidade, :tipo,
+                 :preco_unitario, :desconto, :preco_final, :usa_preco_no_total, :exibir_cliente, :exibir_producao,
+                 :grupo_conjunto, :observacoes, :tipo_linha, :ordem)";
             $stmtInsert = $this->conn->prepare($queryInsert);
+
+            // Compatibilidade com o fluxo visual do create/edit:
+            // CONJUNTO abre um pai; ITEM_CONJUNTO logo abaixo vira filho desse pai.
+            // Se no futuro a view enviar item_pai_id explícito, ele também será respeitado por mapa provisório.
+            $ultimoConjuntoInseridoId = null;
+            $mapaIndicesParaIds = [];
 
             foreach ($itens as $index => $item) {
                 $produtoId = isset($item['produto_id']) && !empty($item['produto_id']) ? (int) $item['produto_id'] : null;
@@ -627,9 +656,24 @@ class Pedido
                     : null;
                 $tipoLinha = isset($item['tipo_linha']) && !empty($item['tipo_linha']) ? $item['tipo_linha'] : 'PRODUTO';
                 $ordem = isset($item['ordem']) ? (int) $item['ordem'] : ($index + 1);
+                $usaPrecoNoTotal = isset($item['usa_preco_no_total']) ? (int)$item['usa_preco_no_total'] : 1;
+                $exibirCliente = isset($item['exibir_cliente']) ? (int)$item['exibir_cliente'] : 1;
+                $exibirProducao = isset($item['exibir_producao']) ? (int)$item['exibir_producao'] : 1;
+                $grupoConjunto = isset($item['grupo_conjunto']) && trim((string)$item['grupo_conjunto']) !== ''
+                    ? trim((string)$item['grupo_conjunto'])
+                    : null;
 
-                if (!in_array($tipoLinha, ['PRODUTO', 'CABECALHO_SECAO'], true)) {
+                if (!in_array($tipoLinha, ['PRODUTO', 'CABECALHO_SECAO', 'CONJUNTO', 'ITEM_CONJUNTO'], true)) {
                     $tipoLinha = 'PRODUTO';
+                }
+
+                $itemPaiId = null;
+                if ($tipoLinha === 'ITEM_CONJUNTO') {
+                    if (isset($item['item_pai_indice']) && isset($mapaIndicesParaIds[(int)$item['item_pai_indice']])) {
+                        $itemPaiId = $mapaIndicesParaIds[(int)$item['item_pai_indice']];
+                    } else {
+                        $itemPaiId = $ultimoConjuntoInseridoId;
+                    }
                 }
 
                 if ($tipoLinha === 'CABECALHO_SECAO') {
@@ -640,16 +684,31 @@ class Pedido
                     $desconto = 0.00;
                     $precoFinal = 0.00;
                     $tipo = null;
+                    $usaPrecoNoTotal = 0;
+                } elseif ($tipoLinha === 'ITEM_CONJUNTO') {
+                    if ($quantidade <= 0) {
+                        return false;
+                    }
+                    if ($produtoId === null) {
+                        return false;
+                    }
+                    $precoUnitario = 0.00;
+                    $desconto = 0.00;
+                    $precoFinal = 0.00;
+                    $usaPrecoNoTotal = 0;
+                    $tipo = $tipo ?: 'locacao';
                 } else {
                     if ($quantidade <= 0) {
-                        $quantidade = 1;
+                        return false;
                     }
 
                     if ($produtoId === null) {
                         $nomeManual = $nomeManual ?: 'Item manual';
                     }
+                    $usaPrecoNoTotal = 1;
                 }
 
+                $stmtInsert->bindValue(':item_pai_id', $itemPaiId, $itemPaiId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
                 $stmtInsert->bindValue(':pedido_id', $pedidoId, PDO::PARAM_INT);
                 $stmtInsert->bindValue(':produto_id', $produtoId, $produtoId === null ? PDO::PARAM_NULL : PDO::PARAM_INT);
                 $stmtInsert->bindValue(':nome_produto_manual', $nomeManual, $nomeManual === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
@@ -658,6 +717,10 @@ class Pedido
                 $stmtInsert->bindValue(':preco_unitario', $precoUnitario, PDO::PARAM_STR);
                 $stmtInsert->bindValue(':desconto', $desconto, PDO::PARAM_STR);
                 $stmtInsert->bindValue(':preco_final', $precoFinal, PDO::PARAM_STR);
+                $stmtInsert->bindValue(':usa_preco_no_total', $usaPrecoNoTotal, PDO::PARAM_INT);
+                $stmtInsert->bindValue(':exibir_cliente', $exibirCliente, PDO::PARAM_INT);
+                $stmtInsert->bindValue(':exibir_producao', $exibirProducao, PDO::PARAM_INT);
+                $stmtInsert->bindValue(':grupo_conjunto', $grupoConjunto, $grupoConjunto === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
                 $stmtInsert->bindValue(':observacoes', $observacoes, $observacoes === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
                 $stmtInsert->bindValue(':tipo_linha', $tipoLinha, PDO::PARAM_STR);
                 $stmtInsert->bindValue(':ordem', $ordem, PDO::PARAM_INT);
@@ -665,6 +728,15 @@ class Pedido
                 if (!$stmtInsert->execute()) {
                     error_log("Erro ao inserir item {$index} do pedido ID {$pedidoId}: " . print_r($stmtInsert->errorInfo(), true));
                     return false;
+                }
+
+                $novoItemId = (int)$this->conn->lastInsertId();
+                $mapaIndicesParaIds[$index] = $novoItemId;
+
+                if ($tipoLinha === 'CONJUNTO') {
+                    $ultimoConjuntoInseridoId = $novoItemId;
+                } elseif ($tipoLinha !== 'ITEM_CONJUNTO') {
+                    $ultimoConjuntoInseridoId = null;
                 }
             }
 
@@ -736,7 +808,8 @@ class Pedido
                                 COALESCE(SUM(CASE WHEN tipo = 'locacao' THEN preco_final ELSE 0 END), 0) AS subtotal_locacao,
                                 COALESCE(SUM(CASE WHEN tipo = 'venda' THEN preco_final ELSE 0 END), 0) AS subtotal_venda
                             FROM {$this->table_itens}
-                            WHERE pedido_id = :pedido_id";
+                            WHERE pedido_id = :pedido_id
+                              AND COALESCE(usa_preco_no_total, 1) = 1";
             $stmtSubtotal = $this->conn->prepare($sqlSubtotal);
             $stmtSubtotal->bindParam(':pedido_id', $pedidoId, PDO::PARAM_INT);
             $stmtSubtotal->execute();

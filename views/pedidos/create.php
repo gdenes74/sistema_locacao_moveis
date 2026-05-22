@@ -248,6 +248,26 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'carregar_orcamento') {
             } else {
                 $item_processado['foto_path_completo'] = null;
             }
+
+            $item_processado['categoria_id'] = null;
+            $item_processado['subcategoria_id'] = null;
+            $item_processado['eh_conjunto'] = 0;
+
+            if (!empty($item_processado['produto_id'])) {
+                $stmtMetaProduto = $db->prepare("SELECT p.subcategoria_id, COALESCE(p.eh_conjunto, 0) AS eh_conjunto, sc.categoria_id
+                                                 FROM produtos p
+                                                 LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+                                                 WHERE p.id = ?
+                                                 LIMIT 1");
+                $stmtMetaProduto->execute([(int)$item_processado['produto_id']]);
+                $metaProduto = $stmtMetaProduto->fetch(PDO::FETCH_ASSOC);
+
+                if ($metaProduto) {
+                    $item_processado['categoria_id'] = $metaProduto['categoria_id'] !== null ? (int)$metaProduto['categoria_id'] : null;
+                    $item_processado['subcategoria_id'] = $metaProduto['subcategoria_id'] !== null ? (int)$metaProduto['subcategoria_id'] : null;
+                    $item_processado['eh_conjunto'] = (int)($metaProduto['eh_conjunto'] ?? 0);
+                }
+            }
         }
         unset($item_processado);
 
@@ -277,16 +297,28 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             exit;
         }
 
-        $sql = "SELECT p.id, p.codigo, p.nome_produto, p.descricao_detalhada, p.preco_locacao, p.quantidade_total, p.foto_path, p.tipo_produto
-        FROM produtos p";
+        $sql = "SELECT
+                    p.id,
+                    p.codigo,
+                    p.nome_produto,
+                    p.descricao_detalhada,
+                    p.preco_locacao,
+                    p.quantidade_total,
+                    p.foto_path,
+                    p.tipo_produto,
+                    COALESCE(p.eh_conjunto, 0) AS eh_conjunto,
+                    p.subcategoria_id,
+                    c.id AS categoria_id
+                FROM produtos p
+                LEFT JOIN subcategorias sc ON sc.id = p.subcategoria_id
+                LEFT JOIN categorias c ON c.id = sc.categoria_id";
 
-$conditions = [];
-$executeParams = [];
+        $conditions = [];
+        $executeParams = [];
 
-// Não mostrar componentes internos na busca operacional do pedido.
-// Ex.: Pufe Estrutura, Capa Pufe Azul, Recheio Almofada etc.
-// Eles continuam existindo no banco e continuam sendo usados no cálculo de estoque composto.
-$conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPOSTO'))";
+        // Não mostrar componentes internos na busca operacional do pedido.
+        // Conjuntos comerciais também precisam aparecer, pois são linhas comerciais pai.
+        $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPOSTO'))";
 
         if (!empty($termo)) {
             $conditions[] = "(p.nome_produto LIKE ? OR p.codigo LIKE ?)";
@@ -310,13 +342,7 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             }
         }
 
-        if (!empty($conditions)) {
-            $sql .= " WHERE " . implode(' AND ', $conditions);
-        } else {
-            echo json_encode([]);
-            exit;
-        }
-
+        $sql .= " WHERE " . implode(' AND ', $conditions);
         $sql .= " ORDER BY p.nome_produto LIMIT 15";
 
         $stmt = $db->prepare($sql);
@@ -332,6 +358,20 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             } else {
                 $produto_item['foto_path_completo'] = null;
             }
+
+            $produto_item['eh_conjunto'] = isset($produto_item['eh_conjunto']) ? (int)$produto_item['eh_conjunto'] : 0;
+            $produto_item['categoria_id'] = isset($produto_item['categoria_id']) ? (int)$produto_item['categoria_id'] : null;
+            $produto_item['subcategoria_id'] = isset($produto_item['subcategoria_id']) ? (int)$produto_item['subcategoria_id'] : null;
+            $produto_item['regras_conjunto'] = [];
+
+            if ($produto_item['eh_conjunto'] === 1) {
+                $stmtRegras = $db->prepare("SELECT id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes
+                                            FROM produto_conjunto_grupos
+                                            WHERE produto_conjunto_id = ?
+                                            ORDER BY ordem ASC, id ASC");
+                $stmtRegras->execute([(int)$produto_item['id']]);
+                $produto_item['regras_conjunto'] = $stmtRegras->fetchAll(PDO::FETCH_ASSOC);
+            }
         }
         unset($produto_item);
 
@@ -343,6 +383,48 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
         $errorParamsDebug = isset($executeParams) ? json_encode($executeParams) : 'Parâmetros não disponíveis.';
         error_log("Erro AJAX buscar_produtos: " . $e->getMessage() . " | Query: " . $errorQueryDebug . " | Params: " . $errorParamsDebug);
         echo json_encode(['error' => 'Ocorreu um erro interno ao buscar produtos.']);
+        exit;
+    }
+}
+
+// --- AJAX para buscar grupos/regras de um conjunto comercial ---
+if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
+    header('Content-Type: application/json; charset=utf-8');
+    try {
+        $produto_conjunto_id = isset($_GET['produto_id']) ? (int) $_GET['produto_id'] : 0;
+
+        if ($produto_conjunto_id <= 0) {
+            echo json_encode([]);
+            exit;
+        }
+
+        $sql = "SELECT
+                    pcg.id,
+                    pcg.nome_grupo,
+                    pcg.categoria_id,
+                    c.nome AS categoria_nome,
+                    pcg.subcategoria_id,
+                    s.nome AS subcategoria_nome,
+                    pcg.quantidade_por_conjunto,
+                    pcg.obrigatorio,
+                    pcg.ordem,
+                    pcg.observacoes
+                FROM produto_conjunto_grupos pcg
+                LEFT JOIN categorias c ON c.id = pcg.categoria_id
+                LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                WHERE pcg.produto_conjunto_id = :produto_conjunto_id
+                ORDER BY pcg.ordem ASC, pcg.id ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindParam(':produto_conjunto_id', $produto_conjunto_id, PDO::PARAM_INT);
+        $stmt->execute();
+
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        exit;
+    } catch (PDOException $e) {
+        http_response_code(500);
+        error_log("Erro AJAX buscar_grupos_conjunto pedido/create: " . $e->getMessage());
+        echo json_encode(['error' => 'Erro no banco de dados ao buscar regras do conjunto.']);
         exit;
     }
 }
@@ -561,7 +643,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
                 if ($tipo_linha_atual === 'CABECALHO_SECAO') {
                     $item_data['nome_produto_manual'] = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Título';
-                } elseif ($tipo_linha_atual === 'PRODUTO') {
+                    $item_data['tipo'] = null;
+                    $item_data['usa_preco_no_total'] = 0;
+                } elseif (in_array($tipo_linha_atual, ['PRODUTO', 'CONJUNTO', 'ITEM_CONJUNTO'], true)) {
                     $item_data['produto_id'] = isset($_POST['produto_id'][$index]) && !empty($_POST['produto_id'][$index]) ? (int) $_POST['produto_id'][$index] : null;
 
                     if ($item_data['produto_id'] === null) {
@@ -575,9 +659,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
 
                     $item_data['tipo'] = $_POST['tipo_item'][$index] ?? 'locacao';
-                    $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
-                    $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
-                    $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+
+                    // Filho de conjunto comercial consulta estoque, mas não soma valor.
+                    if ($tipo_linha_atual === 'ITEM_CONJUNTO') {
+                        $item_data['preco_unitario'] = 0.00;
+                        $item_data['desconto'] = 0.00;
+                        $item_data['preco_final'] = 0.00;
+                        $item_data['usa_preco_no_total'] = 0;
+                    } else {
+                        $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
+                        $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
+                        $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
+                        $item_data['usa_preco_no_total'] = 1;
+                    }
                 } else {
                     continue;
                 }
@@ -1311,14 +1405,15 @@ include_once __DIR__ . '/../includes/header.php';
                         z-index: 1050;
                     }
                     .itens-scroll-container {
-                        max-height: 520px;
-                        min-height: 220px;
-                        overflow-y: auto;
-                        overflow-x: auto;
-                        border: 1px solid #dee2e6;
-                        border-radius: 4px;
-                        background: #ffffff;
-                    }
+    height: clamp(480px, calc(100vh - 155px), 840px);
+    min-height: 420px;
+    overflow-y: auto;
+    overflow-x: auto;
+    scrollbar-gutter: stable;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: #ffffff;
+}
                     .itens-scroll-container thead th {
                         position: sticky;
                         top: 0;
@@ -1332,10 +1427,11 @@ include_once __DIR__ . '/../includes/header.php';
                         background: #ffffff;
                     }
                     @media (max-height: 760px) {
-                        .itens-scroll-container {
-                            max-height: 430px;
-                        }
-                    }
+    .itens-scroll-container {
+        height: clamp(420px, calc(100vh - 135px), 700px);
+        min-height: 380px;
+    }
+}
 
                     /* Status compacto de disponibilidade na coluna própria */
                     #tabela_itens_pedido th,
@@ -1401,6 +1497,42 @@ include_once __DIR__ . '/../includes/header.php';
                         color: #475569;
                     }
 
+
+                    .item-conjunto-row td {
+                        background-color: #eef6ff !important;
+                        border-top: 2px solid #b6d4fe !important;
+                    }
+                    .item-conjunto-filho-row td {
+                        background-color: #f8fbff !important;
+                        font-size: 0.94rem;
+                    }
+                    .item-conjunto-filho-row .valor_unitario_item,
+                    .item-conjunto-filho-row .desconto_item {
+                        color: transparent !important;
+                        background-color: #f8fbff !important;
+                        border-color: #eef2f7 !important;
+                        pointer-events: none;
+                    }
+                    .conjunto-grupo-guia td {
+                        padding-top: 3px !important;
+                        padding-bottom: 3px !important;
+                        font-size: 0.72rem;
+                        line-height: 1.15;
+                        background: #fbfdff !important;
+                        cursor: pointer;
+                    }
+                    .conjunto-grupo-guia.table-active td {
+                        background: #e0f2fe !important;
+                    }
+                    .conjunto-grupo-guia .grupo-status-badge {
+                        font-size: 0.68rem;
+                        font-weight: 700;
+                        white-space: nowrap;
+                    }
+                    .foto-produto-linha,
+                    .foto-produto-sugestao {
+                        cursor: zoom-in !important;
+                    }
                     #painel_consulta_disponibilidade {
                         position: relative;
                         width: 100%;
@@ -1524,6 +1656,28 @@ include_once __DIR__ . '/../includes/header.php';
                         }
                     }
 
+
+                    /* Datepicker limpo: evita que sugestões/autocomplete do navegador fiquem sobre o calendário */
+                    .datepicker-dropdown,
+                    .datepicker-dropdown.dropdown-menu,
+                    body > .datepicker-dropdown,
+                    body > .datepicker-dropdown.dropdown-menu {
+                        z-index: 999999 !important;
+                        background: #ffffff !important;
+                        border: 1px solid #ced4da !important;
+                        box-shadow: 0 8px 18px rgba(0,0,0,0.18) !important;
+                    }
+                    .datepicker-dropdown table,
+                    .datepicker-dropdown .datepicker-days,
+                    .datepicker-dropdown .datepicker-months,
+                    .datepicker-dropdown .datepicker-years {
+                        background: #ffffff !important;
+                    }
+                    .datepicker-dropdown:before,
+                    .datepicker-dropdown:after {
+                        z-index: 1000000 !important;
+                    }
+
                 </style>
             </form>
         </div>
@@ -1576,9 +1730,24 @@ include_once __DIR__ . '/../includes/header.php';
 <?php
 $custom_js = <<<'JS'
 $(document).ready(function() {
+    // Evita sugestões antigas do navegador cobrindo o calendário.
+    // O campo começa readonly para o Chrome não abrir histórico/autocomplete;
+    // ao focar/clicar, remove readonly e o datepicker abre normalmente.
+    $('.datepicker').attr({
+        'autocomplete': 'off',
+        'aria-autocomplete': 'none',
+        'inputmode': 'numeric',
+        'autocorrect': 'off',
+        'autocapitalize': 'off',
+        'spellcheck': 'false',
+        'readonly': 'readonly'
+    });
+
     $('#btnUsarEnderecoCliente').hide();
     var itemIndex = 0;
     var disponibilidadeRequestSeq = 0;
+    var conjuntoAtivoIndex = null;
+    var conjuntoAtivoNome = '';
 
     function unformatCurrency(value) {
         if (!value || typeof value !== 'string') { return 0; }
@@ -1790,7 +1959,11 @@ $(document).ready(function() {
         itemIndex = 0;
 
         if (itens && itens.length > 0) {
+            let $ultimoConjuntoCarregado = null;
+
             $.each(itens, function(i, item) {
+                var tipoLinhaItem = item.tipo_linha || 'PRODUTO';
+
                 var itemPedido = {
                     id: item.produto_id || '',
                     nome_produto: item.nome_produto_catalogo || item.nome_produto_manual || 'Produto não identificado',
@@ -1800,26 +1973,50 @@ $(document).ready(function() {
                     observacoes: item.observacoes || '',
                     foto_path_completo: item.foto_path_completo || null,
                     tipo_item_loc_vend: item.tipo || 'locacao',
-                    nome_produto_manual: item.nome_produto_manual || ''
+                    nome_produto_manual: item.nome_produto_manual || '',
+                    categoria_id: item.categoria_id || null,
+                    subcategoria_id: item.subcategoria_id || null,
+                    eh_conjunto: parseInt(item.eh_conjunto || 0, 10) || (tipoLinhaItem === 'CONJUNTO' ? 1 : 0)
                 };
 
-                adicionarLinhaItemTabela(itemPedido, item.tipo_linha);
+                var $linhaCriada = adicionarLinhaItemTabela(itemPedido, tipoLinhaItem, tipoLinhaItem === 'ITEM_CONJUNTO' ? $ultimoConjuntoCarregado : null);
 
-                var $ultimaLinha = $('#tabela_itens_pedido tbody tr:last');
-                if (item.tipo_linha === 'PRODUTO') {
-                    $ultimaLinha.find('.item-qtd').val(itemPedido.quantidade).attr('data-valor-original', itemPedido.quantidade);
-                    $ultimaLinha.find('.item-valor-unitario').val(itemPedido.preco_locacao.toFixed(2).replace('.', ','));
-                    $ultimaLinha.find('.desconto_item').val(itemPedido.desconto.toFixed(2).replace('.', ','));
+                if (!$linhaCriada || !$linhaCriada.length) {
+                    return;
+                }
+
+                if (tipoLinhaItem === 'CONJUNTO') {
+                    $ultimoConjuntoCarregado = $linhaCriada;
+                    carregarRegrasConjunto(itemPedido.id, $linhaCriada, function() {
+                        atualizarGuiasConjunto($linhaCriada);
+                    });
+                } else if (tipoLinhaItem !== 'ITEM_CONJUNTO') {
+                    $ultimoConjuntoCarregado = null;
+                }
+
+                if (['PRODUTO', 'CONJUNTO', 'ITEM_CONJUNTO'].includes(tipoLinhaItem)) {
+                    $linhaCriada.find('.item-qtd').val(itemPedido.quantidade).attr('data-valor-original', itemPedido.quantidade);
+
+                    if (tipoLinhaItem === 'ITEM_CONJUNTO') {
+                        $linhaCriada.find('.item-valor-unitario').val('0,00').prop('readonly', true);
+                        $linhaCriada.find('.desconto_item').val('0,00').prop('readonly', true);
+                    } else {
+                        $linhaCriada.find('.item-valor-unitario').val(itemPedido.preco_locacao.toFixed(2).replace('.', ','));
+                        $linhaCriada.find('.desconto_item').val(itemPedido.desconto.toFixed(2).replace('.', ','));
+                    }
+
                     if (!itemPedido.id) {
-                        $ultimaLinha.find('.nome_produto_display').val(itemPedido.nome_produto).prop('readonly', false);
+                        $linhaCriada.find('.nome_produto_display').val(itemPedido.nome_produto).prop('readonly', false);
                     }
+
                     if (itemPedido.observacoes) {
-                        $ultimaLinha.find('.observacoes_item_input').val(itemPedido.observacoes).show();
-                        $ultimaLinha.find('.observacoes_item_label').show();
+                        $linhaCriada.find('.observacoes_item_input').val(itemPedido.observacoes).show();
+                        $linhaCriada.find('.observacoes_item_label').show();
                     }
-                    calcularSubtotalItem($ultimaLinha);
-                } else if (item.tipo_linha === 'CABECALHO_SECAO') {
-                    $ultimaLinha.find('.nome_titulo_secao').val(itemPedido.nome_produto_manual || itemPedido.nome_produto);
+
+                    calcularSubtotalItem($linhaCriada);
+                } else if (tipoLinhaItem === 'CABECALHO_SECAO') {
+                    $linhaCriada.find('.nome_titulo_secao').val(itemPedido.nome_produto_manual || itemPedido.nome_produto);
                 }
             });
         }
@@ -1891,7 +2088,30 @@ $(document).ready(function() {
         }, 60);
     }
 
-    function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam) {
+    function obterLinhaConjuntoPorIndex(conjuntoIndex) {
+        return $('#tabela_itens_pedido tbody tr.item-conjunto-row').filter(function() {
+            return parseInt($(this).data('index') || 0, 10) === parseInt(conjuntoIndex || 0, 10);
+        }).first();
+    }
+
+    function inserirLinhaNoBlocoDoConjunto($rowConjunto, $novaLinha) {
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        let $referencia = $rowConjunto;
+
+        $('#tabela_itens_pedido tbody tr').each(function() {
+            const $linha = $(this);
+            const ehGuia = $linha.hasClass('conjunto-grupo-guia') && parseInt($linha.data('conjunto-pai-index') || 0, 10) === conjuntoIndex;
+            const ehFilho = $linha.hasClass('item-conjunto-filho-row') && parseInt($linha.data('conjunto-pai-index') || 0, 10) === conjuntoIndex;
+
+            if (ehGuia || ehFilho) {
+                $referencia = $linha;
+            }
+        });
+
+        $novaLinha.insertAfter($referencia);
+    }
+
+    function adicionarLinhaItemTabela(dadosItem = null, tipoLinhaParam, $rowConjuntoDestino = null) {
         itemIndex++;
         var tipoLinha = tipoLinhaParam;
         var htmlLinha = '';
@@ -1907,25 +2127,42 @@ $(document).ready(function() {
         }
         var tipoItemLocVend = dadosItem ? (dadosItem.tipo_item_loc_vend || 'locacao') : 'locacao';
         var nomeInputName = "nome_produto_display[]";
+        var ehLinhaConjunto = tipoLinha === 'CONJUNTO';
+        var ehItemConjunto = tipoLinha === 'ITEM_CONJUNTO';
+        var quantidadeDefault = dadosItem && dadosItem.quantidade !== undefined && dadosItem.quantidade !== null && dadosItem.quantidade !== '' ? parseInt(dadosItem.quantidade, 10) : (ehLinhaConjunto ? 1 : 0);
+        var descontoDefault = dadosItem && dadosItem.desconto ? parseFloat(dadosItem.desconto) : 0;
+        var subtotalDefault = ehItemConjunto ? 0 : quantidadeDefault * (precoUnitarioDefault - descontoDefault);
+        var categoriaId = dadosItem && dadosItem.categoria_id ? dadosItem.categoria_id : '';
+        var subcategoriaId = dadosItem && dadosItem.subcategoria_id ? dadosItem.subcategoria_id : '';
+        var ehConjuntoProduto = dadosItem && parseInt(dadosItem.eh_conjunto || 0, 10) === 1 ? 1 : 0;
+        var imagemHtml = dadosItem && dadosItem.foto_path_completo
+            ? `<img src="${escapeHtml(dadosItem.foto_path_completo)}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${escapeHtml(dadosItem.foto_path_completo)}" data-nome-produto="${escapeHtml(nomeDisplay)}" title="Clique para ampliar a foto" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">`
+            : '';
 
-        if (tipoLinha === 'PRODUTO') {
-            var quantidadeDefault = dadosItem && dadosItem.quantidade !== undefined && dadosItem.quantidade !== null && dadosItem.quantidade !== '' ? parseInt(dadosItem.quantidade, 10) : 0;
-            var descontoDefault = dadosItem && dadosItem.desconto ? parseFloat(dadosItem.desconto) : 0;
-            var subtotalDefault = quantidadeDefault * (precoUnitarioDefault - descontoDefault);
-            var imagemHtml = dadosItem && dadosItem.foto_path_completo
-                ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">`
-                : '';
+        if (tipoLinha === 'PRODUTO' || tipoLinha === 'CONJUNTO' || tipoLinha === 'ITEM_CONJUNTO') {
+            let classeLinha = ehLinhaConjunto ? ' item-conjunto-row' : (ehItemConjunto ? ' item-conjunto-filho-row' : '');
+            let estiloLinha = ehLinhaConjunto ? 'background-color: #eef6ff !important; border-left: 4px solid #0d6efd;' : (ehItemConjunto ? 'background-color: #f8fbff !important;' : 'background-color: #ffffff !important;');
+            let larguraInput = ehItemConjunto ? 'calc(100% - 86px)' : 'calc(100% - 65px)';
+            let paddingTd = ehItemConjunto ? 'padding-left: 28px;' : '';
+            let precoValue = ehItemConjunto ? '0,00' : precoUnitarioDefault.toFixed(2).replace('.', ',');
+            let descontoValue = ehItemConjunto ? '0,00' : descontoDefault.toFixed(2).replace('.', ',');
+            let readonlyPreco = ehItemConjunto ? 'readonly' : '';
+            let observacao = dadosItem && dadosItem.observacoes ? dadosItem.observacoes : '';
+            let obsStyle = observacao ? '' : 'display:none;';
 
-            htmlLinha = `<tr class="item-pedido-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" style="background-color: #ffffff !important;">
-                <td>
+            htmlLinha = `<tr class="item-pedido-row${classeLinha}" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-categoria-id="${categoriaId}" data-subcategoria-id="${subcategoriaId}" data-eh-conjunto="${ehConjuntoProduto}" style="${estiloLinha}">
+                <td style="${paddingTd}">
+                    ${ehItemConjunto ? '<span class="text-primary mr-1" title="Item interno do conjunto"><i class="fas fa-level-up-alt fa-rotate-90"></i></span>' : ''}
                     ${imagemHtml}
-                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display" value="${nomeDisplay}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: calc(100% - 65px); vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}>
+                    <input type="text" name="${nomeInputName}" class="form-control form-control-sm nome_produto_display ${ehLinhaConjunto ? 'font-weight-bold text-primary' : ''}" value="${escapeHtml(nomeDisplay)}" placeholder="Nome do Produto/Serviço" style="display: inline-block; width: ${larguraInput}; vertical-align: middle;" ${dadosItem && dadosItem.id ? 'readonly' : ''}>
                     <input type="hidden" name="produto_id[]" class="produto_id" value="${produtoIdInput}">
                     <input type="hidden" name="tipo_linha[]" value="${tipoLinha}">
                     <input type="hidden" name="ordem[]" value="${itemIndex}">
                     <input type="hidden" name="tipo_item[]" value="${tipoItemLocVend}">
-                    <small class="form-text text-muted observacoes_item_label" style="display:none;">Obs. Item:</small>
-                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="display:none;" placeholder="Observação do item">
+                    ${ehLinhaConjunto ? '<small class="text-primary font-weight-bold ml-1"><i class="fas fa-layer-group"></i> Conjunto comercial</small>' : ''}
+                    ${ehItemConjunto ? '<small class="form-text text-muted">Item interno do conjunto · sem preço</small>' : ''}
+                    <small class="form-text text-muted observacoes_item_label" style="${obsStyle}">Obs. Item:</small>
+                    <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="${obsStyle}" placeholder="Observação do item" value="${escapeHtml(observacao)}">
                 </td>
                 <td class="status-disponibilidade-cell text-center">
                     <div class="disponibilidade-contexto status-neutro" style="display:none;"></div>
@@ -1934,14 +2171,15 @@ $(document).ready(function() {
                     <input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item text-center item-qtd" value="${quantidadeDefault}" min="0" data-valor-original="${quantidadeDefault}" style="width: 70px;">
                 </td>
                 <td>
-                    <input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoUnitarioDefault.toFixed(2).replace('.', ',')}">
+                    <input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="${precoValue}" ${readonlyPreco}>
                 </td>
                 <td>
-                    <input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoDefault.toFixed(2).replace('.', ',')}">
+                    <input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="${descontoValue}" ${readonlyPreco}>
                 </td>
                 <td class="subtotal_item_display text-right font-weight-bold">${formatCurrency(subtotalDefault).replace('R$ ', '')}</td>
                 <td>
                     <span class="drag-handle" style="cursor: move; margin-right: 10px; color: #555;"><i class="fas fa-arrows-alt"></i></span>
+                    ${ehLinhaConjunto ? '<button type="button" class="btn btn-xs btn-primary btn_montar_conjunto" title="Montar/continuar conjunto"><i class="fas fa-plus-circle"></i></button><button type="button" class="btn btn-xs btn-secondary btn_encerrar_conjunto" title="Encerrar montagem"><i class="fas fa-check"></i></button>' : ''}
                     <button type="button" class="btn btn-xs btn-info btn_obs_item" title="Observação"><i class="fas fa-comment-dots"></i></button>
                     <button type="button" class="btn btn-xs btn-danger btn_remover_item" title="Remover"><i class="fas fa-trash"></i></button>
                 </td>
@@ -1967,14 +2205,23 @@ $(document).ready(function() {
         }
 
         if (htmlLinha) {
-            $('#tabela_itens_pedido tbody').append(htmlLinha);
-            var $novaLinha = $('#tabela_itens_pedido tbody tr:last-child');
+            var $novaLinha = $(htmlLinha);
+
+            if (ehItemConjunto && $rowConjuntoDestino && $rowConjuntoDestino.length) {
+                const conjuntoIndex = parseInt($rowConjuntoDestino.data('index') || 0, 10) || 0;
+                $novaLinha.attr('data-conjunto-pai-index', conjuntoIndex).data('conjunto-pai-index', conjuntoIndex);
+                inserirLinhaNoBlocoDoConjunto($rowConjuntoDestino, $novaLinha);
+            } else {
+                $('#tabela_itens_pedido tbody').append($novaLinha);
+            }
+
             atualizarOrdemDosItens();
+
             if (tipoLinha === 'CABECALHO_SECAO') {
                 $novaLinha.find('.nome_titulo_secao').focus();
                 rolarTabelaItensParaLinha($novaLinha);
-            } else if (tipoLinha === 'PRODUTO') {
-                if (produtoIdInput) {
+            } else {
+                if (produtoIdInput && !ehLinhaConjunto) {
                     revalidarTodasLinhasPedido($novaLinha);
                 }
                 rolarTabelaItensParaLinha($novaLinha);
@@ -1982,8 +2229,12 @@ $(document).ready(function() {
                     $novaLinha.find('.item-qtd').focus().select();
                 }, 120);
             }
+
             calcularTotaisPedido();
+            return $novaLinha;
         }
+
+        return $();
     }
 
     function carregarSugestoesProdutos() {
@@ -2006,25 +2257,32 @@ $(document).ready(function() {
                     $.each(produtos, function(i, produto) {
                         let preco = parseFloat(produto.preco_locacao) || 0;
                         let fotoHtml = produto.foto_path_completo
-                            ? `<img src="${produto.foto_path_completo}" alt="Miniatura" onerror="this.style.display='none';" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${produto.foto_path_completo}" data-nome-produto="${produto.nome_produto || 'Produto'}">`
+                            ? `<img src="${escapeHtml(produto.foto_path_completo)}" alt="Miniatura" onerror="this.style.display='none';" class="img-thumbnail mr-2 foto-produto-sugestao" style="width: 40px; height: 40px; object-fit: cover; cursor:pointer;" data-foto-completa="${escapeHtml(produto.foto_path_completo)}" data-nome-produto="${escapeHtml(produto.nome_produto || 'Produto')}">`
                             : `<span class="mr-2 d-inline-block text-center text-muted" style="width: 40px; height: 40px; line-height:40px; border:1px solid #eee; font-size:0.8em;"><i class="fas fa-camera"></i></span>`;
 
                         let fotoPathParaDataAttribute = produto.foto_path_completo ? produto.foto_path_completo : '';
+                        let ehConjunto = parseInt(produto.eh_conjunto || 0, 10) === 1;
+                        let textoEstoque = ehConjunto
+                            ? '<small class="d-block text-primary"><i class="fas fa-layer-group"></i> Conjunto comercial</small><small class="d-block text-muted">Selecione para montar os itens internos</small>'
+                            : (produto.tipo_produto === 'COMPOSTO'
+                                ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>'
+                                : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : ''));
 
                         $('#sugestoes_produtos').append(
                             `<a href="#" class="list-group-item list-group-item-action d-flex align-items-center item-sugestao-produto py-2"
                                 data-id="${produto.id}"
-                                data-nome="${produto.nome_produto || 'Sem nome'}"
-                                data-codigo="${produto.codigo || ''}"
+                                data-nome="${escapeHtml(produto.nome_produto || 'Sem nome')}"
+                                data-codigo="${escapeHtml(produto.codigo || '')}"
                                 data-preco="${preco}"
-                                data-foto-completa="${fotoPathParaDataAttribute}">
+                                data-foto-completa="${escapeHtml(fotoPathParaDataAttribute)}"
+                                data-eh-conjunto="${ehConjunto ? 1 : 0}"
+                                data-categoria-id="${produto.categoria_id || ''}"
+                                data-subcategoria-id="${produto.subcategoria_id || ''}">
                                 ${fotoHtml}
                                 <div class="flex-grow-1">
-                                    <strong>${produto.nome_produto || 'Sem nome'}</strong>
-                                    ${produto.codigo ? '<small class="d-block text-muted">Cód: ' + produto.codigo + '</small>' : ''}
-                                    ${produto.tipo_produto === 'COMPOSTO'
-                                        ? '<small class="d-block text-info">Estoque por componentes</small><small class="d-block text-muted">Selecione para consultar capa e estrutura</small>'
-                                        : (produto.quantidade_total !== null ? '<small class="d-block text-info">Estoque: ' + produto.quantidade_total + '</small>' : '')}
+                                    <strong>${escapeHtml(produto.nome_produto || 'Sem nome')}</strong>
+                                    ${produto.codigo ? '<small class="d-block text-muted">Cód: ' + escapeHtml(produto.codigo) + '</small>' : ''}
+                                    ${textoEstoque}
                                 </div>
                                 <span class="ml-auto text-primary font-weight-bold">R$ ${preco.toFixed(2).replace('.', ',')}</span>
                             </a>`
@@ -2041,9 +2299,383 @@ $(document).ready(function() {
         });
     }
 
+
     function escapeHtml(text) {
         if (text === null || text === undefined) { return ''; }
         return $('<div>').text(text).html();
+    }
+
+    function regraCasaComProduto(regra, produto) {
+        if (!regra || !produto) { return false; }
+        const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
+        const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
+        const produtoSubcategoria = parseInt(produto.subcategoria_id || 0, 10) || 0;
+        const produtoCategoria = parseInt(produto.categoria_id || 0, 10) || 0;
+        if (regraSubcategoria > 0) { return produtoSubcategoria === regraSubcategoria; }
+        if (regraCategoria > 0) { return produtoCategoria === regraCategoria; }
+        return false;
+    }
+
+    function carregarRegrasConjunto(produtoId, $rowConjunto, callback) {
+        if (!$rowConjunto || !$rowConjunto.length || !produtoId) {
+            if (typeof callback === 'function') { callback([]); }
+            return;
+        }
+
+        $.ajax({
+            url: 'create.php',
+            type: 'GET',
+            dataType: 'json',
+            data: {
+                ajax: 'buscar_grupos_conjunto',
+                produto_id: produtoId
+            },
+            success: function(grupos) {
+                if (!Array.isArray(grupos)) { grupos = []; }
+
+                grupos = grupos.map(function(grupo) {
+                    grupo.categoria_id = parseInt(grupo.categoria_id || 0, 10) || 0;
+                    grupo.subcategoria_id = parseInt(grupo.subcategoria_id || 0, 10) || 0;
+                    grupo.quantidade_por_conjunto = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+                    return grupo;
+                });
+
+                $rowConjunto.data('regras-conjunto', grupos);
+                $rowConjunto.attr('data-regras-carregadas', '1');
+                $rowConjunto.find('.regras-conjunto-resumo').remove();
+
+                const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+                $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+
+                if (!grupos.length) {
+                    $rowConjunto.find('td:first small.text-primary').after('<small class="form-text text-warning regras-conjunto-resumo">Sem grupos de montagem cadastrados.</small>');
+                    if (typeof callback === 'function') { callback(grupos); }
+                    return;
+                }
+
+                let resumo = '<small class="form-text text-muted regras-conjunto-resumo">';
+                resumo += grupos.map(function(grupo) {
+                    return escapeHtml(grupo.nome_grupo || 'Grupo') + ': ' + (grupo.quantidade_por_conjunto || 0) + ' por conjunto';
+                }).join('<br>');
+                resumo += '</small>';
+                $rowConjunto.find('td:first small.text-primary').after(resumo);
+
+                let $referencia = $rowConjunto;
+                grupos.forEach(function(grupo) {
+                    const qtdNecessaria = (parseFloat(grupo.quantidade_por_conjunto || 0) || 0) * (parseInt($rowConjunto.find('.item-qtd').val(), 10) || 0);
+                    const guiaHtml = `<tr class="conjunto-grupo-guia" data-conjunto-pai-index="${conjuntoIndex}" data-categoria-id="${grupo.categoria_id || ''}" data-subcategoria-id="${grupo.subcategoria_id || ''}" data-grupo-id="${grupo.id || ''}">
+                        <td colspan="6" style="padding-left: 28px;">
+                            <span class="text-primary font-weight-bold"><i class="fas fa-layer-group"></i> ${escapeHtml(grupo.nome_grupo || 'Grupo')}</span>
+                            <span class="ml-2 text-muted">${grupo.quantidade_por_conjunto || 0} por conjunto</span>
+                        </td>
+                        <td class="text-right"><span class="badge badge-pill badge-warning grupo-status-badge">Faltam ${qtdNecessaria}</span></td>
+                    </tr>`;
+                    const $guia = $(guiaHtml);
+                    $guia.insertAfter($referencia);
+                    $referencia = $guia;
+                });
+
+                atualizarGuiasConjunto($rowConjunto);
+
+                if (typeof callback === 'function') { callback(grupos); }
+            },
+            error: function() {
+                Swal.fire('Erro', 'Não foi possível carregar as regras do conjunto.', 'error');
+                if (typeof callback === 'function') { callback([]); }
+            }
+        });
+    }
+
+    function obterRegraSelecionadaDoConjunto($rowConjunto) {
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        const $guia = $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia.table-active[data-conjunto-pai-index="' + conjuntoIndex + '"]').first();
+        if (!$guia.length) { return null; }
+
+        return {
+            id: $guia.data('grupo-id') || null,
+            categoria_id: parseInt($guia.data('categoria-id') || 0, 10) || 0,
+            subcategoria_id: parseInt($guia.data('subcategoria-id') || 0, 10) || 0
+        };
+    }
+
+    function selecionarGrupoConjunto($guia, abrirSugestoes = true) {
+        const conjuntoIndex = parseInt($guia.data('conjunto-pai-index') || 0, 10) || 0;
+        const categoriaId = $guia.data('categoria-id') || '';
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+
+        if ($rowConjunto.length) {
+            ativarMontagemConjunto($rowConjunto, false);
+        }
+
+        $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia').removeClass('table-active');
+        $guia.addClass('table-active');
+
+        if (categoriaId) {
+            $('#busca_categoria_produto').val(String(categoriaId));
+        }
+
+        $('#busca_produto').val('').focus();
+
+        if (abrirSugestoes) {
+            carregarSugestoesProdutos();
+        }
+    }
+
+    function ativarMontagemConjunto($rowConjunto, mostrarMensagem = true) {
+        conjuntoAtivoIndex = parseInt($rowConjunto.data('index'), 10) || null;
+        conjuntoAtivoNome = $rowConjunto.find('.nome_produto_display').val() || 'Conjunto';
+
+        $('#tabela_itens_pedido tbody tr.item-conjunto-row').removeClass('table-primary');
+        $rowConjunto.addClass('table-primary');
+
+        const produtoConjuntoId = parseInt($rowConjunto.find('.produto_id').val(), 10) || 0;
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        const temGuias = $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').length > 0;
+
+        if ((!temGuias || !regras.length) && produtoConjuntoId > 0) {
+            carregarRegrasConjunto(produtoConjuntoId, $rowConjunto);
+        }
+
+        if (mostrarMensagem) {
+            Swal.fire({
+                title: 'Montagem do conjunto ativa',
+                html: 'Agora selecione os produtos internos pela busca normal.<br><strong>' + escapeHtml(conjuntoAtivoNome) + '</strong><br><small>Os itens internos entrarão com valor zero e continuarão consultando estoque.</small>',
+                icon: 'info',
+                confirmButtonText: 'Entendi'
+            });
+        }
+    }
+
+    function encerrarMontagemConjunto() {
+        if (conjuntoAtivoIndex !== null) {
+            const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+            if ($rowConjunto.length && !validarFechamentoConjunto($rowConjunto, true)) {
+                return false;
+            }
+        }
+
+        conjuntoAtivoIndex = null;
+        conjuntoAtivoNome = '';
+        $('#tabela_itens_pedido tbody tr.item-conjunto-row').removeClass('table-primary');
+        $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia').removeClass('table-active');
+        return true;
+    }
+
+    function adicionarConjuntoAoPedido(produto) {
+        var $rowConjunto = adicionarLinhaItemTabela(produto, 'CONJUNTO');
+        $('#busca_produto').val('').blur();
+        $('#sugestoes_produtos').empty().hide();
+
+        if ($rowConjunto && $rowConjunto.length) {
+            carregarRegrasConjunto(produto.id, $rowConjunto, function() {
+                ativarMontagemConjunto($rowConjunto, true);
+            });
+        }
+    }
+
+    function obterRegraCompletaDoConjunto($rowConjunto, regraBase) {
+        const regras = $rowConjunto && $rowConjunto.length ? ($rowConjunto.data('regras-conjunto') || []) : [];
+        if (!regraBase) { return null; }
+
+        const regraId = parseInt(regraBase.id || 0, 10) || 0;
+        if (regraId > 0) {
+            const encontradaPorId = regras.find(function(regra) {
+                return parseInt(regra.id || 0, 10) === regraId;
+            });
+            if (encontradaPorId) { return encontradaPorId; }
+        }
+
+        return regras.find(function(regra) {
+            return regraCasaComProduto(regra, regraBase);
+        }) || regraBase;
+    }
+
+    function selecionarGuiaDoConjuntoPorRegra($rowConjunto, regra) {
+        if (!$rowConjunto || !$rowConjunto.length || !regra) { return; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        const regraId = parseInt(regra.id || 0, 10) || 0;
+        let $guia = $();
+
+        if (regraId > 0) {
+            $guia = $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"][data-grupo-id="' + regraId + '"]').first();
+        }
+
+        if (!$guia.length) {
+            $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+                const $candidata = $(this);
+                const regraGuia = {
+                    categoria_id: parseInt($candidata.data('categoria-id') || 0, 10) || 0,
+                    subcategoria_id: parseInt($candidata.data('subcategoria-id') || 0, 10) || 0
+                };
+                if (regraCasaComProduto(regraGuia, regra)) {
+                    $guia = $candidata;
+                    return false;
+                }
+            });
+        }
+
+        if ($guia.length) {
+            selecionarGrupoConjunto($guia, false);
+        }
+    }
+
+    function calcularQuantidadeLancadaNoGrupo($rowConjunto, regra) {
+        if (!$rowConjunto || !$rowConjunto.length || !regra) { return 0; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        let lancado = 0;
+
+        $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const produtoLinha = {
+                categoria_id: parseInt($(this).data('categoria-id') || 0, 10) || 0,
+                subcategoria_id: parseInt($(this).data('subcategoria-id') || 0, 10) || 0
+            };
+
+            if (regraCasaComProduto(regra, produtoLinha)) {
+                lancado += parseInt($(this).find('.item-qtd').val(), 10) || 0;
+            }
+        });
+
+        return lancado;
+    }
+
+    function adicionarItemAoConjuntoAtivo(produto) {
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+        const regras = $rowConjunto.length ? ($rowConjunto.data('regras-conjunto') || []) : [];
+
+        if (!$rowConjunto.length) {
+            Swal.fire('Conjunto não localizado', 'Ative novamente a montagem do conjunto antes de adicionar itens internos.', 'warning');
+            return false;
+        }
+
+        if (!regras.length) {
+            Swal.fire('Regras não carregadas', 'Aguarde carregar as regras do conjunto e tente novamente.', 'warning');
+            carregarRegrasConjunto(parseInt($rowConjunto.find('.produto_id').val(), 10) || 0, $rowConjunto);
+            return false;
+        }
+
+        let regraSelecionada = obterRegraSelecionadaDoConjunto($rowConjunto);
+
+        // Mantém o fluxo do orçamento: se o usuário está com um conjunto ativo e escolhe
+        // um produto pela busca/categoria, tenta encaixar automaticamente no grupo compatível.
+        // Assim não obriga clicar na guia Bistrô/Pufes quando só há um grupo possível para aquele produto.
+        if (!regraSelecionada) {
+            const regrasCompativeis = regras.filter(function(regra) {
+                return regraCasaComProduto(regra, produto);
+            });
+
+            if (regrasCompativeis.length === 1) {
+                regraSelecionada = regrasCompativeis[0];
+                selecionarGuiaDoConjuntoPorRegra($rowConjunto, regraSelecionada);
+            } else if (regrasCompativeis.length === 0) {
+                Swal.fire('Produto fora da montagem', 'Este produto não pertence a nenhum grupo deste conjunto. Nada foi alterado.', 'warning');
+                return false;
+            } else {
+                Swal.fire('Selecione o grupo', 'Este produto pode servir para mais de um grupo. Clique primeiro na guia correta do conjunto e selecione novamente.', 'warning');
+                return false;
+            }
+        }
+
+        if (!regraCasaComProduto(regraSelecionada, produto)) {
+            Swal.fire('Produto fora da montagem', 'Este produto não pertence ao grupo selecionado para este conjunto. Nada foi alterado.', 'warning');
+            return false;
+        }
+
+        const quantidadeConjunto = parseInt($rowConjunto.find('.item-qtd').val(), 10) || 0;
+        const regraCompleta = obterRegraCompletaDoConjunto($rowConjunto, regraSelecionada);
+        const quantidadePorConjunto = parseFloat(regraCompleta.quantidade_por_conjunto || 1) || 1;
+        const quantidadeNecessaria = Math.round(quantidadeConjunto * quantidadePorConjunto);
+        const quantidadeLancada = calcularQuantidadeLancadaNoGrupo($rowConjunto, regraCompleta);
+        const quantidadeFaltante = Math.max(0, quantidadeNecessaria - quantidadeLancada);
+
+        // Em vez de jogar sempre a quantidade total do grupo, abre a linha com o que falta.
+        // Ex.: conjunto pede 4 pufes; se já lançou 2 azuis, o próximo pufe entra com 2.
+        // Se o grupo já estiver completo, entra com 1 para permitir acréscimo manual consciente.
+        produto.quantidade = quantidadeFaltante > 0 ? quantidadeFaltante : 1;
+        produto.tipo_item_loc_vend = 'locacao';
+
+        const $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO', $rowConjunto);
+        if ($rowItem && $rowItem.length) {
+            revalidarTodasLinhasPedido($rowItem);
+            atualizarGuiasConjunto($rowConjunto);
+        }
+
+        $('#busca_produto').val('').focus();
+        $('#sugestoes_produtos').empty().hide();
+        return true;
+    }
+
+    function atualizarGuiasConjunto($rowConjunto) {
+        if (!$rowConjunto || !$rowConjunto.length) { return; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        const quantidadeConjunto = parseInt($rowConjunto.find('.item-qtd').val(), 10) || 0;
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+
+        $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const $guia = $(this);
+            const regraId = parseInt($guia.data('grupo-id') || 0, 10) || 0;
+            const regra = regras.find(function(r) { return parseInt(r.id || 0, 10) === regraId; }) || null;
+            const qtdPorConjunto = regra ? (parseFloat(regra.quantidade_por_conjunto || 0) || 0) : 0;
+            const necessario = quantidadeConjunto * qtdPorConjunto;
+            let lancado = 0;
+
+            $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+                const produto = {
+                    categoria_id: parseInt($(this).data('categoria-id') || 0, 10) || 0,
+                    subcategoria_id: parseInt($(this).data('subcategoria-id') || 0, 10) || 0
+                };
+                if (regra && regraCasaComProduto(regra, produto)) {
+                    lancado += parseInt($(this).find('.item-qtd').val(), 10) || 0;
+                }
+            });
+
+            const texto = lancado >= necessario ? 'OK: ' + lancado + '/' + necessario : 'Faltam ' + (necessario - lancado) + ' · ' + lancado + '/' + necessario;
+            const classe = lancado >= necessario ? 'badge-success' : 'badge-warning';
+            $guia.find('.grupo-status-badge').removeClass('badge-success badge-warning').addClass(classe).text(texto);
+        });
+    }
+
+    function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
+        if (!$rowConjunto || !$rowConjunto.length) { return true; }
+
+        atualizarGuiasConjunto($rowConjunto);
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        let incompleto = false;
+        const mensagens = [];
+
+        $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const texto = $(this).find('.grupo-status-badge').text() || '';
+            if (texto.indexOf('Faltam') === 0) {
+                incompleto = true;
+                mensagens.push($(this).find('td:first .font-weight-bold').text() + ': ' + texto);
+            }
+        });
+
+        if (incompleto && mostrarAlerta) {
+            Swal.fire({
+                title: 'Conjunto incompleto ou inválido',
+                html: 'Ajuste a montagem do conjunto <strong>' + escapeHtml($rowConjunto.find('.nome_produto_display').val() || 'Conjunto') + '</strong> antes de salvar.<br><br>' + mensagens.map(m => '• ' + escapeHtml(m)).join('<br>'),
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+        }
+
+        return !incompleto;
+    }
+
+    function validarTodosConjuntosAntesSalvar(mostrarAlerta = true) {
+        let ok = true;
+        $('#tabela_itens_pedido tbody tr.item-conjunto-row').each(function() {
+            if (!validarFechamentoConjunto($(this), mostrarAlerta)) {
+                ok = false;
+                return false;
+            }
+        });
+        return ok;
     }
 
     function obterPeriodoConsultaAtual() {
@@ -2225,7 +2857,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
         limparStatusLinhaDisponibilidade($row);
         const classe = obterClasseStatusDisponibilidade(response);
-        $contexto.removeClass('status-ok status-atencao status-indisponivel').addClass('status-' + classe).html(montarResumoLinhaDisponibilidade(response)).show();
+        $contexto.removeClass('status-neutro status-ok status-atencao status-indisponivel').addClass('status-' + classe).html(montarResumoLinhaDisponibilidade(response)).show();
         $row.data('disponibilidade-response', response);
 
         if (classe === 'indisponivel') {
@@ -2243,7 +2875,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);
 
-            if (($row.data('tipo-linha') || '') !== 'PRODUTO') {
+            if (!['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
                 return;
             }
 
@@ -2371,11 +3003,16 @@ if (response.produto_composto && response.componentes && response.componentes.le
     }
 
     function revalidarTodasLinhasPedido($rowAlerta = null) {
+        if (!validarSequenciaDatasLogisticaPedido(false)) {
+            marcarLinhasPedidoComoPeriodoInvalido();
+            return;
+        }
+
         const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
 
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);
-            if (($row.data('tipo-linha') || '') === 'PRODUTO' && $row.find('.produto_id').val()) {
+            if (['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '') && $row.find('.produto_id').val()) {
                 const deveAlertar = rowAlertaEl && this === rowAlertaEl;
                 atualizarContextoDisponibilidadeLinha($row, deveAlertar);
             }
@@ -2447,8 +3084,21 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 id: produtoId,
                 nome_produto: $(this).data('nome'),
                 preco_locacao: $(this).data('preco'),
-                foto_path_completo: $(this).data('foto-completa')
+                foto_path_completo: $(this).data('foto-completa'),
+                eh_conjunto: parseInt($(this).data('eh-conjunto') || 0, 10),
+                categoria_id: parseInt($(this).data('categoria-id') || 0, 10) || null,
+                subcategoria_id: parseInt($(this).data('subcategoria-id') || 0, 10) || null
             };
+
+            if (produto.eh_conjunto === 1) {
+                adicionarConjuntoAoPedido(produto);
+                return;
+            }
+
+            if (conjuntoAtivoIndex !== null) {
+                adicionarItemAoConjuntoAtivo(produto);
+                return;
+            }
 
             verificarEstoqueAntes(produto);
         };
@@ -2473,6 +3123,61 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }
     });
 
+    $('#busca_categoria_produto').on('click focus', function() {
+        if ($(this).val()) {
+            setTimeout(carregarSugestoesProdutos, 60);
+        }
+    });
+
+    $('#tabela_itens_pedido').on('click', '.foto-produto-linha', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var fotoUrl = $(this).data('foto-completa');
+        var nomeProduto = $(this).data('nome-produto') || 'Produto';
+
+        if (fotoUrl) {
+            Swal.fire({
+                title: nomeProduto,
+                imageUrl: fotoUrl,
+                imageAlt: 'Foto ampliada de ' + nomeProduto,
+                imageWidth: '90%',
+                confirmButtonText: 'Fechar'
+            });
+        }
+    });
+
+    $('#tabela_itens_pedido').on('click', '.conjunto-grupo-guia', function() {
+        selecionarGrupoConjunto($(this), true);
+    });
+
+    $('#tabela_itens_pedido').on('click', '.btn_montar_conjunto', function() {
+        const $rowConjunto = $(this).closest('tr');
+        const produtoId = parseInt($rowConjunto.find('.produto_id').val(), 10) || 0;
+
+        if (!$rowConjunto.data('regras-conjunto') || !($rowConjunto.data('regras-conjunto') || []).length) {
+            carregarRegrasConjunto(produtoId, $rowConjunto, function() {
+                ativarMontagemConjunto($rowConjunto, true);
+            });
+            return;
+        }
+
+        ativarMontagemConjunto($rowConjunto, true);
+    });
+
+    $('#tabela_itens_pedido').on('click', '.btn_encerrar_conjunto', function() {
+        if (!encerrarMontagemConjunto()) {
+            return;
+        }
+        Swal.fire({
+            title: 'Montagem encerrada',
+            text: 'Os próximos produtos selecionados entrarão como itens normais do pedido.',
+            icon: 'success',
+            timer: 1400,
+            showConfirmButton: false
+        });
+    });
+
+
     $('#btn_adicionar_titulo_secao').click(function() {
         adicionarLinhaItemTabela(null, 'CABECALHO_SECAO');
     });
@@ -2482,7 +3187,27 @@ if (response.produto_composto && response.componentes && response.componentes.le
     });
 
     $('#tabela_itens_pedido').on('click', '.btn_remover_item', function() {
-        $(this).closest('tr').remove();
+        const $row = $(this).closest('tr');
+        const conjuntoIndex = parseInt($row.data('index') || 0, 10) || 0;
+
+        if ($row.hasClass('item-conjunto-row')) {
+            $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+            $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').remove();
+            if (conjuntoAtivoIndex === conjuntoIndex) {
+                conjuntoAtivoIndex = null;
+                conjuntoAtivoNome = '';
+            }
+        } else if ($row.hasClass('item-conjunto-filho-row')) {
+            const conjuntoPaiIndex = parseInt($row.data('conjunto-pai-index') || 0, 10) || 0;
+            $row.remove();
+            atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoPaiIndex));
+            atualizarOrdemDosItens();
+            calcularTotaisPedido();
+            revalidarTodasLinhasPedido();
+            return;
+        }
+
+        $row.remove();
         atualizarOrdemDosItens();
         calcularTotaisPedido();
         revalidarTodasLinhasPedido();
@@ -2519,6 +3244,15 @@ if (response.produto_composto && response.componentes && response.componentes.le
 
         $input.data('validacao-timeout', setTimeout(function() {
             validarEstoqueQuantidade($row);
+
+            if ($row.hasClass('item-conjunto-row')) {
+                carregarRegrasConjunto(parseInt($row.find('.produto_id').val(), 10) || 0, $row, function() {
+                    atualizarGuiasConjunto($row);
+                });
+            } else if ($row.hasClass('item-conjunto-filho-row')) {
+                const conjuntoIndex = parseInt($row.data('conjunto-pai-index') || 0, 10) || 0;
+                atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoIndex));
+            }
         }, 800));
     });
 
@@ -2621,21 +3355,31 @@ if (response.produto_composto && response.componentes && response.componentes.le
         });
     }
 
+    $('.datepicker').on('focus click', function() {
+        $(this).removeAttr('readonly');
+    });
+
     if (typeof $.fn.datepicker === 'function') {
         $('.datepicker').datepicker({
             format: 'dd/mm/yyyy',
             language: 'pt-BR',
             autoclose: true,
             todayHighlight: true,
-            orientation: "bottom auto"
+            orientation: "bottom auto",
+            container: 'body',
+            zIndexOffset: 999990
         });
     }
+
+    $('.datepicker').on('blur', function() {
+        $(this).attr('readonly', 'readonly');
+    });
 
     const diasDaSemana = ['DOMINGO', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO'];
     function exibirDiaSemana(inputId, displayId) {
         var dataStr = $(inputId).val();
         var displayEl = $(displayId);
-        displayEl.text('').removeClass('text-danger font-weight-bold text-success');
+        displayEl.text('').removeData('dia-semana-base').removeClass('text-danger font-weight-bold text-success text-warning');
 
         if (dataStr) {
             var partes = dataStr.split('/');
@@ -2643,6 +3387,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 var dataObj = new Date(partes[2], partes[1] - 1, partes[0]);
                 if (!isNaN(dataObj.valueOf())) {
                     var diaSemana = diasDaSemana[dataObj.getDay()];
+                    displayEl.data('dia-semana-base', diaSemana);
                     displayEl.text(diaSemana).addClass('font-weight-bold');
                     if (dataObj.getDay() === 0 || dataObj.getDay() === 6) {
                         displayEl.addClass('text-danger');
@@ -2655,12 +3400,199 @@ if (response.produto_composto && response.componentes && response.componentes.le
         }
     }
 
-    $('#data_evento').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_evento'); }).trigger('change');
-    $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
-    $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
+    $('#data_evento').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_evento');
+    validarSequenciaDatasLogisticaPedido(false);
+}).trigger('change');
 
-    $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+$('#data_entrega').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_entrega');
+    validarSequenciaDatasLogisticaPedido(false);
+}).trigger('change');
+
+$('#data_devolucao_prevista').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_devolucao');
+    validarSequenciaDatasLogisticaPedido(false);
+}).trigger('change');
+
+    function converterDataBRParaDate(valor) {
+        valor = String(valor || '').trim();
+
+        if (!valor) {
+            return null;
+        }
+
+        const partes = valor.split('/');
+        if (partes.length !== 3) {
+            return null;
+        }
+
+        const dia = parseInt(partes[0], 10);
+        const mes = parseInt(partes[1], 10);
+        const ano = parseInt(partes[2], 10);
+
+        if (!dia || !mes || !ano) {
+            return null;
+        }
+
+        const data = new Date(ano, mes - 1, dia);
+
+        if (
+            data.getFullYear() !== ano ||
+            data.getMonth() !== mes - 1 ||
+            data.getDate() !== dia
+        ) {
+            return null;
+        }
+
+        data.setHours(0, 0, 0, 0);
+        return data;
+    }
+
+    function aplicarFeedbackData(displayId, tipo, mensagem) {
+        const $display = $(displayId);
+        const base = $display.data('dia-semana-base') || '';
+        const classeBase = $display.hasClass('text-danger') ? 'text-danger' : 'text-success';
+
+        if (!base && !mensagem) {
+            $display.text('');
+            return;
+        }
+
+        let statusHtml = '';
+        if (mensagem) {
+            if (tipo === 'erro') {
+                statusHtml = ' <span class="text-warning">· ⚠ ' + escapeHtml(mensagem) + '</span>';
+            } else if (tipo === 'ok') {
+                statusHtml = ' <span class="text-success">· ✓ OK</span>';
+            } else if (tipo === 'info') {
+                statusHtml = ' <span class="text-muted">· ' + escapeHtml(mensagem) + '</span>';
+            }
+        }
+
+        $display.removeClass('text-danger text-success text-warning').addClass('font-weight-bold ' + classeBase);
+        $display.html(escapeHtml(base) + statusHtml);
+    }
+
+    function limparFeedbackDatasLogistica() {
+        aplicarFeedbackData('#dia_semana_evento', '', '');
+        aplicarFeedbackData('#dia_semana_entrega', '', '');
+        aplicarFeedbackData('#dia_semana_devolucao', '', '');
+    }
+
+    function marcarDatasLogisticasComoOk(dataEvento, dataEntrega, dataDevolucao) {
+        if (dataEvento) {
+            aplicarFeedbackData('#dia_semana_evento', 'ok', 'OK');
+        }
+        if (dataEntrega) {
+            aplicarFeedbackData('#dia_semana_entrega', 'ok', 'OK');
+        }
+        if (dataDevolucao) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'ok', 'OK');
+        }
+    }
+
+    function validarSequenciaDatasLogisticaPedido(mostrarAlerta = true) {
+        const dataEventoStr = $('#data_evento').val();
+        const dataEntregaStr = $('#data_entrega').val();
+        const dataDevolucaoStr = $('#data_devolucao_prevista').val();
+
+        const dataEvento = converterDataBRParaDate(dataEventoStr);
+        const dataEntrega = converterDataBRParaDate(dataEntregaStr);
+        const dataDevolucao = converterDataBRParaDate(dataDevolucaoStr);
+
+        limparFeedbackDatasLogistica();
+
+        // Pedido pode ser cadastrado com data antiga/histórica.
+        // A validação só bloqueia contradições reais entre as datas preenchidas.
+        if (dataEntrega && dataEvento && dataEntrega > dataEvento) {
+            aplicarFeedbackData('#dia_semana_entrega', 'erro', 'entrega depois do evento');
+            aplicarFeedbackData('#dia_semana_evento', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Data de entrega inválida',
+                    html: 'A <strong>data da entrega</strong> não pode ser depois da <strong>data do evento</strong>.<br><br>' +
+                          '<strong>Entrega:</strong> ' + escapeHtml(dataEntregaStr) + '<br>' +
+                          '<strong>Evento:</strong> ' + escapeHtml(dataEventoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        if (dataEvento && dataDevolucao && dataDevolucao < dataEvento) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'erro', 'antes do evento');
+            aplicarFeedbackData('#dia_semana_evento', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Data de devolução inválida',
+                    html: 'A <strong>data da devolução/coleta</strong> não pode ser antes da <strong>data do evento</strong>.<br><br>' +
+                          '<strong>Evento:</strong> ' + escapeHtml(dataEventoStr) + '<br>' +
+                          '<strong>Devolução:</strong> ' + escapeHtml(dataDevolucaoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        if (dataEntrega && dataDevolucao && dataDevolucao < dataEntrega) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'erro', 'antes da entrega');
+            aplicarFeedbackData('#dia_semana_entrega', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Período logístico inválido',
+                    html: 'A <strong>data da devolução/coleta</strong> não pode ser antes da <strong>data da entrega</strong>.<br><br>' +
+                          '<strong>Entrega:</strong> ' + escapeHtml(dataEntregaStr) + '<br>' +
+                          '<strong>Devolução:</strong> ' + escapeHtml(dataDevolucaoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        marcarDatasLogisticasComoOk(dataEvento, dataEntrega, dataDevolucao);
+        return true;
+    }
+
+    function marcarLinhasPedidoComoPeriodoInvalido() {
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+            const $row = $(this);
+
+            if (!['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
+                return;
+            }
+
+            limparStatusLinhaDisponibilidade($row);
+
+            $row.find('.disponibilidade-contexto')
+                .removeClass('status-ok status-atencao status-indisponivel')
+                .addClass('status-neutro')
+                .html('<span class="status-principal">AJUSTAR DATAS</span><span class="status-detalhe">· período inválido</span>')
+                .show();
+        });
+    }
+
+    // Revalida as linhas quando o período logístico muda.
+    // Se as datas estiverem incoerentes, não consulta estoque para não pintar tudo de vermelho/amarelo indevidamente.
+    $('#data_evento, #data_entrega, #data_devolucao_prevista, #hora_entrega, #turno_entrega, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
         $('#tabela_itens_pedido tbody tr.item-pedido-row').removeData('alerta-indisponivel-chave');
+
+        const ehCampoDataPrincipal = ['data_evento', 'data_entrega', 'data_devolucao_prevista'].includes(this.id);
+
+        if (!validarSequenciaDatasLogisticaPedido(ehCampoDataPrincipal)) {
+            marcarLinhasPedidoComoPeriodoInvalido();
+            return;
+        }
+
         revalidarTodasLinhasPedido();
     });
 
@@ -2684,12 +3616,17 @@ if (response.produto_composto && response.componentes && response.componentes.le
     });
 
     $('#formPedido').on('submit', function(e) {
+        if (!validarSequenciaDatasLogisticaPedido(true)) {
+            e.preventDefault();
+            return false;
+        }
+
         let erroQuantidade = null;
 
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
             const $row = $(this);
 
-            if (($row.data('tipo-linha') || '') === 'PRODUTO') {
+            if (['PRODUTO', 'CONJUNTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
                 const quantidade = parseInt($row.find('.item-qtd, .quantidade_item').first().val(), 10) || 0;
                 const nomeProduto = $row.find('.nome_produto_display').val() || 'Produto sem nome';
 
@@ -2710,6 +3647,11 @@ if (response.produto_composto && response.componentes && response.componentes.le
             });
             return false;
         }
+
+        if (!validarTodosConjuntosAntesSalvar(true)) {
+            e.preventDefault();
+            return false;
+        }
     });
 
     $('#formPedido').on('keydown', function(e) {
@@ -2722,13 +3664,16 @@ if (response.produto_composto && response.componentes && response.componentes.le
     });
 
     function atualizarOrdemDosItens() {
-        $('#tabela_itens_pedido tbody tr').each(function(index) {
-            $(this).attr('data-index', index + 1);
-            $(this).find('input[name="ordem[]"]').val(index + 1);
+        let ordemReal = 1;
+        $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
+            $(this).attr('data-index', ordemReal);
+            $(this).find('input[name="ordem[]"]').val(ordemReal);
+            ordemReal++;
         });
     }
 
     $('#tabela_itens_pedido tbody').sortable({
+        items: '> tr.item-pedido-row',
         handle: '.drag-handle',
         placeholder: 'sortable-placeholder',
         helper: function(e, ui) {

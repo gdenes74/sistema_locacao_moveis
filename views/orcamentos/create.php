@@ -1176,14 +1176,15 @@ include_once __DIR__ . '/../includes/header.php';
                         z-index: 1060 !important;
                     }
                     .itens-scroll-container {
-                        max-height: 520px;
-                        min-height: 220px;
-                        overflow-y: auto;
-                        overflow-x: auto;
-                        border: 1px solid #dee2e6;
-                        border-radius: 4px;
-                        background: #ffffff;
-                    }
+    height: clamp(480px, calc(100vh - 155px), 840px);
+    min-height: 420px;
+    overflow-y: auto;
+    overflow-x: auto;
+    scrollbar-gutter: stable;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: #ffffff;
+}
                     .itens-scroll-container thead th {
                         position: sticky;
                         top: 0;
@@ -1197,10 +1198,11 @@ include_once __DIR__ . '/../includes/header.php';
                         background: #ffffff;
                     }
                     @media (max-height: 760px) {
-                        .itens-scroll-container {
-                            max-height: 430px;
-                        }
-                    }
+    .itens-scroll-container {
+        height: clamp(420px, calc(100vh - 135px), 700px);
+        min-height: 380px;
+    }
+}
 
                     #painel_consulta_disponibilidade {
                         position: relative;
@@ -1871,6 +1873,15 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
     }
 
     function revalidarTodasAsLinhasDisponibilidade($rowAlerta = null) {
+        // Segurança operacional: se as datas logísticas estiverem contraditórias,
+        // não chama o AJAX de estoque para não pintar produtos como indisponíveis por erro de data.
+        if (typeof validarSequenciaDatasLogisticaCreate === 'function' && !validarSequenciaDatasLogisticaCreate(false)) {
+            if (typeof marcarLinhasComoPeriodoInvalido === 'function') {
+                marcarLinhasComoPeriodoInvalido();
+            }
+            return;
+        }
+
         const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
 
         $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
@@ -2708,9 +2719,18 @@ $('#tabela_itens_orcamento').on('input change', '.quantidade_item', function(e) 
     }, 800));
 });
 
-// Revalida todas as linhas quando o período logístico muda
-$('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
+// Revalida as linhas quando o período logístico muda.
+// Se as datas estiverem incoerentes, não consulta estoque para não pintar tudo de vermelho/amarelo indevidamente.
+$('#data_evento, #data_entrega, #data_devolucao_prevista, #hora_entrega, #turno_entrega, #hora_devolucao, #turno_devolucao').on('change keyup blur', function() {
     $('#tabela_itens_orcamento tbody tr.item-orcamento-row').removeData('alerta-indisponivel-chave');
+
+    const ehCampoDataPrincipal = ['data_evento', 'data_entrega', 'data_devolucao_prevista'].includes(this.id);
+
+    if (!validarSequenciaDatasLogisticaCreate(ehCampoDataPrincipal)) {
+        marcarLinhasComoPeriodoInvalido();
+        return;
+    }
+
     revalidarTodasAsLinhasDisponibilidade();
 });
 
@@ -2962,13 +2982,14 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
     function exibirDiaSemana(inputId, displayId) {
         var dataStr = $(inputId).val();
         var displayEl = $(displayId);
-        displayEl.text('').removeClass('text-danger font-weight-bold text-success');
+        displayEl.text('').removeData('dia-semana-base').removeClass('text-danger font-weight-bold text-success text-warning');
         if (dataStr) {
             var partes = dataStr.split('/');
             if (partes.length === 3) {
                 var dataObj = new Date(partes[2], partes[1] - 1, partes[0]);
                 if (!isNaN(dataObj.valueOf())) {
                     var diaSemana = diasDaSemana[dataObj.getDay()];
+                    displayEl.data('dia-semana-base', diaSemana);
                     displayEl.text(diaSemana).addClass('font-weight-bold');
                     if (dataObj.getDay() === 0 || dataObj.getDay() === 6) { displayEl.addClass('text-danger'); } 
                     else { displayEl.addClass('text-success'); }
@@ -2977,9 +2998,185 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
             }
         }
     }
-    $('#data_evento').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_evento'); }).trigger('change');
-    $('#data_entrega').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_entrega'); }).trigger('change');
-    $('#data_devolucao_prevista').on('change dp.change', function() { exibirDiaSemana(this, '#dia_semana_devolucao'); }).trigger('change');
+    $('#data_evento').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_evento');
+    validarSequenciaDatasLogisticaCreate(false);
+}).trigger('change');
+
+$('#data_entrega').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_entrega');
+    validarSequenciaDatasLogisticaCreate(false);
+}).trigger('change');
+
+$('#data_devolucao_prevista').on('change dp.change', function() {
+    exibirDiaSemana(this, '#dia_semana_devolucao');
+    validarSequenciaDatasLogisticaCreate(false);
+}).trigger('change');
+    function converterDataBRParaDate(valor) {
+        valor = String(valor || '').trim();
+
+        if (!valor) {
+            return null;
+        }
+
+        const partes = valor.split('/');
+        if (partes.length !== 3) {
+            return null;
+        }
+
+        const dia = parseInt(partes[0], 10);
+        const mes = parseInt(partes[1], 10);
+        const ano = parseInt(partes[2], 10);
+
+        if (!dia || !mes || !ano) {
+            return null;
+        }
+
+        const data = new Date(ano, mes - 1, dia);
+
+        if (
+            data.getFullYear() !== ano ||
+            data.getMonth() !== mes - 1 ||
+            data.getDate() !== dia
+        ) {
+            return null;
+        }
+
+        data.setHours(0, 0, 0, 0);
+        return data;
+    }
+
+    function aplicarFeedbackData(displayId, tipo, mensagem) {
+        const $display = $(displayId);
+        const base = $display.data('dia-semana-base') || '';
+        const classeBase = $display.hasClass('text-danger') ? 'text-danger' : 'text-success';
+
+        if (!base && !mensagem) {
+            $display.text('');
+            return;
+        }
+
+        let statusHtml = '';
+        if (mensagem) {
+            if (tipo === 'erro') {
+                statusHtml = ' <span class="text-warning">· ⚠ ' + escapeHtml(mensagem) + '</span>';
+            } else if (tipo === 'ok') {
+                statusHtml = ' <span class="text-success">· ✓ OK</span>';
+            } else if (tipo === 'info') {
+                statusHtml = ' <span class="text-muted">· ' + escapeHtml(mensagem) + '</span>';
+            }
+        }
+
+        $display.removeClass('text-danger text-success text-warning').addClass('font-weight-bold ' + classeBase);
+        $display.html(escapeHtml(base) + statusHtml);
+    }
+
+    function limparFeedbackDatasLogistica() {
+        aplicarFeedbackData('#dia_semana_evento', '', '');
+        aplicarFeedbackData('#dia_semana_entrega', '', '');
+        aplicarFeedbackData('#dia_semana_devolucao', '', '');
+    }
+
+    function marcarDatasLogisticasComoOk(dataEvento, dataEntrega, dataDevolucao) {
+        if (dataEvento) {
+            aplicarFeedbackData('#dia_semana_evento', 'ok', 'OK');
+        }
+        if (dataEntrega) {
+            aplicarFeedbackData('#dia_semana_entrega', 'ok', 'OK');
+        }
+        if (dataDevolucao) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'ok', 'OK');
+        }
+    }
+
+    function validarSequenciaDatasLogisticaCreate(mostrarAlerta = true) {
+        const dataEventoStr = $('#data_evento').val();
+        const dataEntregaStr = $('#data_entrega').val();
+        const dataDevolucaoStr = $('#data_devolucao_prevista').val();
+
+        const dataEvento = converterDataBRParaDate(dataEventoStr);
+        const dataEntrega = converterDataBRParaDate(dataEntregaStr);
+        const dataDevolucao = converterDataBRParaDate(dataDevolucaoStr);
+
+        limparFeedbackDatasLogistica();
+
+        // Orçamento pode ficar sem datas ou com datas parciais.
+        // A validação só bloqueia contradições reais entre as datas preenchidas.
+        if (dataEntrega && dataEvento && dataEntrega > dataEvento) {
+            aplicarFeedbackData('#dia_semana_entrega', 'erro', 'entrega depois do evento');
+            aplicarFeedbackData('#dia_semana_evento', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Data de entrega inválida',
+                    html: 'A <strong>data da entrega</strong> não pode ser depois da <strong>data do evento</strong>.<br><br>' +
+                          '<strong>Entrega:</strong> ' + escapeHtml(dataEntregaStr) + '<br>' +
+                          '<strong>Evento:</strong> ' + escapeHtml(dataEventoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        if (dataEvento && dataDevolucao && dataDevolucao < dataEvento) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'erro', 'antes do evento');
+            aplicarFeedbackData('#dia_semana_evento', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Data de devolução inválida',
+                    html: 'A <strong>data da devolução/coleta</strong> não pode ser antes da <strong>data do evento</strong>.<br><br>' +
+                          '<strong>Evento:</strong> ' + escapeHtml(dataEventoStr) + '<br>' +
+                          '<strong>Devolução:</strong> ' + escapeHtml(dataDevolucaoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        if (dataEntrega && dataDevolucao && dataDevolucao < dataEntrega) {
+            aplicarFeedbackData('#dia_semana_devolucao', 'erro', 'antes da entrega');
+            aplicarFeedbackData('#dia_semana_entrega', 'info', 'referência');
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Período logístico inválido',
+                    html: 'A <strong>data da devolução/coleta</strong> não pode ser antes da <strong>data da entrega</strong>.<br><br>' +
+                          '<strong>Entrega:</strong> ' + escapeHtml(dataEntregaStr) + '<br>' +
+                          '<strong>Devolução:</strong> ' + escapeHtml(dataDevolucaoStr),
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        marcarDatasLogisticasComoOk(dataEvento, dataEntrega, dataDevolucao);
+        return true;
+    }
+
+    function marcarLinhasComoPeriodoInvalido() {
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            const $row = $(this);
+
+            if (!['PRODUTO', 'ITEM_CONJUNTO'].includes($row.data('tipo-linha') || '')) {
+                return;
+            }
+
+            limparStatusLinhaDisponibilidade($row);
+
+            $row.find('.disponibilidade-contexto')
+                .removeClass('status-ok status-atencao status-indisponivel')
+                .addClass('status-neutro')
+                .html('<span class="status-principal">AJUSTAR DATAS</span><span class="status-detalhe">· período inválido</span>')
+                .show();
+        });
+    }
     
     $('#btnUsarEnderecoCliente').on('click', function() {
     // 1. Pega os dados do cliente selecionado
@@ -3039,6 +3236,11 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
     }
 
     $('#formNovoOrcamento').on('submit', function(e) {
+        if (!validarSequenciaDatasLogisticaCreate(true)) {
+            e.preventDefault();
+            return false;
+        }
+
         if (!validarItensQuantidadeZeroCreate()) {
             e.preventDefault();
             return false;
@@ -3062,6 +3264,7 @@ $('#data_entrega, #hora_entrega, #turno_entrega, #data_devolucao_prevista, #hora
     // ... (resto do seu código, como a parte do modal, etc) ...
 
     calcularDataValidade();
+    validarSequenciaDatasLogisticaCreate(false);
     calcularTotaisOrcamento();
     
     function atualizarOrdemDosItens() {
