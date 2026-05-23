@@ -442,11 +442,13 @@ if (!empty($pedidoModel->data_evento)) {
 
 $nomeClienteArquivo = limparNomeArquivoPedidoShow($clienteModel->nome ?? 'Cliente');
 $numeroPedidoArquivo = limparNomeArquivoPedidoShow($pedidoModel->numero ?? $pedidoModel->id ?? $id);
+$dataGeracaoDocumento = date('d/m/Y H:i');
+$dataGeracaoArquivo = date('d.m.y H\\hi');
 $nomeArquivoDocumento = limparNomeArquivoPedidoShow($dataEventoArquivo . ' - ' . $nomeClienteArquivo . ' - PEDIDO ' . $numeroPedidoArquivo);
 $page_title = $nomeArquivoDocumento;
 
-$nomeArquivoCliente = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - CLIENTE');
-$nomeArquivoProducao = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - PRODUCAO');
+$nomeArquivoCliente = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - CLIENTE - GERADO ' . $dataGeracaoArquivo);
+$nomeArquivoProducao = limparNomeArquivoPedidoShow($nomeArquivoDocumento . ' - PRODUCAO - GERADO ' . $dataGeracaoArquivo);
 
 // Define variáveis JavaScript para uso no footer
 $inline_js_setup = "window.PEDIDO_ID = " . $id
@@ -556,6 +558,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                             <br><span class="badge badge-<?= $statusInfo['class'] ?> mt-1">
                                 <i class="fas fa-<?= $statusInfo['icon'] ?>"></i> <?= $statusInfo['text'] ?>
                             </span>
+                            <br><small>Gerado em: <?= htmlspecialchars($dataGeracaoDocumento, ENT_QUOTES, 'UTF-8') ?></small>
                         </div>
                     </div>
                     <hr>
@@ -626,113 +629,6 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                             }
                             echo $dataColetaCompleta;
                             ?>
-                        </div>
-                    </div>
-
-                    <!-- BARRA DE CONTROLE FINANCEIRO -->
-                    <div class="row mb-4">
-                        <div class="col-12">
-                            <div class="card card-financeiro-barra">
-                                <div class="card-header bg-info text-white">
-                                    <h5 class="mb-0"><i class="fas fa-money-bill-wave"></i> Controle Financeiro do Pedido</h5>
-                                </div>
-                                <div class="card-body p-3">
-                                    <div class="row align-items-center">
-                                        <!-- Valor Total -->
-                                        <div class="col-md-2 text-center border-right">
-                                            <div class="financeiro-item">
-                                                <small class="text-muted d-block">VALOR TOTAL</small>
-                                                <h4 class="text-primary mb-0">R$ <?= formatarValor($valorFinal, true) ?></h4>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Sinal (se houver) -->
-                                        <?php if (!empty($valorSinal) && $valorSinal > 0): ?>
-                                            <div class="col-md-2 text-center border-right">
-                                                <div class="financeiro-item">
-                                                    <small class="text-muted d-block">SINAL PAGO</small>
-                                                    <h5 class="text-info mb-0">R$ <?= formatarValor($valorSinal, true) ?></h5>
-                                                    <?php if (!empty($pedidoModel->data_pagamento_sinal)): ?>
-                                                        <small class="text-muted">
-                                                            <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_sinal)) ?>
-                                                        </small>
-                                                    <?php endif; ?>
-                                                </div>
-                                            </div>
-                                        <?php endif; ?>
-                                        
-                                        <!-- Complemento Pago -->
-                                        <div class="col-md-2 text-center border-right">
-                                            <div class="financeiro-item">
-                                                <small class="text-muted d-block">COMPLEMENTO PAGO</small>
-                                                <h5 class="text-success mb-0">R$ <?= formatarValor($valorComplemento, true) ?></h5>
-                                                <?php if (!empty($pedidoModel->data_pagamento_final)): ?>
-                                                    <small class="text-muted">
-                                                        <i class="fas fa-calendar"></i> <?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_final)) ?>
-                                                    </small>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Multas (se houver) -->
-                                        <?php if (!empty($valorMultas) && $valorMultas > 0): ?>
-                                            <div class="col-md-2 text-center border-right">
-                                                <div class="financeiro-item">
-                                                    <small class="text-muted d-block">MULTAS/EXTRAS</small>
-                                                    <h5 class="text-warning mb-0">R$ <?= formatarValor($valorMultas, true) ?></h5>
-                                                </div>
-                                            </div>
-                                        <?php endif; ?>
-                                        
-                                        <!-- Saldo A Pagar -->
-                                        <div class="col-md-2 text-center border-right">
-                                            <div class="financeiro-item">
-                                                <small class="text-muted d-block">SALDO A PAGAR</small>
-                                                <h4 class="<?= $saldoAPagar > 0 ? 'text-danger' : 'text-success' ?> mb-0">
-                                                    R$ <?= formatarValor($saldoAPagar, true) ?>
-                                                </h4>
-                                                <?php if ($saldoAPagar <= 0): ?>
-                                                    <small class="text-success">
-                                                        <i class="fas fa-check-circle"></i> Quitado
-                                                    </small>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Status do Pagamento -->
-                                        <div class="col-md-2 text-center">
-                                            <div class="financeiro-item">
-                                                <small class="text-muted d-block">STATUS</small>
-                                                <?php if ($saldoAPagar <= 0): ?>
-                                                    <span class="badge badge-success badge-status">
-                                                        <i class="fas fa-check-double"></i><br>PAGO
-                                                    </span>
-                                                <?php elseif ($totalJaPago > 0): ?>
-                                                    <span class="badge badge-warning badge-status">
-                                                        <i class="fas fa-clock"></i><br>PARCIAL
-                                                    </span>
-                                                <?php else: ?>
-                                                    <span class="badge badge-danger badge-status">
-                                                        <i class="fas fa-exclamation-triangle"></i><br>PENDENTE
-                                                    </span>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    
-                                    <!-- Condições de Pagamento (se houver) -->
-                                    <?php if (!empty($pedidoModel->condicoes_pagamento)): ?>
-                                        <div class="row mt-3">
-                                            <div class="col-12">
-                                                <div class="alert alert-info mb-0">
-                                                    <strong><i class="fas fa-file-contract"></i> Condições de Pagamento:</strong><br>
-                                                    <?= nl2br(htmlspecialchars($pedidoModel->condicoes_pagamento)) ?>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -822,12 +718,22 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                                 </td>
                                             </tr>
                                         <?php else:
-                                            // É um produto normal
-                                            $quantidadeItem = isset($item['quantidade']) ? floatval($item['quantidade']) : 0;
-                                            $precoUnitarioItem = isset($item['preco_unitario']) ? floatval($item['preco_unitario']) : 0;
-                                            $descontoItem = isset($item['desconto']) ? floatval($item['desconto']) : 0;
-                                            $itemSubtotal = isset($item['preco_final']) ? floatval($item['preco_final']) : 0;
-                                            $subtotalItensPIX += $itemSubtotal;
+                                            // Produto, conjunto comercial ou item interno de conjunto
+                                            $quantidadeItem = isset($item['quantidade']) ? (float)$item['quantidade'] : 0;
+                                            $precoUnitarioItem = isset($item['preco_unitario']) ? (float)$item['preco_unitario'] : 0;
+                                            $descontoItem = isset($item['desconto']) ? (float)$item['desconto'] : 0;
+                                            $itemSubtotal = isset($item['preco_final']) ? (float)$item['preco_final'] : 0;
+
+                                            $tipoLinhaItem = strtoupper(trim((string)($item['tipo_linha'] ?? 'PRODUTO')));
+                                            $ehConjuntoPai = $tipoLinhaItem === 'CONJUNTO';
+                                            $ehItemConjunto = $tipoLinhaItem === 'ITEM_CONJUNTO';
+                                            $usaPrecoNoTotal = isset($item['usa_preco_no_total'])
+                                                ? ((int)$item['usa_preco_no_total'] === 1)
+                                                : !$ehItemConjunto;
+
+                                            if ($usaPrecoNoTotal) {
+                                                $subtotalItensPIX += $itemSubtotal;
+                                            }
 
                                             $observacaoItem = trim((string)($item['observacoes'] ?? ''));
                                             $nomeItemExibicao = montarNomeItemPedidoImpressao($nomeItem, $observacaoItem);
@@ -840,18 +746,24 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                                 }
                                             }
                                             $componentesItemOrdenados = !empty($componentesItem) ? ordenarComponentesProducaoPedidoShow($componentesItem, $observacaoItem, $nomeItem) : [];
+                                            $classeLinhaItem = $ehConjuntoPai ? 'linha-conjunto-pai' : ($ehItemConjunto ? 'linha-conjunto-filho' : '');
                                             ?>
-                                            <tr>
-                                                <td class="text-center qtd-item"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></strong></td>
-                                                <td class="descricao-item">
+                                            <tr class="<?= $classeLinhaItem ?>">
+                                                <td class="text-center qtd-item <?= $ehItemConjunto ? 'qtd-item-conjunto-filho' : '' ?>"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></strong></td>
+                                                <td class="descricao-item <?= $ehItemConjunto ? 'descricao-item-conjunto-filho' : '' ?>">
+                                                    <?php if ($ehItemConjunto): ?>
+                                                        <span class="marcador-item-conjunto">↳</span>
+                                                    <?php endif; ?>
                                                     <?php if (!empty($item['foto_path'])): ?>
                                                         <img src="<?= BASE_URL ?>/<?= ltrim($item['foto_path'], '/') ?>"
                                                             alt="<?= htmlspecialchars($nomeItemExibicao) ?>" class="produto-foto-impressao"
-                                                            style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; float: left;"
                                                             onerror="this.style.display='none';">
                                                     <?php endif; ?>
-                                                    <div class="texto-produto-impressao" style="overflow: hidden;">
-                                                        <strong><?= htmlspecialchars(strtoupper($nomeItemExibicao)) ?></strong>
+                                                    <div class="texto-produto-impressao">
+                                                        <strong class="<?= $ehItemConjunto ? 'texto-filho-conjunto' : '' ?>"><?= htmlspecialchars(strtoupper($nomeItemExibicao)) ?></strong>
+                                                        <?php if ($ehConjuntoPai): ?>
+                                                            <br><small class="indicador-conjunto-pai">↓ itens internos do conjunto</small>
+                                                        <?php endif; ?>
                                                         <?php if ($observacaoItem !== '' && !$obsFoiConcatenada): ?>
                                                             <br><small class="observacao-item text-muted" style="font-style: italic;"><?= htmlspecialchars($observacaoItem) ?></small>
                                                         <?php endif; ?>
@@ -874,13 +786,21 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                                         <?php endif; ?>
                                                     </div>
                                                 </td>
-                                                <td class="text-right col-financeira">R$ <?= formatarValor($precoUnitarioItem) ?></td>
-                                                <?php if ($temDesconto): ?>
-                                                    <td class="text-right col-financeira">
-                                                        <?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?>
-                                                    </td>
+                                                <?php if ($ehItemConjunto || !$usaPrecoNoTotal): ?>
+                                                    <td class="text-right col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                    <?php if ($temDesconto): ?>
+                                                        <td class="text-right col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                    <?php endif; ?>
+                                                    <td class="text-right col-financeira valor-filho-conjunto">&nbsp;</td>
+                                                <?php else: ?>
+                                                    <td class="text-right col-financeira">R$ <?= formatarValor($precoUnitarioItem) ?></td>
+                                                    <?php if ($temDesconto): ?>
+                                                        <td class="text-right col-financeira">
+                                                            <?= $descontoItem > 0 ? 'R$ ' . formatarValor($descontoItem) : '-' ?>
+                                                        </td>
+                                                    <?php endif; ?>
+                                                    <td class="text-right col-financeira"><strong>R$ <?= formatarValor($itemSubtotal) ?></strong></td>
                                                 <?php endif; ?>
-                                                <td class="text-right col-financeira"><strong>R$ <?= formatarValor($itemSubtotal) ?></strong></td>
                                             </tr>
                                         <?php endif; ?>
                                         <?php
@@ -1022,6 +942,38 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                     </div>
                     <hr>
 
+                    <!-- CONTROLE FINANCEIRO DO PEDIDO EM LINHA ÚNICA -->
+                    <div class="financeiro-linha-unica mb-2">
+                        <div class="financeiro-linha-titulo">
+                            <i class="fas fa-money-bill-wave"></i> Controle Financeiro do Pedido
+                        </div>
+                        <div class="financeiro-linha-conteudo">
+                            <span><strong>Valor Total:</strong> <b class="text-primary">R$ <?= formatarValor($valorFinal, true) ?></b></span>
+                            <?php if (!empty($valorSinal) && $valorSinal > 0): ?>
+                                <span><strong>Sinal:</strong> <b class="text-info">R$ <?= formatarValor($valorSinal, true) ?></b><?php if (!empty($pedidoModel->data_pagamento_sinal)): ?> <small>(<?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_sinal)) ?>)</small><?php endif; ?></span>
+                            <?php endif; ?>
+                            <span><strong>Complemento:</strong> <b class="text-success">R$ <?= formatarValor($valorComplemento, true) ?></b><?php if (!empty($pedidoModel->data_pagamento_final)): ?> <small>(<?= date('d/m/Y', strtotime($pedidoModel->data_pagamento_final)) ?>)</small><?php endif; ?></span>
+                            <?php if (!empty($valorMultas) && $valorMultas > 0): ?>
+                                <span><strong>Multas/Extras:</strong> <b class="text-warning">R$ <?= formatarValor($valorMultas, true) ?></b></span>
+                            <?php endif; ?>
+                            <span><strong>Saldo:</strong> <b class="<?= $saldoAPagar > 0 ? 'text-danger' : 'text-success' ?>">R$ <?= formatarValor($saldoAPagar, true) ?></b></span>
+                            <span><strong>Status:</strong>
+                                <?php if ($saldoAPagar <= 0): ?>
+                                    <b class="text-success">PAGO</b>
+                                <?php elseif ($totalJaPago > 0): ?>
+                                    <b class="text-warning">PARCIAL</b>
+                                <?php else: ?>
+                                    <b class="text-danger">PENDENTE</b>
+                                <?php endif; ?>
+                            </span>
+                        </div>
+                        <?php if (!empty($pedidoModel->condicoes_pagamento)): ?>
+                            <div class="financeiro-linha-condicoes somente-tela">
+                                <strong>Condições:</strong> <?= nl2br(htmlspecialchars($pedidoModel->condicoes_pagamento)) ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
                     <!-- INFORMAÇÕES DO PIX -->
                     <div class="row mt-3">
                         <div class="col-12 text-center info-pix">
@@ -1032,7 +984,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
                     <!-- Observações adicionais -->
                     <?php if (!empty($pedidoModel->observacoes)): ?>
-                        <div class="row mt-4">
+                        <div class="row mt-4 observacoes-adicionais">
                             <div class="col-12">
                                 <hr>
                                 <h5>Observações Adicionais:</h5>
@@ -1091,6 +1043,117 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         line-height: 1.2;
     }
 
+    .card-financeiro-compacto {
+        border: 1px solid #777;
+        box-shadow: none;
+        background: #fff;
+    }
+
+    .financeiro-compacto-titulo {
+        font-weight: 800;
+        font-size: 11pt;
+        color: #000;
+        border-bottom: 1px solid #999;
+        padding-bottom: 3px;
+        margin-bottom: 4px;
+    }
+
+    .financeiro-compacto-linha {
+        margin-left: -4px;
+        margin-right: -4px;
+    }
+
+    .financeiro-compacto-item {
+        padding: 3px 4px;
+        border-right: 1px solid #ddd;
+        min-height: 38px;
+    }
+
+    .financeiro-compacto-item:last-child {
+        border-right: none;
+    }
+
+    .financeiro-compacto-item small {
+        display: block;
+        font-size: 7.8pt;
+        line-height: 1.05;
+        color: #555;
+        font-weight: 700;
+    }
+
+    .financeiro-compacto-item strong {
+        display: block;
+        font-size: 10.4pt;
+        line-height: 1.15;
+        font-weight: 900;
+    }
+
+    .financeiro-compacto-item span {
+        display: block;
+        font-size: 7.8pt;
+        color: #555;
+        line-height: 1.05;
+    }
+
+    .financeiro-compacto-condicoes {
+        border-top: 1px solid #ddd;
+        padding-top: 4px;
+        font-size: 8.8pt;
+        line-height: 1.15;
+        color: #000;
+    }
+
+
+    .financeiro-linha-unica {
+        border: 1px solid #777;
+        background: #fff;
+        color: #000;
+        padding: 4px 6px;
+        page-break-inside: avoid;
+    }
+
+    .financeiro-linha-titulo {
+        display: inline-block;
+        font-weight: 900;
+        font-size: 9.4pt;
+        margin-right: 8px;
+        color: #000;
+    }
+
+    .financeiro-linha-conteudo {
+        display: inline;
+        font-size: 9.2pt;
+        line-height: 1.25;
+    }
+
+    .financeiro-linha-conteudo span {
+        display: inline-block;
+        margin-right: 9px;
+        white-space: nowrap;
+    }
+
+    .financeiro-linha-conteudo b {
+        font-weight: 900;
+    }
+
+    .financeiro-linha-conteudo small {
+        font-size: 7.6pt;
+        color: #555;
+    }
+
+    .financeiro-linha-condicoes {
+        margin-top: 3px;
+        border-top: 1px solid #ddd;
+        padding-top: 3px;
+        font-size: 8.2pt;
+        line-height: 1.15;
+    }
+
+    .somente-tela {
+        display: block;
+    }
+
+
     .border-right {
         border-right: 1px solid #dee2e6 !important;
     }
@@ -1116,6 +1179,73 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
+
+        .card-financeiro-compacto {
+            border: 1px solid #777 !important;
+            page-break-inside: avoid !important;
+            margin-top: 3px !important;
+            margin-bottom: 5px !important;
+        }
+
+        .card-financeiro-compacto .card-body {
+            padding: 4px 6px !important;
+        }
+
+        .financeiro-compacto-titulo {
+            font-size: 8.8pt !important;
+            padding-bottom: 2px !important;
+            margin-bottom: 3px !important;
+        }
+
+        .financeiro-compacto-item {
+            padding: 2px 3px !important;
+            min-height: 28px !important;
+        }
+
+        .financeiro-compacto-item small {
+            font-size: 6.8pt !important;
+        }
+
+        .financeiro-compacto-item strong {
+            font-size: 8.4pt !important;
+        }
+
+        .financeiro-compacto-item span,
+        .financeiro-compacto-condicoes {
+            font-size: 6.8pt !important;
+        }
+
+
+        .financeiro-linha-unica {
+            padding: 3px 5px !important;
+            margin-top: 3px !important;
+            margin-bottom: 3px !important;
+            border: 1px solid #777 !important;
+        }
+
+        .financeiro-linha-titulo {
+            font-size: 7.8pt !important;
+            margin-right: 5px !important;
+        }
+
+        .financeiro-linha-conteudo {
+            font-size: 7.5pt !important;
+            line-height: 1.1 !important;
+        }
+
+        .financeiro-linha-conteudo span {
+            margin-right: 5px !important;
+        }
+
+        .financeiro-linha-conteudo small {
+            font-size: 6.3pt !important;
+        }
+
+        .impressao-cliente .financeiro-linha-condicoes,
+        .impressao-producao .financeiro-linha-unica {
+            display: none !important;
+        }
+
 
         .border-right {
             border-right: 1px solid #777 !important;
@@ -1254,6 +1384,70 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         align-items: center;
     }
 
+    .linha-conjunto-pai td {
+        background: #f8fbff !important;
+        border-top: 2px solid #000 !important;
+    }
+
+    .linha-conjunto-pai .descricao-item strong {
+        font-weight: 900;
+    }
+
+    .indicador-conjunto-pai {
+        display: inline-block;
+        margin-top: 2px;
+        color: #0b5ed7;
+        font-size: 8.8pt;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+    }
+
+    .linha-conjunto-filho td {
+        background: #ffffff !important;
+        border-top-color: #aaa !important;
+    }
+
+    .linha-conjunto-filho .qtd-item {
+        font-size: 9.8pt !important;
+        color: #0b5ed7 !important;
+    }
+
+    .linha-conjunto-filho .valor-col,
+    .valor-filho-conjunto {
+        color: transparent !important;
+    }
+
+    .descricao-item-conjunto-filho {
+        padding-left: 14px !important;
+    }
+
+    .marcador-item-conjunto {
+        float: left;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 39px;
+        margin-right: 3px;
+        color: #0b5ed7;
+        font-weight: 900;
+        font-size: 14pt;
+        line-height: 1;
+    }
+
+    .texto-filho-conjunto {
+        font-weight: 700 !important;
+        font-size: 10.7pt;
+        color: #0b5ed7 !important;
+    }
+
+    .texto-produto-impressao {
+        overflow: hidden;
+        min-height: 46px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 
     .somente-producao {
         display: none;
@@ -1375,6 +1569,52 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
             display: none !important;
         }
 
+        .linha-conjunto-pai td {
+            background: #f8fbff !important;
+            border-top: 2px solid #000 !important;
+        }
+
+        .indicador-conjunto-pai {
+            font-size: 7.8pt !important;
+            color: #0b5ed7 !important;
+            font-weight: 700 !important;
+        }
+
+        .linha-conjunto-filho td {
+            background: #fff !important;
+        }
+
+        .descricao-item-conjunto-filho {
+            padding-left: 12px !important;
+        }
+
+        .marcador-item-conjunto {
+            height: 34px !important;
+            font-size: 12pt !important;
+            color: #0b5ed7 !important;
+        }
+
+        .texto-filho-conjunto {
+            font-size: 9.4pt !important;
+            font-weight: 700 !important;
+            color: #0b5ed7 !important;
+        }
+
+        .linha-conjunto-filho .qtd-item {
+            font-size: 9.0pt !important;
+            color: #0b5ed7 !important;
+        }
+
+        .linha-conjunto-filho .produto-foto-impressao {
+            width: 34px !important;
+            height: 34px !important;
+            margin-right: 6px !important;
+        }
+
+        .valor-filho-conjunto {
+            color: transparent !important;
+        }
+
         .impressao-producao .somente-producao {
             display: block !important;
         }
@@ -1413,6 +1653,10 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 </style>
 
 <script>
+if (window.NOME_ARQUIVO_DOCUMENTO) {
+    document.title = window.NOME_ARQUIVO_DOCUMENTO;
+}
+
 function definirTituloDocumentoPedido(tipo) {
     if (tipo === 'producao' && window.NOME_ARQUIVO_PRODUCAO) {
         document.title = window.NOME_ARQUIVO_PRODUCAO;

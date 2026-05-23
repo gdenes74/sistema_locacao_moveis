@@ -441,13 +441,20 @@ $numeroOrcamentoArquivo = limparNomeArquivoOrcamentoShow($orcamentoModel->numero
 $nomeArquivoDocumento = limparNomeArquivoOrcamentoShow($dataEventoArquivo . ' - ' . $nomeClienteArquivo . ' - ORCAMENTO ' . $numeroOrcamentoArquivo);
 $page_title = $nomeArquivoDocumento;
 
-$nomeArquivoCliente = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - CLIENTE');
-$nomeArquivoProducao = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - PRODUCAO');
+// Data/hora da geração visual do documento.
+// Como o PDF é salvo pelo navegador via window.print(), esta informação entra no nome sugerido
+// e também fica impressa no cabeçalho para diferenciar versões geradas em momentos diferentes.
+$dataHoraGeracaoArquivo = date('d.m.y H\hi');
+$dataHoraGeracaoDisplay = date('d/m/Y H:i');
+
+$nomeArquivoCliente = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - CLIENTE - GERADO ' . $dataHoraGeracaoArquivo);
+$nomeArquivoProducao = limparNomeArquivoOrcamentoShow($nomeArquivoDocumento . ' - PRODUCAO - GERADO ' . $dataHoraGeracaoArquivo);
 
 $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     . "; window.NOME_ARQUIVO_DOCUMENTO = " . json_encode($nomeArquivoDocumento, JSON_UNESCAPED_UNICODE)
     . "; window.NOME_ARQUIVO_CLIENTE = " . json_encode($nomeArquivoCliente, JSON_UNESCAPED_UNICODE)
-    . "; window.NOME_ARQUIVO_PRODUCAO = " . json_encode($nomeArquivoProducao, JSON_UNESCAPED_UNICODE) . ";";
+    . "; window.NOME_ARQUIVO_PRODUCAO = " . json_encode($nomeArquivoProducao, JSON_UNESCAPED_UNICODE)
+    . "; window.DATA_HORA_GERACAO_DOCUMENTO = " . json_encode($dataHoraGeracaoDisplay, JSON_UNESCAPED_UNICODE) . ";";
 ?>
 <?php include_once __DIR__ . '/../includes/header.php'; ?>
 
@@ -531,6 +538,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                             <?php if (!empty($orcamentoModel->data_validade)): ?>
                                 <br><small><strong>Válido até:</strong> <?= date('d/m/Y', strtotime($orcamentoModel->data_validade)) ?></small>
                             <?php endif; ?>
+                            <br><small class="documento-gerado-em"><strong>Gerado em:</strong> <?= htmlspecialchars($dataHoraGeracaoDisplay, ENT_QUOTES, 'UTF-8') ?></small>
                             <?php if ($ja_convertido): ?>
                                 <br><span class="badge badge-success mt-1"><i class="fas fa-check-circle"></i> CONVERTIDO EM PEDIDO</span>
                             <?php elseif ($orcamentoModel->status === 'recusado'): ?>
@@ -933,6 +941,11 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         font-size: 9.5pt;
     }
 
+    .documento-gerado-em {
+        color: #555 !important;
+        font-size: 8.8pt !important;
+    }
+
     .titulo-documento {
         color: #000;
         font-size: 15pt;
@@ -1080,7 +1093,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
     .linha-conjunto-filho td {
         background: #ffffff !important;
-        border-top-color: #aaa !important;
+        border-top-color: #b6d4fe !important;
     }
 
     .linha-conjunto-filho .qtd-item {
@@ -1118,6 +1131,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     .texto-filho-conjunto {
         font-weight: 700 !important;
         font-size: 10.7pt;
+        color: #0b5ed7 !important;
     }
 
     .produto-foto-impressao {
@@ -1331,6 +1345,11 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
             font-size: 8.5pt !important;
         }
 
+        .documento-gerado-em {
+            font-size: 7.8pt !important;
+            color: #444 !important;
+        }
+
         .titulo-documento {
             font-size: 13pt !important;
         }
@@ -1404,12 +1423,13 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
         .indicador-conjunto-pai {
             font-size: 7.8pt !important;
-            color: #000 !important;
+            color: #0b5ed7 !important;
             font-weight: 700 !important;
         }
 
         .linha-conjunto-filho td {
             background: #fff !important;
+            border-top-color: #b6d4fe !important;
         }
 
         .descricao-item-conjunto-filho {
@@ -1419,17 +1439,18 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         .marcador-item-conjunto {
             height: 34px !important;
             font-size: 12pt !important;
-            color: #000 !important;
+            color: #0b5ed7 !important;
         }
 
         .texto-filho-conjunto {
             font-size: 9.4pt !important;
             font-weight: 700 !important;
+            color: #0b5ed7 !important;
         }
 
         .linha-conjunto-filho .qtd-item {
             font-size: 9.0pt !important;
-            color: #000 !important;
+            color: #0b5ed7 !important;
         }
 
         .linha-conjunto-filho .valor-col,
