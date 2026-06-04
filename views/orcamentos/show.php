@@ -473,10 +473,22 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                             <i class="fas fa-eye"></i> Ver Pedido #<?= htmlspecialchars($pedidoNumero ?? '', ENT_QUOTES, 'UTF-8') ?>
                         </a>
                         <span class="badge badge-success ml-1"><i class="fas fa-check-circle"></i> CONVERTIDO</span>
+
+                    <?php elseif ($orcamentoModel->status === 'expirado'): ?>
+                        <a href="edit.php?id=<?= htmlspecialchars($orcamentoModel->id ?? '', ENT_QUOTES, 'UTF-8') ?>" class="btn btn-warning btn-sm">
+                            <i class="fas fa-edit"></i> Editar / Reabrir
+                        </a>
+                        <span class="badge badge-warning ml-1">
+                            <i class="fas fa-clock"></i> EXPIRADO
+                        </span>
+                        <small class="text-muted ml-1">
+                            Reabra como pendente no editar para converter depois.
+                        </small>
+
                     <?php elseif ($orcamento_finalizado_ou_irreversivel): ?>
                         <span class="badge badge-<?=
                             $orcamentoModel->status === 'recusado' ? 'danger' :
-                            ($orcamentoModel->status === 'expirado' ? 'warning' : 'secondary')
+                            ($orcamentoModel->status === 'cancelado' ? 'secondary' : 'secondary')
                         ?> ml-1">
                             <?= htmlspecialchars(strtoupper($orcamentoModel->status), ENT_QUOTES, 'UTF-8') ?>
                         </span>

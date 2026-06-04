@@ -88,7 +88,58 @@ if (!function_exists('formatarStatusPedido')) {
             'cancelado' => ['class' => 'danger', 'icon' => 'times-circle', 'text' => 'CANCELADO']
         ];
 
-        return $statusMap[$situacao_pedido] ?? ['class' => 'secondary', 'icon' => 'question', 'text' => strtoupper($situacao_pedido)];
+        return $statusMap[$situacao_pedido] ?? ['class' => 'secondary', 'icon' => 'question', 'text' => strtoupper((string)$situacao_pedido)];
+    }
+}
+
+if (!function_exists('formatarEtapaOperacionalPedidoShow')) {
+    function formatarEtapaOperacionalPedidoShow(
+        mixed $situacaoPedido,
+        mixed $dataEntrega,
+        mixed $dataEvento,
+        mixed $dataDevolucaoPrevista
+    ): array {
+        $situacao = strtolower(trim((string)$situacaoPedido));
+
+        // Situações manuais de exceção prevalecem sobre a leitura automática por datas.
+        if ($situacao === 'cancelado') {
+            return ['class' => 'danger', 'icon' => 'times-circle', 'text' => 'CANCELADO'];
+        }
+
+        if ($situacao === 'finalizado') {
+            return ['class' => 'success', 'icon' => 'check-double', 'text' => 'FINALIZADO'];
+        }
+
+        if ($situacao === 'devolvido_parcial') {
+            return ['class' => 'warning', 'icon' => 'undo', 'text' => 'DEVOLVIDO PARCIAL'];
+        }
+
+        $hoje = new DateTimeImmutable('today');
+
+        $parseData = function (mixed $valor): ?DateTimeImmutable {
+            if (empty($valor) || $valor === '0000-00-00' || $valor === '0000-00-00 00:00:00') {
+                return null;
+            }
+
+            try {
+                return new DateTimeImmutable(date('Y-m-d', strtotime((string)$valor)));
+            } catch (Exception $e) {
+                return null;
+            }
+        };
+
+        $inicioOperacional = $parseData($dataEntrega) ?: $parseData($dataEvento);
+        $fimOperacional = $parseData($dataDevolucaoPrevista);
+
+        if ($fimOperacional && $hoje > $fimOperacional) {
+            return ['class' => 'dark', 'icon' => 'calendar-check', 'text' => 'FINALIZADO PREVISTO'];
+        }
+
+        if ($inicioOperacional && $hoje >= $inicioOperacional) {
+            return ['class' => 'success', 'icon' => 'truck-loading', 'text' => 'EM LOCAÇÃO'];
+        }
+
+        return ['class' => 'info', 'icon' => 'check-circle', 'text' => 'CONFIRMADO'];
     }
 }
 
@@ -428,8 +479,13 @@ $saldoBanco = $pedidoModel->saldo_calculado ?? '0';
 $saldoBanco = str_replace(',', '.', $saldoBanco);
 $saldoAPagar = floatval($saldoBanco);
 
-// Status do pedido
-$statusInfo = formatarStatusPedido($pedidoModel->situacao_pedido ?? 'confirmado');
+// Etapa operacional do pedido: leitura automática por datas, preservando exceções manuais.
+$statusInfo = formatarEtapaOperacionalPedidoShow(
+    $pedidoModel->situacao_pedido ?? 'confirmado',
+    $pedidoModel->data_entrega ?? null,
+    $pedidoModel->data_evento ?? null,
+    $pedidoModel->data_devolucao_prevista ?? null
+);
 
 // Nome sugerido para salvar/imprimir PDF
 $dataEventoArquivo = 'sem-data';
@@ -554,8 +610,8 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                 <br><small><strong>Origem:</strong> Orçamento #<?= $orcamentoOrigem ?></small>
                             <?php endif; ?>
                             
-                            <!-- Status do pedido -->
-                            <br><span class="badge badge-<?= $statusInfo['class'] ?> mt-1">
+                            <!-- Etapa operacional do pedido -->
+                            <br><small><strong>Etapa:</strong></small> <span class="badge badge-<?= $statusInfo['class'] ?> mt-1">
                                 <i class="fas fa-<?= $statusInfo['icon'] ?>"></i> <?= $statusInfo['text'] ?>
                             </span>
                             <br><small>Gerado em: <?= htmlspecialchars($dataGeracaoDocumento, ENT_QUOTES, 'UTF-8') ?></small>
@@ -564,20 +620,17 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                     <hr>
 
                     <!-- INFORMAÇÕES DO CLIENTE E EVENTO -->
-                    <div class="row mb-3">
+                    <div class="row mb-2 bloco-cliente-logistica">
                         <div class="col-12">
-                            <strong>Cliente:</strong>
-                            <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?><br>
+                            <div><strong>Cliente:</strong> <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?></div>
                             <?php if (!empty($clienteModel->telefone)): ?>
-                                <strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?><br>
+                                <div><strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?></div>
                             <?php endif; ?>
                             <?php if (!empty($clienteModel->cpf_cnpj)): ?>
-                                <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?><br>
+                                <div><strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?></div>
                             <?php endif; ?>
-                            
-                            <!-- Data do Evento -->
-                            <strong>Data do evento:</strong>
-                            <?php 
+
+                            <?php
                             $dataEventoCompleta = '';
                             if (!empty($pedidoModel->data_evento)) {
                                 $dataEventoCompleta = formatarDataDiaSemana($pedidoModel->data_evento);
@@ -585,22 +638,12 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                     try {
                                         $horaEventoFormatada = date('H\H', strtotime($pedidoModel->hora_evento));
                                         $dataEventoCompleta .= ' às ' . $horaEventoFormatada;
-                                    } catch (Exception $e) {
-                                        // Ignora erro de hora
-                                    }
+                                    } catch (Exception $e) {}
                                 }
                             } else {
                                 $dataEventoCompleta = '-';
                             }
-                            echo $dataEventoCompleta;
-                            ?><br>
-                            
-                            <strong>Local de Entrega:</strong>
-                            <?= htmlspecialchars($pedidoModel->local_evento ?: '-') ?><br>
-                            
-                            <!-- Data da Entrega -->
-                            <strong>Data da Entrega:</strong>
-                            <?php 
+
                             $dataEntregaCompleta = '';
                             if (!empty($pedidoModel->data_entrega)) {
                                 $dataEntregaCompleta = formatarDataDiaSemana($pedidoModel->data_entrega);
@@ -611,12 +654,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                             } else {
                                 $dataEntregaCompleta = '-';
                             }
-                            echo $dataEntregaCompleta;
-                            ?><br>
-                            
-                            <!-- Data da Coleta -->
-                            <strong>Data da Coleta:</strong>
-                            <?php 
+
                             $dataColetaCompleta = '';
                             if (!empty($pedidoModel->data_devolucao_prevista)) {
                                 $dataColetaCompleta = formatarDataDiaSemana($pedidoModel->data_devolucao_prevista);
@@ -627,20 +665,25 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                             } else {
                                 $dataColetaCompleta = '-';
                             }
-                            echo $dataColetaCompleta;
                             ?>
+
+                            <div class="bloco-datas-operacionais">
+                                <div class="linha-data-operacional data-evento-destaque"><span>DATA DO EVENTO</span><strong><?= htmlspecialchars($dataEventoCompleta) ?></strong></div>
+                                <div class="linha-data-operacional data-entrega-destaque"><span>DATA DA ENTREGA</span><strong><?= htmlspecialchars($dataEntregaCompleta) ?></strong></div>
+                                <div class="linha-data-operacional data-coleta-destaque"><span>DATA DA COLETA</span><strong><?= htmlspecialchars($dataColetaCompleta) ?></strong></div>
+                            </div>
+
+                            <div class="linha-local-entrega"><strong>Local de Entrega:</strong> <?= htmlspecialchars($pedidoModel->local_evento ?: '-') ?></div>
                         </div>
                     </div>
 
-                    <!-- OBSERVAÇÕES DE TAXAS (igual ao orçamento) -->
-                    <div class="row mb-3 obs-taxas-regras">
-                        <div class="col-12">
-                            <small># DOMINGO/FERIADO após as 8h e antes das 12h Taxa R$ 250,00</small><br>
-                            <small># MADRUGADA após as 4:30h e antes das 8:30h Taxa R$ 800,00</small><br>
-                            <small># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$ 500,00</small><br>
-                            <small># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$ 200,00</small><br>
-                            <small># Infelizmente não dispomos de entregas ou coletas no período das 24h as 5h</small>
-                        </div>
+                    <!-- OBSERVAÇÕES DE TAXAS -->
+                    <div class="obs-taxas-regras taxas-alerta-compactas">
+                        <div># DOMINGO/FERIADO após as 8h e antes das 12h Taxa R$ 250,00</div>
+                        <div># MADRUGADA após as 4:30h e antes das 8:30h Taxa R$ 800,00</div>
+                        <div># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$ 500,00</div>
+                        <div># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$ 200,00</div>
+                        <div># Infelizmente não dispomos de entregas ou coletas no período das 24h as 5h</div>
                     </div>
                     <hr>
 
@@ -821,7 +864,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
                                 for ($i = 0; $i < $linhasAdicionais; $i++):
                                     ?>
-                                    <tr>
+                                    <tr class="linha-branco-visual">
                                         <td>&nbsp;</td>
                                         <td>&nbsp;</td>
                                         <td class="col-financeira">&nbsp;</td>
@@ -1011,8 +1054,8 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 <style>
     /* Estilos herdados do orçamento com adaptações para pedido */
     .produto-foto-impressao {
-        width: 50px !important;
-        height: 50px !important;
+        width: 46px !important;
+        height: 46px !important;
         object-fit: cover !important;
         margin-right: 10px !important;
         border: 1px solid #ddd !important;
@@ -1224,12 +1267,12 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
 
         .financeiro-linha-titulo {
-            font-size: 7.8pt !important;
+            font-size: 9pt !important;
             margin-right: 5px !important;
         }
 
         .financeiro-linha-conteudo {
-            font-size: 7.5pt !important;
+            font-size: 8.7pt !important;
             line-height: 1.1 !important;
         }
 
@@ -1238,7 +1281,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
 
         .financeiro-linha-conteudo small {
-            font-size: 6.3pt !important;
+            font-size: 7.2pt !important;
         }
 
         .impressao-cliente .financeiro-linha-condicoes,
@@ -1260,20 +1303,90 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
     }
 
+
+    .bloco-cliente-logistica {
+        font-size: 12.2pt;
+        line-height: 1.28;
+        color: #000;
+    }
+
+    .bloco-datas-operacionais {
+        margin-top: 5px;
+        margin-bottom: 4px;
+        border: 2px solid #000;
+        page-break-inside: avoid;
+    }
+
+    .linha-data-operacional {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid #777;
+        min-height: 28px;
+        color: #000;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .linha-data-operacional:last-child {
+        border-bottom: none;
+    }
+
+    .linha-data-operacional span {
+        width: 165px;
+        min-width: 165px;
+        padding: 4px 8px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        background: #e9ecef;
+        border-right: 1px solid #777;
+    }
+
+    .linha-data-operacional strong {
+        flex: 1;
+        padding: 4px 8px;
+        font-size: 12.8pt;
+        font-weight: 900;
+    }
+
+    .data-evento-destaque strong { background: #fff7d6; }
+    .data-entrega-destaque strong { background: #e8f4ff; }
+    .data-coleta-destaque strong { background: #ffdede; }
+
+    .linha-local-entrega {
+        font-size: 12pt;
+        line-height: 1.2;
+        margin-top: 2px;
+    }
+
+    .taxas-alerta-compactas {
+        margin: 4px 0 5px 0;
+        padding: 4px 6px;
+        border: 1px solid #999;
+        background: #fff;
+        color: #000;
+        font-size: 9.2pt;
+        line-height: 1.14;
+    }
+
+    .taxas-alerta-compactas div {
+        margin: 0;
+        padding: 1px 0;
+    }
+
     .card-pedido-visual {
         font-family: Calibri, Arial, sans-serif;
-        font-size: 11pt;
+        font-size: 12.6pt;
         border: 1px solid #ccc;
     }
 
     .card-pedido-visual .card-body {
-        padding: 20px;
+        padding: 14px;
     }
 
     .cabecalho-empresa {
         border-bottom: 2px solid #000;
-        padding-bottom: 15px;
-        margin-bottom: 15px;
+        padding-bottom: 8px;
+        margin-bottom: 8px;
     }
 
     .logo-placeholder {
@@ -1308,17 +1421,17 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
     }
 
     .obs-taxas-regras small, .obs-gerais small, .forma-pagamento small, .info-pix small {
-        font-size: 10pt;
+        font-size: 10.6pt;
         color: #000;
         display: block;
-        line-height: 1.3;
+        line-height: 1.22;
     }
 
     .table-itens-pedido th, .table-itens-pedido td {
-        padding: 0.25rem 0.5rem;
+        padding: 0.24rem 0.45rem;
         vertical-align: middle;
         border: 1px solid #dee2e6;
-        font-size: 11pt;
+        font-size: 12.1pt;
         color: #000;
     }
 
@@ -1344,7 +1457,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
     }
 
     .taxas-fretes div {
-        font-size: 11pt;
+        font-size: 11.5pt;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -1497,9 +1610,70 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         text-align: left;
     }
 
+    @page {
+        size: A4;
+        margin: 10mm;
+    }
+
     @media print {
+
+        @page {
+            size: A4;
+            margin: 7mm 7mm 7mm 7mm;
+        }
+
+        .bloco-cliente-logistica {
+            font-size: 11.6pt !important;
+            line-height: 1.18 !important;
+            margin-bottom: 3px !important;
+        }
+
+        .bloco-datas-operacionais {
+            margin-top: 3px !important;
+            margin-bottom: 3px !important;
+            border: 2px solid #000 !important;
+        }
+
+        .linha-data-operacional {
+            min-height: 25px !important;
+            border-bottom: 1px solid #777 !important;
+        }
+
+        .linha-data-operacional span {
+            width: 145px !important;
+            min-width: 145px !important;
+            padding: 3px 6px !important;
+            font-size: 10.4pt !important;
+        }
+
+        .linha-data-operacional strong {
+            padding: 3px 6px !important;
+            font-size: 12.4pt !important;
+        }
+
+        .linha-local-entrega {
+            font-size: 11.4pt !important;
+            line-height: 1.15 !important;
+        }
+
+        .taxas-alerta-compactas {
+            font-size: 8.1pt !important;
+            line-height: 1.04 !important;
+            padding: 2px 4px !important;
+            margin: 2px 0 3px 0 !important;
+            border: 1px solid #999 !important;
+        }
+
+        .taxas-alerta-compactas div {
+            padding: 0 !important;
+        }
+
+        .linha-branco-visual {
+            display: none !important;
+        }
+
         body {
-            font-size: 10pt;
+            font-size: 11.5pt;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color: #000 !important;
@@ -1518,14 +1692,84 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
             display: none;
         }
 
-                .card-pedido-visual {
+            
+    .bloco-cliente-logistica {
+        font-size: 12.2pt;
+        line-height: 1.28;
+        color: #000;
+    }
+
+    .bloco-datas-operacionais {
+        margin-top: 5px;
+        margin-bottom: 4px;
+        border: 2px solid #000;
+        page-break-inside: avoid;
+    }
+
+    .linha-data-operacional {
+        display: flex;
+        align-items: center;
+        border-bottom: 1px solid #777;
+        min-height: 28px;
+        color: #000;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .linha-data-operacional:last-child {
+        border-bottom: none;
+    }
+
+    .linha-data-operacional span {
+        width: 165px;
+        min-width: 165px;
+        padding: 4px 8px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        background: #e9ecef;
+        border-right: 1px solid #777;
+    }
+
+    .linha-data-operacional strong {
+        flex: 1;
+        padding: 4px 8px;
+        font-size: 12.8pt;
+        font-weight: 900;
+    }
+
+    .data-evento-destaque strong { background: #fff7d6; }
+    .data-entrega-destaque strong { background: #e8f4ff; }
+    .data-coleta-destaque strong { background: #ffdede; }
+
+    .linha-local-entrega {
+        font-size: 12pt;
+        line-height: 1.2;
+        margin-top: 2px;
+    }
+
+    .taxas-alerta-compactas {
+        margin: 4px 0 5px 0;
+        padding: 4px 6px;
+        border: 1px solid #999;
+        background: #fff;
+        color: #000;
+        font-size: 9.2pt;
+        line-height: 1.14;
+    }
+
+    .taxas-alerta-compactas div {
+        margin: 0;
+        padding: 1px 0;
+    }
+
+    .card-pedido-visual {
             box-shadow: none !important;
             border: none !important;
             margin-bottom: 0 !important;
         }
 
         .card-pedido-visual .card-body {
-            padding: 10px !important;
+            padding: 5px !important;
         }
 
         .table-itens-pedido {
@@ -1534,7 +1778,8 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
         .table-itens-pedido th, .table-itens-pedido td {
             border: 1px solid #777 !important;
-            font-size: 10pt !important;
+            font-size: 12pt !important;
+            padding: 3px 5px !important;
             color: #000 !important;
         }
 
@@ -1560,8 +1805,18 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
 
         .info-empresa h4 {
-            font-size: 12pt !important;
+            font-size: 12.5pt !important;
             color: #000 !important;
+        }
+
+        .cabecalho-empresa {
+            padding-bottom: 5px !important;
+            margin-bottom: 5px !important;
+        }
+
+        .card-pedido-visual hr {
+            margin-top: 0.25rem !important;
+            margin-bottom: 0.25rem !important;
         }
 
         /* Oculta observações na impressão para cliente */
@@ -1595,13 +1850,13 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
 
         .texto-filho-conjunto {
-            font-size: 9.4pt !important;
+            font-size: 10.2pt !important;
             font-weight: 700 !important;
             color: #0b5ed7 !important;
         }
 
         .linha-conjunto-filho .qtd-item {
-            font-size: 9.0pt !important;
+            font-size: 9.8pt !important;
             color: #0b5ed7 !important;
         }
 
@@ -1641,7 +1896,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
         .impressao-producao .componentes-producao {
             display: block !important;
-            font-size: 9.2pt !important;
+            font-size: 10pt !important;
             margin-top: 3px !important;
             padding: 3px 5px !important;
         }
@@ -1650,6 +1905,579 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
             display: block !important;
         }
     }
+
+/* === AJUSTE MOBEL 04/06/2026 - impressão mais legível e compacta === */
+.bloco-datas-operacionais {
+    display: grid !important;
+    grid-template-columns: 190px 1fr !important;
+    border: 2px solid #000 !important;
+    margin-top: 6px !important;
+    margin-bottom: 5px !important;
+}
+
+.linha-data-operacional {
+    display: contents !important;
+}
+
+.linha-data-operacional span,
+.linha-data-operacional strong {
+    display: flex !important;
+    align-items: center !important;
+    min-height: 32px !important;
+    border-bottom: 1px solid #555 !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}
+
+.linha-data-operacional span {
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 5px 9px !important;
+    border-right: 1px solid #555 !important;
+    font-size: 12.6pt !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.02em !important;
+    background: #e9ecef !important;
+}
+
+.linha-data-operacional strong {
+    padding: 5px 10px !important;
+    font-size: 14.2pt !important;
+    font-weight: 900 !important;
+    line-height: 1.12 !important;
+}
+
+.linha-data-operacional:nth-of-type(3) span,
+.linha-data-operacional:nth-of-type(3) strong {
+    border-bottom: none !important;
+}
+
+.data-evento-destaque span,
+.data-evento-destaque strong {
+    background: #fff3b0 !important;
+}
+
+.data-entrega-destaque span,
+.data-entrega-destaque strong {
+    background: #dceeff !important;
+}
+
+.data-coleta-destaque span,
+.data-coleta-destaque strong {
+    background: #ffdede !important;
+    color: #7a0000 !important;
+    border-bottom-color: #9b1c1c !important;
+}
+
+.linha-local-entrega {
+    font-size: 12.2pt !important;
+    font-weight: 700 !important;
+    margin: 3px 0 4px 0 !important;
+}
+
+/* Regras/taxas em duas colunas, para não roubar uma faixa larga em branco */
+.taxas-alerta-compactas {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1px 14px !important;
+    padding: 4px 7px !important;
+    margin: 4px 0 5px 0 !important;
+    font-size: 10.4pt !important;
+    line-height: 1.12 !important;
+}
+
+.taxas-alerta-compactas div {
+    padding: 0 !important;
+    margin: 0 !important;
+    font-weight: 700 !important;
+}
+
+.taxas-alerta-compactas div:last-child {
+    grid-column: 1 / -1 !important;
+}
+
+/* Controle financeiro com itens mais distribuídos e legíveis */
+.financeiro-linha-unica {
+    padding: 6px 8px !important;
+    border: 1.5px solid #555 !important;
+}
+
+.financeiro-linha-titulo {
+    display: block !important;
+    font-size: 10.8pt !important;
+    margin: 0 0 3px 0 !important;
+}
+
+.financeiro-linha-conteudo {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+    width: 100% !important;
+    font-size: 11.2pt !important;
+    line-height: 1.15 !important;
+}
+
+.financeiro-linha-conteudo span {
+    margin-right: 0 !important;
+    white-space: nowrap !important;
+}
+
+.financeiro-linha-condicoes {
+    font-size: 10pt !important;
+    line-height: 1.18 !important;
+}
+
+/* Leitura geral */
+.card-pedido-visual {
+    font-size: 13pt !important;
+}
+
+.table-itens-pedido th,
+.table-itens-pedido td {
+    font-size: 12.8pt !important;
+    padding: 0.30rem 0.50rem !important;
+}
+
+.texto-filho-conjunto {
+    font-size: 11.8pt !important;
+}
+
+.linha-conjunto-filho .qtd-item {
+    font-size: 11.2pt !important;
+}
+
+.obs-taxas-regras small,
+.obs-gerais small,
+.forma-pagamento small,
+.info-pix small {
+    font-size: 11.2pt !important;
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 6mm 7mm 6mm 7mm;
+    }
+
+    body {
+        font-size: 11.6pt !important;
+    }
+
+    .main-footer,
+    footer {
+        display: none !important;
+    }
+
+    .content-wrapper,
+    .container-fluid,
+    .content,
+    .card-pedido-visual,
+    .card-pedido-visual .card-body {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .cabecalho-empresa {
+        padding-bottom: 5px !important;
+        margin-bottom: 5px !important;
+    }
+
+    .info-empresa h4 {
+        font-size: 13.2pt !important;
+    }
+
+    .info-empresa small,
+    .info-pedido,
+    .info-pedido small {
+        font-size: 9.6pt !important;
+        line-height: 1.15 !important;
+    }
+
+    .bloco-cliente-logistica {
+        font-size: 11.7pt !important;
+        line-height: 1.14 !important;
+    }
+
+    .bloco-datas-operacionais {
+        grid-template-columns: 190px 1fr !important;
+        margin-top: 3px !important;
+        margin-bottom: 3px !important;
+        border: 2px solid #000 !important;
+    }
+
+    .linha-data-operacional span,
+    .linha-data-operacional strong {
+        min-height: 27px !important;
+    }
+
+    .linha-data-operacional span {
+        font-size: 11.8pt !important;
+        padding: 3px 7px !important;
+    }
+
+    .linha-data-operacional strong {
+        font-size: 13.4pt !important;
+        padding: 3px 8px !important;
+    }
+
+    .linha-local-entrega {
+        font-size: 11.4pt !important;
+        margin: 2px 0 3px 0 !important;
+    }
+
+    .taxas-alerta-compactas {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 0 12px !important;
+        padding: 3px 6px !important;
+        font-size: 9.2pt !important;
+        line-height: 1.05 !important;
+        margin: 3px 0 4px 0 !important;
+    }
+
+    .taxas-alerta-compactas div {
+        font-weight: 700 !important;
+    }
+
+    .row.mb-3 {
+        margin-bottom: 0.35rem !important;
+    }
+
+    .table-itens-pedido th,
+    .table-itens-pedido td {
+        font-size: 11.7pt !important;
+        padding: 0.24rem 0.40rem !important;
+        line-height: 1.12 !important;
+    }
+
+    .produto-foto-impressao {
+        width: 38px !important;
+        height: 38px !important;
+        margin-right: 7px !important;
+    }
+
+    .texto-produto-impressao {
+        min-height: 40px !important;
+    }
+
+    .texto-filho-conjunto {
+        font-size: 10.8pt !important;
+    }
+
+    .linha-conjunto-filho .qtd-item {
+        font-size: 10.6pt !important;
+    }
+
+    .obs-taxas-regras small,
+    .obs-gerais small,
+    .forma-pagamento small,
+    .info-pix small {
+        font-size: 10.2pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .taxas-fretes div {
+        font-size: 10.4pt !important;
+        line-height: 1.12 !important;
+        margin-bottom: 1px !important;
+    }
+
+    .taxas-fretes h4 {
+        font-size: 12.2pt !important;
+    }
+
+    .financeiro-linha-unica {
+        padding: 4px 6px !important;
+        margin-top: 3px !important;
+        margin-bottom: 3px !important;
+    }
+
+    .financeiro-linha-titulo {
+        font-size: 9.8pt !important;
+        margin-bottom: 2px !important;
+    }
+
+    .financeiro-linha-conteudo {
+        display: flex !important;
+        justify-content: space-between !important;
+        gap: 5px !important;
+        font-size: 9.8pt !important;
+        line-height: 1.05 !important;
+    }
+
+    .financeiro-linha-condicoes {
+        font-size: 8.8pt !important;
+        line-height: 1.05 !important;
+        margin-top: 2px !important;
+        padding-top: 2px !important;
+    }
+
+    .info-pix strong {
+        font-size: 11pt !important;
+    }
+
+    .observacoes-adicionais {
+        font-size: 10.5pt !important;
+    }
+}
+
+
+/* ==========================================================
+   AJUSTE V4 - LEITURA MAIOR / IDOSOS / IMPRESSÃO REAL
+   Mantém a lógica existente e só reforça legibilidade.
+   ========================================================== */
+
+/* Linhas de datas: mais força visual e sem parecer igual */
+.linha-data-operacional span {
+    font-size: 12.8pt !important;
+    font-weight: 900 !important;
+}
+
+.linha-data-operacional strong {
+    font-size: 14.4pt !important;
+    font-weight: 900 !important;
+}
+
+.data-evento-destaque span,
+.data-evento-destaque strong {
+    background-color: #fff3b0 !important;
+}
+
+.data-entrega-destaque span,
+.data-entrega-destaque strong {
+    background-color: #d7ecff !important;
+}
+
+.data-coleta-destaque span,
+.data-coleta-destaque strong {
+    background-color: #ffd6d6 !important;
+    color: #7a0000 !important;
+}
+
+/* Tabela: fonte mais próxima da área das datas */
+.table-itens-pedido th,
+.table-itens-pedido td {
+    font-size: 13.6pt !important;
+    line-height: 1.22 !important;
+}
+
+.table-itens-pedido thead th {
+    font-size: 13.2pt !important;
+    font-weight: 900 !important;
+}
+
+.descricao-item strong {
+    font-size: 13.0pt !important;
+    font-weight: 900 !important;
+}
+
+/* Item interno de conjunto: quantidade menor e azul, igual à setinha */
+.qtd-item-conjunto-filho,
+.qtd-item-conjunto-filho strong {
+    color: #0b5ed7 !important;
+    font-size: 11.2pt !important;
+    font-weight: 900 !important;
+}
+
+.marcador-item-conjunto {
+    color: #0b5ed7 !important;
+}
+
+.texto-filho-conjunto {
+    color: #0b5ed7 !important;
+    font-size: 12.2pt !important;
+    font-weight: 900 !important;
+}
+
+.indicador-conjunto-pai {
+    font-size: 9.6pt !important;
+}
+
+/* Blocos de observações/pagamento: maior, sem desperdiçar tanto espaço */
+.obs-gerais small,
+.forma-pagamento small,
+.info-pix small {
+    font-size: 12.0pt !important;
+    line-height: 1.22 !important;
+}
+
+.forma-pagamento strong,
+.obs-gerais strong {
+    font-size: 12.6pt !important;
+}
+
+.taxas-fretes div {
+    font-size: 12.0pt !important;
+    line-height: 1.18 !important;
+}
+
+.taxas-fretes h4 {
+    font-size: 13.6pt !important;
+}
+
+.financeiro-linha-conteudo {
+    font-size: 12.0pt !important;
+}
+
+.financeiro-linha-titulo {
+    font-size: 11.8pt !important;
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 5mm 6mm 5mm 6mm;
+    }
+
+    body {
+        font-size: 12.2pt !important;
+    }
+
+    .info-empresa h4 {
+        font-size: 13.8pt !important;
+    }
+
+    .info-empresa small,
+    .info-pedido,
+    .info-pedido small {
+        font-size: 9.8pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .bloco-cliente-logistica {
+        font-size: 12.2pt !important;
+    }
+
+    .bloco-datas-operacionais {
+        grid-template-columns: 178px 1fr !important;
+        border: 2px solid #000 !important;
+        margin-top: 3px !important;
+        margin-bottom: 3px !important;
+    }
+
+    .linha-data-operacional span,
+    .linha-data-operacional strong {
+        min-height: 25px !important;
+    }
+
+    .linha-data-operacional span {
+        font-size: 11.8pt !important;
+        padding: 3px 6px !important;
+    }
+
+    .linha-data-operacional strong {
+        font-size: 13.9pt !important;
+        padding: 3px 7px !important;
+        white-space: nowrap !important;
+    }
+
+    .linha-local-entrega {
+        font-size: 11.8pt !important;
+        font-weight: 800 !important;
+    }
+
+    .taxas-alerta-compactas {
+        font-size: 9.4pt !important;
+        line-height: 1.03 !important;
+        gap: 0 10px !important;
+        padding: 3px 6px !important;
+        margin: 3px 0 3px 0 !important;
+    }
+
+    .table-itens-pedido th,
+    .table-itens-pedido td {
+        font-size: 12.7pt !important;
+        line-height: 1.12 !important;
+        padding: 0.24rem 0.38rem !important;
+    }
+
+    .table-itens-pedido thead th {
+        font-size: 12.2pt !important;
+        font-weight: 900 !important;
+    }
+
+    .descricao-item strong {
+        font-size: 12.4pt !important;
+    }
+
+    .produto-foto-impressao {
+        width: 36px !important;
+        height: 36px !important;
+        margin-right: 7px !important;
+    }
+
+    .texto-produto-impressao {
+        min-height: 38px !important;
+    }
+
+    .qtd-item-conjunto-filho,
+    .qtd-item-conjunto-filho strong,
+    .linha-conjunto-filho .qtd-item,
+    .linha-conjunto-filho .qtd-item strong {
+        color: #0b5ed7 !important;
+        font-size: 10.8pt !important;
+        font-weight: 900 !important;
+    }
+
+    .texto-filho-conjunto {
+        color: #0b5ed7 !important;
+        font-size: 11.5pt !important;
+        font-weight: 900 !important;
+    }
+
+    .marcador-item-conjunto {
+        color: #0b5ed7 !important;
+        height: 33px !important;
+        font-size: 12pt !important;
+    }
+
+    .obs-gerais small,
+    .forma-pagamento small,
+    .info-pix small {
+        font-size: 10.8pt !important;
+        line-height: 1.10 !important;
+    }
+
+    .taxas-fretes div {
+        font-size: 10.8pt !important;
+        line-height: 1.10 !important;
+        margin-bottom: 0 !important;
+    }
+
+    .taxas-fretes h4 {
+        font-size: 12.6pt !important;
+    }
+
+    .financeiro-linha-unica {
+        padding: 5px 6px !important;
+    }
+
+    .financeiro-linha-titulo {
+        font-size: 10.4pt !important;
+    }
+
+    .financeiro-linha-conteudo {
+        font-size: 10.8pt !important;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 4px 10px !important;
+        align-items: center !important;
+    }
+
+    .financeiro-linha-conteudo span {
+        white-space: nowrap !important;
+        margin-right: 0 !important;
+    }
+
+    .observacoes-adicionais {
+        font-size: 10.8pt !important;
+    }
+}
+
 </style>
 
 <script>

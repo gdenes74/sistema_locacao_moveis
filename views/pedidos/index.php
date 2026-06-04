@@ -33,9 +33,12 @@ if (isset($_GET['cliente_id']) && !empty($_GET['cliente_id'])) {
     $filtros['cliente_id'] = (int)$_GET['cliente_id'];
 }
 
-// ✅ CORRIGIDO: Filtro por Situação do Pedido
-if (isset($_GET['situacao_pedido']) && !empty($_GET['situacao_pedido'])) {
-    $filtros['situacao_pedido'] = $_GET['situacao_pedido'];
+// Filtro por Status do Pedido.
+// A tela usa status_pedido; o banco/model mantém compatibilidade com situacao_pedido.
+if (isset($_GET['status_pedido']) && !empty($_GET['status_pedido'])) {
+    $filtros['status_pedido'] = $_GET['status_pedido'];
+} elseif (isset($_GET['situacao_pedido']) && !empty($_GET['situacao_pedido'])) {
+    $filtros['status_pedido'] = $_GET['situacao_pedido'];
 }
 
 // Filtro por Data do Evento (De)
@@ -82,6 +85,51 @@ if (isset($_GET['orderBy']) && !empty($_GET['orderBy'])) {
 $stmtPedidos = $pedidoModel->listarTodos($filtros, $orderBy);
 $pedidos = $stmtPedidos ? $stmtPedidos->fetchAll(PDO::FETCH_ASSOC) : [];
 
+
+function calcularEtapaOperacionalPedido(array $pedido): array
+{
+    $statusBanco = strtolower((string)($pedido['status_pedido'] ?? ($pedido['situacao_pedido'] ?? 'confirmado')));
+
+    if ($statusBanco === 'cancelado') {
+        return ['texto' => 'Cancelado', 'classe' => 'badge badge-danger', 'icone' => 'ban', 'ordem' => 90];
+    }
+
+    if ($statusBanco === 'finalizado') {
+        return ['texto' => 'Finalizado', 'classe' => 'badge badge-dark', 'icone' => 'check-double', 'ordem' => 80];
+    }
+
+    if ($statusBanco === 'devolvido_parcial') {
+        return ['texto' => 'Dev. Parcial', 'classe' => 'badge badge-warning', 'icone' => 'exclamation-triangle', 'ordem' => 70];
+    }
+
+    $hoje = new DateTimeImmutable('today');
+
+    $parseData = static function ($valor) {
+        if (empty($valor)) {
+            return null;
+        }
+        try {
+            return new DateTimeImmutable((string)$valor);
+        } catch (Exception $e) {
+            return null;
+        }
+    };
+
+    $dataEntrega = $parseData($pedido['data_entrega'] ?? null);
+    $dataEvento = $parseData($pedido['data_evento'] ?? null);
+    $dataColeta = $parseData($pedido['data_devolucao_prevista'] ?? null);
+
+    if ($dataColeta && $hoje > $dataColeta) {
+        return ['texto' => 'Finalizado previsto', 'classe' => 'badge badge-secondary', 'icone' => 'calendar-check', 'ordem' => 60];
+    }
+
+    if (($dataEntrega && $hoje >= $dataEntrega) || ($dataEvento && $hoje >= $dataEvento)) {
+        return ['texto' => 'Em locação', 'classe' => 'badge badge-info', 'icone' => 'truck-loading', 'ordem' => 50];
+    }
+
+    return ['texto' => 'Confirmado', 'classe' => 'badge badge-primary', 'icone' => 'calendar-check', 'ordem' => 10];
+}
+
 // ✅ NOVO: Calcular informações financeiras para cada pedido
 foreach ($pedidos as &$ped) {
     $valorFinalPed = floatval($ped['valor_final'] ?? 0);
@@ -111,6 +159,12 @@ foreach ($pedidos as &$ped) {
         $ped['status_pagamento_classe'] = 'badge-danger';
         $ped['status_pagamento_icone'] = 'exclamation-triangle';
     }
+
+    $etapaOperacional = calcularEtapaOperacionalPedido($ped);
+    $ped['etapa_operacional_texto'] = $etapaOperacional['texto'];
+    $ped['etapa_operacional_classe'] = $etapaOperacional['classe'];
+    $ped['etapa_operacional_icone'] = $etapaOperacional['icone'];
+    $ped['etapa_operacional_ordem'] = $etapaOperacional['ordem'];
 }
 unset($ped);
 
@@ -200,13 +254,12 @@ include_once __DIR__ . '/../includes/header.php';
                                 </select>
                             </div>
                             <div class="col-md-4 form-group">
-                                <!-- ✅ CORRIGIDO: name="situacao_pedido" -->
-                                <label for="situacao_pedido">Situação:</label>
-                                <select name="situacao_pedido" id="situacao_pedido" class="form-control select2" style="width: 100%;">
-                                    <option value="">Todas as Situações</option>
+                                <label for="status_pedido">Status manual:</label>
+                                <select name="status_pedido" id="status_pedido" class="form-control select2" style="width: 100%;">
+                                    <option value="">Todos os Status manuais</option>
                                     <?php foreach ($status_pedido_opcoes as $status): ?>
                                         <option value="<?php echo $status['valor']; ?>"
-                                                <?php echo (isset($_GET['situacao_pedido']) && $_GET['situacao_pedido'] == $status['valor']) ? 'selected' : ''; ?>>
+                                                <?php echo (isset($_GET['status_pedido']) && $_GET['status_pedido'] == $status['valor']) ? 'selected' : ''; ?>>
                                             <?php echo htmlspecialchars($status['texto']); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -302,9 +355,9 @@ include_once __DIR__ . '/../includes/header.php';
                                             Cliente <?php echo sort_icon('c.nome', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 70px;">
+                                    <th style="width: 130px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.data_evento ASC' ? 'p.data_evento DESC' : 'p.data_evento ASC')]); ?>">
-                                            Evento <?php echo sort_icon('p.data_evento', $orderBy); ?>
+                                            Período <?php echo sort_icon('p.data_evento', $orderBy); ?>
                                         </a>
                                     </th>
                                     <th style="width: 50px;">
@@ -325,10 +378,8 @@ include_once __DIR__ . '/../includes/header.php';
                                     <th style="width: 60px;">
                                         Pagto
                                     </th>
-                                    <th style="width: 80px;">
-                                        <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'p.situacao_pedido ASC' ? 'p.situacao_pedido DESC' : 'p.situacao_pedido ASC')]); ?>">
-                                            Situação <?php echo sort_icon('p.situacao_pedido', $orderBy); ?>
-                                        </a>
+                                    <th style="width: 115px;">
+                                        Etapa
                                     </th>
                                     <th style="width: 100px;">Ações</th>
                                 </tr>
@@ -346,7 +397,11 @@ include_once __DIR__ . '/../includes/header.php';
                                                 echo htmlspecialchars(strlen($nomeCliente) > 15 ? substr($nomeCliente, 0, 12) . '...' : $nomeCliente); 
                                                 ?>
                                             </td>
-                                            <td><?php echo $ped['data_evento'] ? date('d/m/y', strtotime($ped['data_evento'])) : '-'; ?></td>
+                                            <td class="periodo-pedido">
+                                                <div><strong>Evento:</strong> <?php echo $ped['data_evento'] ? formatar_data_br($ped['data_evento']) : '-'; ?></div>
+                                                <div><strong>Entrega:</strong> <?php echo $ped['data_entrega'] ? formatar_data_br($ped['data_entrega']) : '-'; ?></div>
+                                                <div><strong>Coleta:</strong> <?php echo $ped['data_devolucao_prevista'] ? formatar_data_br($ped['data_devolucao_prevista']) : '-'; ?></div>
+                                            </td>
                                             <td>
                                                 <?php
                                                 $tipo_texto = 'N/A';
@@ -370,43 +425,10 @@ include_once __DIR__ . '/../includes/header.php';
                                                 </span>
                                             </td>
                                             <td>
-                                                <?php
-                                                // ✅ CORRIGIDO: usar situacao_pedido
-                                                $situacao = $ped['situacao_pedido'] ?? 'desconhecido';
-                                                $situacao_texto = '';
-                                                $situacao_classe = 'badge badge-light'; // Padrão
-
-                                                switch (strtolower($situacao)) {
-                                                    case 'confirmado':
-                                                        $situacao_classe = 'badge badge-primary';
-                                                        $situacao_texto = 'Confirmado';
-                                                        break;
-                                                    case 'em_separacao':
-                                                        $situacao_classe = 'badge badge-warning';
-                                                        $situacao_texto = 'Em Separação';
-                                                        break;
-                                                    case 'entregue':
-                                                        $situacao_classe = 'badge badge-success';
-                                                        $situacao_texto = 'Entregue';
-                                                        break;
-                                                    case 'devolvido_parcial':
-                                                        $situacao_classe = 'badge badge-info';
-                                                        $situacao_texto = 'Dev. Parcial';
-                                                        break;
-                                                    case 'finalizado':
-                                                        $situacao_classe = 'badge badge-dark';
-                                                        $situacao_texto = 'Finalizado';
-                                                        break;
-                                                    case 'cancelado':
-                                                        $situacao_classe = 'badge badge-danger';
-                                                        $situacao_texto = 'Cancelado';
-                                                        break;
-                                                    default:
-                                                        $situacao_texto = 'Desconhecido';
-                                                        break;
-                                                }
-                                                ?>
-                                                <span class="<?php echo $situacao_classe; ?>" style="font-size: 9px;"><?php echo htmlspecialchars($situacao_texto); ?></span>
+                                                <span class="<?php echo $ped['etapa_operacional_classe']; ?>" style="font-size: 9px;">
+                                                    <i class="fas fa-<?php echo htmlspecialchars($ped['etapa_operacional_icone']); ?>"></i>
+                                                    <?php echo htmlspecialchars($ped['etapa_operacional_texto']); ?>
+                                                </span>
                                             </td>
                                             <td>
                                                 <div class="acoes-pedido">
@@ -430,28 +452,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                     
                                                     <!-- Segunda linha -->
                                                     <div class="btn-group">
-                                                        <!-- ✅ CORRIGIDO: Botões de Situação -->
-                                                        <?php if ($ped['situacao_pedido'] === 'confirmado'): ?>
-                                                            <button type="button" class="btn btn-xs btn-warning btnMudarStatus"
-                                                                    data-id="<?php echo $ped['id']; ?>" data-status="em_separacao"
-                                                                    title="Separação">
-                                                                <i class="fas fa-tools"></i>
-                                                            </button>
-                                                        <?php elseif ($ped['situacao_pedido'] === 'em_separacao'): ?>
-                                                            <button type="button" class="btn btn-xs btn-success btnMudarStatus"
-                                                                    data-id="<?php echo $ped['id']; ?>" data-status="entregue"
-                                                                    title="Entregue">
-                                                                <i class="fas fa-truck"></i>
-                                                            </button>
-                                                        <?php elseif ($ped['situacao_pedido'] === 'entregue'): ?>
-                                                            <button type="button" class="btn btn-xs btn-info btnMudarStatus"
-                                                                    data-id="<?php echo $ped['id']; ?>" data-status="devolvido_parcial"
-                                                                    title="Devolvido">
-                                                                <i class="fas fa-undo"></i>
-                                                            </button>
-                                                        <?php endif; ?>
-
-                                                        <button type="button" class="btn btn-xs btn-danger" title="Excluir"
+<button type="button" class="btn btn-xs btn-danger" title="Excluir"
                                                                 onclick="confirmDelete(<?php echo $ped['id']; ?>, '<?php echo htmlspecialchars(addslashes($ped['codigo'] ?? $ped['numero'] ?? $ped['id'])); ?>')">
                                                             <i class="fas fa-trash"></i>
                                                         </button>
@@ -460,8 +461,9 @@ include_once __DIR__ . '/../includes/header.php';
                                                                 data-toggle="popover" data-html="true" data-trigger="click" data-placement="left"
                                                                 data-content="
                                                                 <strong>Local:</strong> <?= htmlspecialchars($ped['local_evento'] ?? '-'); ?><br>
-                                                                <strong>Hora:</strong> <?= $ped['hora_evento'] ? substr($ped['hora_evento'], 0, 5) : '-'; ?><br>
-                                                                <strong>Devolução:</strong> <?= $ped['data_devolucao_prevista'] ? formatar_data_br($ped['data_devolucao_prevista']) : '-'; ?><br>
+                                                                <strong>Hora Evento:</strong> <?= $ped['hora_evento'] ? substr($ped['hora_evento'], 0, 5) : '-'; ?><br>
+                                                                <strong>Entrega:</strong> <?= $ped['data_entrega'] ? formatar_data_br($ped['data_entrega']) : '-'; ?> <?= $ped['hora_entrega'] ? substr($ped['hora_entrega'], 0, 5) : ''; ?><br>
+                                                                <strong>Coleta:</strong> <?= $ped['data_devolucao_prevista'] ? formatar_data_br($ped['data_devolucao_prevista']) : '-'; ?> <?= $ped['hora_devolucao'] ? substr($ped['hora_devolucao'], 0, 5) : ''; ?><br>
                                                                 <strong>Sinal:</strong> <?= formatar_moeda_br($ped['valor_sinal'] ?? 0); ?><br>
                                                                 <strong>Pago:</strong> <?= formatar_moeda_br($ped['valor_pago'] ?? 0); ?><br>
                                                                 <strong>Total Pago:</strong> <?= formatar_moeda_br($ped['total_pago']); ?><br>
@@ -500,14 +502,14 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="col-md-4 mb-4">
                                 <div class="card card-outline
                                     <?php
-                                    // ✅ CORRIGIDO: usar situacao_pedido
-                                    switch (strtolower($ped['situacao_pedido'] ?? '')) {
-                                        case 'confirmado': echo 'card-primary'; break;
-                                        case 'em_separacao': echo 'card-warning'; break;
-                                        case 'entregue': echo 'card-success'; break;
-                                        case 'devolvido_parcial': echo 'card-info'; break;
-                                        case 'cancelado': echo 'card-danger'; break;
-                                        case 'finalizado': echo 'card-dark'; break;
+                                    $etapaCard = $ped['etapa_operacional_texto'] ?? 'Confirmado';
+                                    switch ($etapaCard) {
+                                        case 'Confirmado': echo 'card-primary'; break;
+                                        case 'Em locação': echo 'card-info'; break;
+                                        case 'Finalizado previsto': echo 'card-secondary'; break;
+                                        case 'Finalizado': echo 'card-dark'; break;
+                                        case 'Cancelado': echo 'card-danger'; break;
+                                        case 'Dev. Parcial': echo 'card-warning'; break;
                                         default: echo 'card-secondary'; break;
                                     }
                                     ?>
@@ -519,6 +521,10 @@ include_once __DIR__ . '/../includes/header.php';
                                             <span class="badge <?php echo $ped['status_pagamento_classe']; ?>">
                                                 <i class="fas fa-<?php echo $ped['status_pagamento_icone']; ?>"></i>
                                                 <?php echo $ped['status_pagamento_texto']; ?>
+                                            </span>
+                                            <span class="badge <?php echo $ped['etapa_operacional_classe']; ?> ml-1">
+                                                <i class="fas fa-<?php echo htmlspecialchars($ped['etapa_operacional_icone']); ?>"></i>
+                                                <?php echo htmlspecialchars($ped['etapa_operacional_texto']); ?>
                                             </span>
                                         </div>
                                     </div>
@@ -688,6 +694,21 @@ include_once __DIR__ . '/../includes/header.php';
     font-weight: 600 !important; /* Mais grosso */
 }
 
+
+/* ✅ PERÍODO DO PEDIDO: evento, entrega e coleta na mesma coluna */
+.periodo-pedido {
+    white-space: normal !important;
+    min-width: 145px !important;
+    line-height: 1.25 !important;
+    font-size: 12px !important;
+}
+.periodo-pedido div {
+    margin-bottom: 2px;
+}
+.periodo-pedido strong {
+    font-weight: 800 !important;
+}
+
 /* ✅ ÁREA DE AÇÕES MAIOR */
 .acoes-pedido {
     display: flex;
@@ -712,12 +733,12 @@ include_once __DIR__ . '/../includes/header.php';
 .table th:nth-child(2), .table td:nth-child(2) { width: 70px !important; } /* Nº */
 .table th:nth-child(3), .table td:nth-child(3) { width: 90px !important; } /* Código */
 .table th:nth-child(4), .table td:nth-child(4) { width: 200px !important; } /* Cliente - BEM MAIOR */
-.table th:nth-child(5), .table td:nth-child(5) { width: 90px !important; } /* Evento */
+.table th:nth-child(5), .table td:nth-child(5) { width: 150px !important; } /* Período */
 .table th:nth-child(6), .table td:nth-child(6) { width: 70px !important; } /* Tipo */
 .table th:nth-child(7), .table td:nth-child(7) { width: 100px !important; } /* Total */
 .table th:nth-child(8), .table td:nth-child(8) { width: 100px !important; } /* Saldo */
 .table th:nth-child(9), .table td:nth-child(9) { width: 80px !important; } /* Pagto */
-.table th:nth-child(10), .table td:nth-child(10) { width: 100px !important; } /* Situação */
+.table th:nth-child(10), .table td:nth-child(10) { width: 100px !important; } /* Etapa */
 .table th:nth-child(11), .table td:nth-child(11) { width: 140px !important; } /* Ações - MAIOR */
 
 /* ✅ VALORES MONETÁRIOS BEM DESTACADOS */
@@ -858,14 +879,11 @@ $(function () {
 
     // Inicializar Datepicker
     $('.datepicker').datepicker({
-        dateFormat: 'dd/mm/yy',
-        changeMonth: true,
-        changeYear: true,
-        dayNames: ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
-        dayNamesMin: ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'],
-        dayNamesShort: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
-        monthNames: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
-        monthNamesShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+        format: 'dd/mm/yyyy',
+        language: 'pt-BR',
+        autoclose: true,
+        todayHighlight: true,
+        orientation: 'bottom auto'
     });
 
     // Inicializar Popovers
@@ -923,8 +941,8 @@ $(document).on('click', '.btnMudarStatus', function() {
     }
 
     Swal.fire({
-        title: 'Alterar Situação',
-        text: `Deseja alterar a situação do pedido para "${situacaoTexto}"?`,
+        title: 'Alterar status manual do pedido',
+        text: `Deseja alterar o status manual do pedido para "${situacaoTexto}"?`,
         icon: 'question',
         showCancelButton: true,
         confirmButtonText: 'Sim, Alterar',
@@ -947,7 +965,7 @@ $(document).on('click', '.btnMudarStatus', function() {
                     if (response.success) {
                         Swal.fire({
                             title: 'Sucesso!',
-                            text: `Situação alterada para "${situacaoTexto}" com sucesso!`,
+                            text: `Status alterado para "${situacaoTexto}" com sucesso!`,
                             icon: 'success',
                             confirmButtonText: 'OK'
                         }).then(() => {

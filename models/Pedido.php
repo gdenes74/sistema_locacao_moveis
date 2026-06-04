@@ -24,6 +24,9 @@ class Pedido
     public $data_devolucao_prevista;
     public $tipo;
     public $situacao_pedido;
+    // Alias visual/de compatibilidade para situacao_pedido.
+    // O banco continua usando situacao_pedido; as telas podem ler status_pedido.
+    public $status_pedido;
     public $valor_total_locacao;
     public $subtotal_locacao;
     public $valor_total_venda;
@@ -65,6 +68,7 @@ class Pedido
     {
         $query = "SELECT
                     p.*,
+                    p.situacao_pedido AS status_pedido,
                     c.nome AS nome_cliente,
                     c.telefone AS cliente_telefone,
                     c.email AS cliente_email
@@ -92,14 +96,22 @@ class Pedido
             $params[':cliente_id'] = (int) $filtros['cliente_id'];
         }
 
-        if (!empty($filtros['situacao_pedido'])) {
-            $query .= " AND p.situacao_pedido = :situacao_pedido";
-            $params[':situacao_pedido'] = $filtros['situacao_pedido'];
+        // Aceita tanto o nome histórico do banco (situacao_pedido) quanto o alias visual (status_pedido).
+        $statusFiltro = $filtros['status_pedido'] ?? ($filtros['situacao_pedido'] ?? null);
+        if (!empty($statusFiltro)) {
+            $query .= " AND p.situacao_pedido = :status_pedido";
+            $params[':status_pedido'] = $statusFiltro;
         }
 
         if (!empty($filtros['data_evento_de']) && !empty($filtros['data_evento_ate'])) {
             $query .= " AND p.data_evento BETWEEN :data_evento_de AND :data_evento_ate";
             $params[':data_evento_de'] = $filtros['data_evento_de'];
+            $params[':data_evento_ate'] = $filtros['data_evento_ate'];
+        } elseif (!empty($filtros['data_evento_de'])) {
+            $query .= " AND p.data_evento >= :data_evento_de";
+            $params[':data_evento_de'] = $filtros['data_evento_de'];
+        } elseif (!empty($filtros['data_evento_ate'])) {
+            $query .= " AND p.data_evento <= :data_evento_ate";
             $params[':data_evento_ate'] = $filtros['data_evento_ate'];
         }
 
@@ -109,10 +121,14 @@ class Pedido
         }
 
         $allowedOrderBy = [
-            'p.id DESC', 'p.id ASC', 'p.numero DESC', 'p.numero ASC',
+            'p.id DESC', 'p.id ASC',
+            'p.numero DESC', 'p.numero ASC',
+            'p.codigo DESC', 'p.codigo ASC',
             'p.data_pedido DESC', 'p.data_pedido ASC',
             'p.data_evento DESC', 'p.data_evento ASC',
+            'p.data_entrega DESC', 'p.data_entrega ASC',
             'p.valor_final DESC', 'p.valor_final ASC',
+            'p.tipo DESC', 'p.tipo ASC',
             'c.nome ASC', 'c.nome DESC',
             'p.situacao_pedido ASC', 'p.situacao_pedido DESC'
         ];
@@ -186,7 +202,8 @@ class Pedido
             $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
             $this->data_devolucao_prevista = !empty($this->data_devolucao_prevista) ? $this->data_devolucao_prevista : null;
             $this->tipo = $this->tipo ?? 'locacao';
-            $this->situacao_pedido = $this->situacao_pedido ?? 'confirmado';
+            $this->situacao_pedido = $this->situacao_pedido ?? ($this->status_pedido ?? 'confirmado');
+            $this->status_pedido = $this->situacao_pedido;
 
             $this->valor_total_locacao = (float) ($this->valor_total_locacao ?? 0.00);
             $this->subtotal_locacao = (float) ($this->subtotal_locacao ?? 0.00);
@@ -305,6 +322,7 @@ class Pedido
             $this->turno_devolucao = $orcamento['turno_devolucao'] ?? 'Manhã/Tarde (Horário Comercial)';
             $this->tipo = $orcamento['tipo'] ?? 'locacao';
             $this->situacao_pedido = 'confirmado';
+            $this->status_pedido = $this->situacao_pedido;
 
             $this->valor_total_locacao = (float) ($orcamento['valor_total_locacao'] ?? 0);
             $this->subtotal_locacao = (float) ($orcamento['subtotal_locacao'] ?? 0);
@@ -461,7 +479,8 @@ class Pedido
             $this->turno_entrega = $this->turno_entrega ?? 'Manhã/Tarde (Horário Comercial)';
             $this->turno_devolucao = $this->turno_devolucao ?? 'Manhã/Tarde (Horário Comercial)';
             $this->tipo = $this->tipo ?? 'locacao';
-            $this->situacao_pedido = $this->situacao_pedido ?? 'confirmado';
+            $this->situacao_pedido = $this->situacao_pedido ?? ($this->status_pedido ?? 'confirmado');
+            $this->status_pedido = $this->situacao_pedido;
             $this->desconto = (float) ($this->desconto ?? 0.00);
             $this->taxa_domingo_feriado = (float) ($this->taxa_domingo_feriado ?? 0.00);
             $this->taxa_madrugada = (float) ($this->taxa_madrugada ?? 0.00);
@@ -579,7 +598,7 @@ class Pedido
         ];
 
         if (!in_array($novaSituacao, $situacoesPermitidas, true)) {
-            error_log("Situação inválida fornecida: {$novaSituacao}");
+            error_log("Status inválido fornecido: {$novaSituacao}");
             return false;
         }
 
@@ -590,16 +609,21 @@ class Pedido
             $stmt->bindParam(':id', $id, PDO::PARAM_INT);
 
             if ($stmt->execute()) {
-                error_log("Situação do pedido ID {$id} alterada para: {$novaSituacao}");
+                error_log("Status do pedido ID {$id} alterado para: {$novaSituacao}");
                 return true;
             }
 
-            error_log("Falha ao atualizar situação do pedido ID {$id}: " . print_r($stmt->errorInfo(), true));
+            error_log("Falha ao atualizar status do pedido ID {$id}: " . print_r($stmt->errorInfo(), true));
             return false;
         } catch (PDOException $e) {
             error_log("Erro em Pedido::updateSituacao (ID: {$id}): " . $e->getMessage());
             return false;
         }
+    }
+
+    public function updateStatus($id, $novoStatus)
+    {
+        return $this->updateSituacao($id, $novoStatus);
     }
 
     public function salvarItens($pedidoId, $itens)
@@ -879,6 +903,7 @@ class Pedido
     {
         $query = "SELECT
                     p.*,
+                    p.situacao_pedido AS status_pedido,
                     c.nome AS nome_cliente,
                     c.telefone AS cliente_telefone,
                     c.email AS cliente_email,
@@ -914,6 +939,8 @@ class Pedido
                     }
                 }
 
+                $this->status_pedido = $this->situacao_pedido;
+                $row['status_pedido'] = $row['situacao_pedido'] ?? ($row['status_pedido'] ?? null);
                 return $row;
             }
 
@@ -928,6 +955,7 @@ class Pedido
     {
         $query = "SELECT
                     p.*,
+                    p.situacao_pedido AS status_pedido,
                     c.nome AS nome_cliente
                   FROM {$this->table} p
                   LEFT JOIN clientes c ON p.cliente_id = c.id

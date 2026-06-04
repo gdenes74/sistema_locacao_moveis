@@ -1539,6 +1539,35 @@ include_once __DIR__ . '/../includes/header.php';
                         outline-offset: -2px;
                         background-color: #eef6ff !important;
                     }
+                    .conjunto-grupo-guia td {
+                        padding-top: 3px !important;
+                        padding-bottom: 3px !important;
+                        font-size: 0.72rem;
+                        line-height: 1.15;
+                        background: #fbfdff !important;
+                        cursor: pointer;
+                    }
+                    .conjunto-grupo-guia .grupo-status-badge {
+                        display: inline-flex;
+                        align-items: center;
+                        border-radius: 999px;
+                        padding: 2px 8px;
+                        font-size: 0.68rem;
+                        font-weight: 800;
+                        white-space: nowrap;
+                    }
+                    .conjunto-grupo-guia .grupo-ok {
+                        background: #28a745;
+                        color: #fff;
+                    }
+                    .conjunto-grupo-guia .grupo-pendente {
+                        background: #ffc107;
+                        color: #212529;
+                    }
+                    .conjunto-grupo-guia .grupo-excesso {
+                        background: #dc3545;
+                        color: #fff;
+                    }
                     .itens-scroll-container {
     height: clamp(480px, calc(100vh - 155px), 840px);
     min-height: 420px;
@@ -1980,13 +2009,15 @@ $(document).ready(function() {
 
                 let $referencia = $rowConjunto;
                 grupos.forEach(function(grupo) {
-                    const qtdNecessaria = (parseFloat(grupo.quantidade_por_conjunto || 0) || 0) * (parseInt($rowConjunto.find('.item-qtd').val(), 10) || 0);
+                    const qtdPorConjunto = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
+                    const origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
                     const guiaHtml = `<tr class="conjunto-grupo-guia" data-conjunto-pai-index="${conjuntoIndex}" data-categoria-id="${grupo.categoria_id || ''}" data-subcategoria-id="${grupo.subcategoria_id || ''}" data-grupo-id="${grupo.id || ''}" style="cursor:pointer;">
-                        <td colspan="6" style="padding-left: 28px;">
-                            <span class="text-primary font-weight-bold"><i class="fas fa-layer-group"></i> ${escapeHtml(grupo.nome_grupo || 'Grupo')}</span>
-                            <span class="ml-2 text-muted">${grupo.quantidade_por_conjunto || 0} por conjunto</span>
+                        <td colspan="7" style="padding-left: 32px;">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <span><strong class="text-primary"><i class="fas fa-layer-group mr-1"></i>${escapeHtml(grupo.nome_grupo || 'Grupo')}</strong><span class="text-muted ml-2">${qtdPorConjunto}/conj. · ${escapeHtml(origem)}</span></span>
+                                <span class="grupo-status-badge grupo-pendente ml-2">...</span>
+                            </div>
                         </td>
-                        <td class="text-right"><span class="badge badge-pill badge-warning grupo-status-badge">Faltam ${qtdNecessaria}</span></td>
                     </tr>`;
                     const $guia = $(guiaHtml);
                     $guia.insertAfter($referencia);
@@ -2226,12 +2257,24 @@ $(document).ready(function() {
 
         // Em vez de jogar sempre a quantidade total do grupo, abre a linha com o que falta.
         // Ex.: conjunto pede 4 pufes; se já lançou 2 azuis, o próximo pufe entra com 2.
-        // Se o grupo já estiver completo, entra com 1 para permitir acréscimo manual consciente.
-        produto.quantidade = quantidadeFaltante > 0 ? quantidadeFaltante : 1;
+        // Se o grupo já estiver completo, não cria linha zerada: avisa o atendente.
+        if (quantidadeFaltante <= 0) {
+            Swal.fire({
+                title: 'Grupo completo',
+                html: 'O grupo <strong>' + escapeHtml(regraCompleta.nome_grupo || 'Grupo') + '</strong> já está completo neste conjunto.<br>Para trocar a cor/modelo, ajuste uma linha existente ou diminua a quantidade antes de adicionar outro item.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+            atualizarGuiasConjunto($rowConjunto);
+            return false;
+        }
+
+        produto.quantidade = quantidadeFaltante;
         produto.tipo_item_loc_vend = 'locacao';
 
         const $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO', $rowConjunto);
         if ($rowItem && $rowItem.length) {
+            validarLimiteItemConjunto($rowItem, false);
             revalidarTodasLinhasPedido($rowItem);
             atualizarGuiasConjunto($rowConjunto);
         }
@@ -2271,20 +2314,104 @@ $(document).ready(function() {
 
             if (lancado < necessario) {
                 texto = 'Faltam ' + (necessario - lancado) + ' · ' + lancado + '/' + necessario;
-                classe = 'badge-warning';
+                classe = 'grupo-pendente';
             } else if (lancado > necessario) {
                 texto = 'Excesso ' + (lancado - necessario) + ' · ' + lancado + '/' + necessario;
-                classe = 'badge-danger';
+                classe = 'grupo-excesso';
             } else {
                 texto = 'OK: ' + lancado + '/' + necessario;
-                classe = 'badge-success';
+                classe = 'grupo-ok';
             }
 
             $guia.find('.grupo-status-badge')
-                .removeClass('badge-success badge-warning badge-danger')
+                .removeClass('grupo-ok grupo-pendente grupo-excesso badge-success badge-warning badge-danger')
                 .addClass(classe)
                 .text(texto);
         });
+    }
+
+    function obterRegraDoItemConjunto($rowItem) {
+        if (!$rowItem || !$rowItem.length || ($rowItem.data('tipo-linha') || '') !== 'ITEM_CONJUNTO') {
+            return null;
+        }
+
+        const conjuntoIndex = parseInt($rowItem.data('conjunto-pai-index') || 0, 10) || 0;
+        if (conjuntoIndex <= 0) { return null; }
+
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+        if (!$rowConjunto.length) { return null; }
+
+        const produtoLinha = {
+            categoria_id: parseInt($rowItem.data('categoria-id') || 0, 10) || 0,
+            subcategoria_id: parseInt($rowItem.data('subcategoria-id') || 0, 10) || 0
+        };
+
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+        for (let i = 0; i < regras.length; i++) {
+            if (regraCasaComProduto(regras[i], produtoLinha)) {
+                return { regra: regras[i], $rowConjunto: $rowConjunto };
+            }
+        }
+
+        return null;
+    }
+
+    function somarItensDoGrupoConjunto($rowConjunto, regra, $rowIgnorar = null) {
+        if (!$rowConjunto || !$rowConjunto.length || !regra) { return 0; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        let total = 0;
+
+        $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const $row = $(this);
+            if ($rowIgnorar && $rowIgnorar.length && this === $rowIgnorar[0]) {
+                return;
+            }
+
+            const produtoLinha = {
+                categoria_id: parseInt($row.data('categoria-id') || 0, 10) || 0,
+                subcategoria_id: parseInt($row.data('subcategoria-id') || 0, 10) || 0
+            };
+
+            if (regraCasaComProduto(regra, produtoLinha)) {
+                total += parseInt($row.find('.item-qtd').val(), 10) || 0;
+            }
+        });
+
+        return total;
+    }
+
+    function validarLimiteItemConjunto($rowItem, mostrarAlerta = true) {
+        const info = obterRegraDoItemConjunto($rowItem);
+        if (!info) { return true; }
+
+        const qtdConjunto = parseInt(info.$rowConjunto.find('.item-qtd').val(), 10) || 0;
+        const limiteGrupo = Math.round(qtdConjunto * (parseFloat(info.regra.quantidade_por_conjunto || 0) || 0));
+        const jaUsado = somarItensDoGrupoConjunto(info.$rowConjunto, info.regra, $rowItem);
+        const maxLinha = Math.max(0, limiteGrupo - jaUsado);
+        let qtdLinha = parseInt($rowItem.find('.item-qtd').val(), 10) || 0;
+
+        if (qtdLinha > maxLinha) {
+            $rowItem.find('.item-qtd').val(maxLinha);
+            qtdLinha = maxLinha;
+            calcularSubtotalItem($rowItem);
+            calcularTotaisPedido();
+            atualizarGuiasConjunto(info.$rowConjunto);
+            revalidarTodasAsLinhasDisponibilidade($rowItem);
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Limite do conjunto',
+                    html: 'Este conjunto permite no máximo <strong>' + limiteGrupo + '</strong> item(ns) no grupo <strong>' + escapeHtml(info.regra.nome_grupo || 'Grupo') + '</strong>.<br>Esta linha foi ajustada para <strong>' + maxLinha + '</strong>.',
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+            return false;
+        }
+
+        atualizarGuiasConjunto(info.$rowConjunto);
+        return true;
     }
 
     function validarFechamentoConjunto($rowConjunto, mostrarAlerta = true) {
@@ -3038,10 +3165,24 @@ $(document).ready(function() {
             quantidadeAtual = 0;
         }
 
+        if (($row.data('tipo-linha') || '') === 'ITEM_CONJUNTO') {
+            validarLimiteItemConjunto($row, true);
+        }
+
+        if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
+            const conjuntoIndex = parseInt($row.data('index') || 0, 10) || 0;
+            $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+                validarLimiteItemConjunto($(this), false);
+            });
+            atualizarGuiasConjunto($row);
+        }
+
+        atualizarGuiasDoConjuntoDaLinha($row);
+
         // Revalida todas as linhas, porque produtos diferentes podem compartilhar componentes.
         // Ex.: Sofá Rosa Antigo e Sofá Cor A Definir usam a mesma estrutura/colchões.
         revalidarTodasAsLinhasDisponibilidade($row);
-        $row.find('.item-qtd').data('valor-original', quantidadeAtual);
+        $row.find('.item-qtd').data('valor-original', parseInt($row.find('.item-qtd').val(), 10) || 0);
     }
 
     function atualizarGuiasDoConjuntoDaLinha($row) {

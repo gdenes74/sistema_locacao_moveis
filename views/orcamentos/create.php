@@ -1431,6 +1431,10 @@ include_once __DIR__ . '/../includes/header.php';
                         background: #fff3cd;
                         color: #664d03;
                     }
+                    .conjunto-grupo-guia .grupo-excesso {
+                        background: #f8d7da;
+                        color: #842029;
+                    }
                     .foto-produto-linha {
                         cursor: zoom-in;
                     }
@@ -2001,15 +2005,17 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
 
             const esperado = qtdConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0);
             const atual = somarItensDoGrupoConjunto($rowConjunto, regra, null);
-            const falta = esperado - atual;
+            const diferenca = esperado - atual;
             const $badge = $guia.find('.grupo-status-badge');
 
-            if (falta === 0) {
-                $badge.removeClass('grupo-pendente').addClass('grupo-ok').text('OK: ' + atual + '/' + esperado);
-            } else if (falta > 0) {
-                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Faltam ' + falta + ' · ' + atual + '/' + esperado);
+            $badge.removeClass('grupo-ok grupo-pendente grupo-excesso');
+
+            if (diferenca === 0) {
+                $badge.addClass('grupo-ok').text('OK: ' + atual + '/' + esperado);
+            } else if (diferenca > 0) {
+                $badge.addClass('grupo-pendente').text('Faltam ' + diferenca + ' · ' + atual + '/' + esperado);
             } else {
-                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Excedeu ' + Math.abs(falta) + ' · ' + atual + '/' + esperado);
+                $badge.addClass('grupo-excesso').text('Excesso ' + Math.abs(diferenca) + ' · ' + atual + '/' + esperado);
             }
         });
     }
@@ -2066,7 +2072,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                 </td>
             </tr>`;
         } else if (tipoLinha === 'ITEM_CONJUNTO') {
-            var quantidadeFilhoDefault = 0; 
+            var quantidadeFilhoDefault = (dadosItem && dadosItem.quantidade !== undefined && dadosItem.quantidade !== null && dadosItem.quantidade !== '') ? parseInt(dadosItem.quantidade, 10) : 0; 
             var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle;">` : '';
             var conjuntoNomeEscapado = conjuntoAtivoNome ? escapeHtml(conjuntoAtivoNome) : 'conjunto';
             htmlLinha = `<tr class="item-orcamento-row item-conjunto-filho-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-conjunto-pai-index="${conjuntoAtivoIndex || ''}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #f8fbff !important;">
@@ -2316,14 +2322,26 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
 
     $('#tabela_itens_orcamento').on('click', '.btn_remover_item', function() {
         var $rowRemovida = $(this).closest('tr');
-        if (($rowRemovida.data('tipo-linha') || '') === 'CONJUNTO' && parseInt($rowRemovida.data('index'), 10) === conjuntoAtivoIndex) {
-            encerrarMontagemConjunto();
+        const tipoLinhaRemovida = $rowRemovida.data('tipo-linha') || '';
+        const conjuntoIndexRemovido = parseInt($rowRemovida.data('index') || 0, 10) || 0;
+        const conjuntoPaiIndexRemovido = parseInt($rowRemovida.data('conjunto-pai-index') || 0, 10) || 0;
+
+        if (tipoLinhaRemovida === 'CONJUNTO') {
+            $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndexRemovido + '"]').remove();
+            $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndexRemovido + '"]').remove();
+
+            if (conjuntoAtivoIndex === conjuntoIndexRemovido) {
+                conjuntoAtivoIndex = null;
+                conjuntoAtivoNome = '';
+            }
         }
-        const conjuntoPaiIndexRemovido = $rowRemovida.data('conjunto-pai-index') || null;
+
         $rowRemovida.remove();
-        if (conjuntoPaiIndexRemovido) {
+
+        if (tipoLinhaRemovida === 'ITEM_CONJUNTO' && conjuntoPaiIndexRemovido > 0) {
             atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoPaiIndexRemovido));
         }
+
         atualizarOrdemDosItens();
         calcularTotaisOrcamento();
         revalidarTodasAsLinhasDisponibilidade();
@@ -2429,6 +2447,66 @@ function regraConjuntoCasaComItem(regra, $rowItem) {
     }
     return false;
 }
+
+function regraConjuntoCasaComProduto(regra, produto) {
+    if (!regra || !produto) { return false; }
+
+    const categoriaProduto = parseInt(produto.categoria_id || 0, 10) || 0;
+    const subcategoriaProduto = parseInt(produto.subcategoria_id || 0, 10) || 0;
+    const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
+    const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
+
+    if (regraSubcategoria > 0) {
+        return subcategoriaProduto === regraSubcategoria;
+    }
+    if (regraCategoria > 0) {
+        return categoriaProduto === regraCategoria;
+    }
+    return false;
+}
+
+function obterRegraSelecionadaDoConjunto($rowConjunto) {
+    const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+    const $guiaAtiva = $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia.table-active[data-conjunto-pai-index="' + conjuntoIndex + '"]').first();
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+
+    if (!$guiaAtiva.length) {
+        return null;
+    }
+
+    const regraIndex = parseInt($guiaAtiva.data('regra-index'), 10);
+    if (isNaN(regraIndex) || !regras[regraIndex]) {
+        return null;
+    }
+
+    return regras[regraIndex];
+}
+
+function selecionarGuiaDoConjuntoPorRegra($rowConjunto, regra) {
+    if (!$rowConjunto || !$rowConjunto.length || !regra) { return; }
+
+    const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    let indiceRegra = -1;
+
+    regras.forEach(function(r, idx) {
+        if (indiceRegra >= 0) { return; }
+
+        const mesmoId = parseInt(r.id || 0, 10) > 0 && parseInt(r.id || 0, 10) === parseInt(regra.id || 0, 10);
+        const mesmaCategoria = parseInt(r.categoria_id || 0, 10) === parseInt(regra.categoria_id || 0, 10);
+        const mesmaSubcategoria = parseInt(r.subcategoria_id || 0, 10) === parseInt(regra.subcategoria_id || 0, 10);
+
+        if (mesmoId || (mesmaCategoria && mesmaSubcategoria)) {
+            indiceRegra = idx;
+        }
+    });
+
+    if (indiceRegra >= 0) {
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').removeClass('table-active');
+        $('#tabela_itens_orcamento tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"][data-regra-index="' + indiceRegra + '"]').addClass('table-active');
+    }
+}
+
 
 function obterRegraDoItemConjunto($rowItem) {
     const conjuntoIndex = parseInt($rowItem.data('conjunto-pai-index') || 0, 10) || 0;
@@ -2636,16 +2714,77 @@ function adicionarConjuntoAoOrcamento(produto) {
 }
 
 function adicionarItemAoConjuntoAtivo(produto) {
-    var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
-    if ($rowItem && $rowItem.length) {
-        validarLimiteItemConjunto($rowItem, false);
-        const info = obterRegraDoItemConjunto($rowItem);
-        if (info && info.$rowConjunto) {
-            atualizarGuiasConjunto(info.$rowConjunto);
+    const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
+    const regras = $rowConjunto.length ? ($rowConjunto.data('regras-conjunto') || []) : [];
+
+    if (!$rowConjunto.length) {
+        Swal.fire('Conjunto não localizado', 'Ative novamente a montagem do conjunto antes de adicionar itens internos.', 'warning');
+        return false;
+    }
+
+    if (!regras.length) {
+        Swal.fire('Regras não carregadas', 'Aguarde carregar as regras do conjunto e tente novamente.', 'warning');
+        carregarRegrasConjunto(parseInt($rowConjunto.find('.produto_id').val(), 10) || 0, $rowConjunto);
+        return false;
+    }
+
+    let regraSelecionada = obterRegraSelecionadaDoConjunto($rowConjunto);
+
+    // Se o atendente não clicou na guia Bistrô/Pufes/etc.,
+    // tenta encaixar automaticamente quando só existir um grupo compatível.
+    if (!regraSelecionada) {
+        const regrasCompativeis = regras.filter(function(regra) {
+            return regraConjuntoCasaComProduto(regra, produto);
+        });
+
+        if (regrasCompativeis.length === 1) {
+            regraSelecionada = regrasCompativeis[0];
+            selecionarGuiaDoConjuntoPorRegra($rowConjunto, regraSelecionada);
+        } else if (regrasCompativeis.length === 0) {
+            Swal.fire('Produto fora da montagem', 'Este produto não pertence a nenhum grupo deste conjunto. Nada foi alterado.', 'warning');
+            return false;
+        } else {
+            Swal.fire('Selecione o grupo', 'Este produto pode servir para mais de um grupo. Clique primeiro na guia correta do conjunto e selecione novamente.', 'warning');
+            return false;
         }
     }
-    $('#busca_produto').val('').blur();
+
+    if (!regraConjuntoCasaComProduto(regraSelecionada, produto)) {
+        Swal.fire('Produto fora da montagem', 'Este produto não pertence ao grupo selecionado para este conjunto. Nada foi alterado.', 'warning');
+        return false;
+    }
+
+    const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const qtdPorConjunto = parseFloat(regraSelecionada.quantidade_por_conjunto || 1) || 1;
+    const necessario = Math.round(qtdConjunto * qtdPorConjunto);
+    const lancado = somarItensDoGrupoConjunto($rowConjunto, regraSelecionada, null);
+    const faltante = Math.max(0, necessario - lancado);
+
+    if (faltante <= 0) {
+        atualizarGuiasConjunto($rowConjunto);
+        Swal.fire({
+            title: 'Grupo completo',
+            html: 'O grupo <strong>' + escapeHtml(regraSelecionada.nome_grupo || 'Grupo') + '</strong> já está completo.<br>Remova ou diminua algum item interno antes de adicionar outro.',
+            icon: 'warning',
+            confirmButtonText: 'Entendi'
+        });
+        return false;
+    }
+
+    produto.quantidade = faltante;
+    produto.tipo_item_loc_vend = 'locacao';
+
+    var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
+
+    if ($rowItem && $rowItem.length) {
+        validarLimiteItemConjunto($rowItem, false);
+        atualizarGuiasConjunto($rowConjunto);
+        revalidarTodasAsLinhasDisponibilidade($rowItem);
+    }
+
+    $('#busca_produto').val('').focus();
     $('#sugestoes_produtos').empty().hide();
+    return true;
 }
 
 function verificarEstoqueAntes(produto) {
@@ -3268,9 +3407,12 @@ $('#data_devolucao_prevista').on('change dp.change', function() {
     calcularTotaisOrcamento();
     
     function atualizarOrdemDosItens() {
-        $('#tabela_itens_orcamento tbody tr').each(function(index) {
-            $(this).attr('data-index', index + 1);
-            $(this).find('input[name="ordem[]"]').val(index + 1);
+        let ordemReal = 1;
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            // Não alterar data-index: ele é o vínculo temporário entre conjunto pai, guias e filhos.
+            // Aqui atualizamos apenas a ordem persistida no banco.
+            $(this).find('input[name="ordem[]"]').val(ordemReal);
+            ordemReal++;
         });
     }
 

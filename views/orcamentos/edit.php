@@ -492,7 +492,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $orcamentoModel->turno_entrega = $_POST['turno_entrega'] ?? 'Manhã/Tarde (Horário Comercial)';
         $orcamentoModel->turno_devolucao = $_POST['turno_devolucao'] ?? 'Manhã/Tarde (Horário Comercial)';
         $orcamentoModel->tipo = $_POST['tipo'] ?? 'locacao';
-        $orcamentoModel->status = $_POST['status_orcamento'] ?? 'pendente';
+        $orcamentoModel->status = $_POST['status_orcamento'] ?? ($orcamentoDados['status'] ?? 'pendente');
 
         // Função para converter valores monetários
         $fnConverterMoeda = function ($valorStr) {
@@ -781,7 +781,7 @@ include_once __DIR__ . '/../includes/header.php';
                             <div class="col-md-4 mt-md-3">
                                 <label for="status_orcamento" class="form-label">Status do Orçamento</label>
                                 <select class="form-control" id="status_orcamento" name="status_orcamento"
-                                        <?= ($orcamentoDados['status'] === 'convertido' || $orcamentoDados['status'] === 'finalizado' || $orcamentoDados['status'] === 'recusado' || $orcamentoDados['status'] === 'expirado' || $orcamentoDados['status'] === 'cancelado') ? 'disabled' : '' ?>>
+                                        <?= in_array(($orcamentoDados['status'] ?? ''), ['convertido', 'finalizado', 'recusado', 'cancelado'], true) ? 'disabled' : '' ?>>
                                     <option value="pendente" <?= ($orcamentoDados['status'] ?? '') == 'pendente' ? 'selected' : '' ?>>Pendente</option>
                                     <option value="aprovado" <?= ($orcamentoDados['status'] ?? '') == 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
                                     <option value="reprovado" <?= ($orcamentoDados['status'] ?? '') == 'reprovado' ? 'selected' : '' ?>>Reprovado</option>
@@ -790,9 +790,14 @@ include_once __DIR__ . '/../includes/header.php';
                                     <option value="convertido" <?= ($orcamentoDados['status'] ?? '') == 'convertido' ? 'selected' : '' ?>>Convertido em Pedido</option>
                                     <option value="finalizado" <?= ($orcamentoDados['status'] ?? '') == 'finalizado' ? 'selected' : '' ?>>Finalizado (Evento Concluído)</option>
                                 </select>
-                                <?php if ($orcamentoDados['status'] === 'convertido'): ?>
+                                <?php if (($orcamentoDados['status'] ?? '') === 'convertido'): ?>
                                     <small class="text-danger mt-1 d-block">
                                         <i class="fas fa-lock"></i> <strong>ORÇAMENTO BLOQUEADO:</strong> Convertido em pedido - não pode ser editado!
+                                    </small>
+                                <?php elseif (($orcamentoDados['status'] ?? '') === 'expirado'): ?>
+                                    <small class="text-warning mt-1 d-block">
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        <strong>Validade/evento expirado:</strong> altere para <strong>Pendente</strong> e salve para reabrir este orçamento.
                                     </small>
                                 <?php endif; ?>
                             </div>
@@ -1202,13 +1207,18 @@ include_once __DIR__ . '/../includes/header.php';
                     <div class="card-footer text-right">
                         <?php
                         $status_atual = $orcamentoDados['status'] ?? 'pendente';
-                        $orcamento_finalizado_ou_irreversivel = in_array($status_atual, ['convertido', 'finalizado', 'recusado', 'expirado', 'cancelado']);
+                        $orcamento_finalizado_ou_irreversivel = in_array($status_atual, ['convertido', 'finalizado', 'recusado', 'cancelado'], true);
+                        $orcamento_pode_converter = in_array($status_atual, ['pendente', 'aprovado'], true);
                         ?>
 
-                        <?php if (!$orcamento_finalizado_ou_irreversivel): ?>
+                        <?php if ($orcamento_pode_converter): ?>
                             <button type="button" class="btn btn-success btn-lg mr-2" id="btnConverterPedido" data-orcamento-id="<?= $orcamentoId ?>" title="Converter este Orçamento em um Pedido">
                                 <i class="fas fa-arrow-alt-circle-right mr-1"></i> Converter para Pedido
                             </button>
+                        <?php elseif ($status_atual === 'expirado'): ?>
+                            <span class="badge badge-warning badge-lg mr-2">
+                                <i class="fas fa-undo"></i> Reabra como Pendente e salve para converter depois
+                            </span>
                         <?php elseif ($status_atual === 'convertido'): ?>
                             <span class="badge badge-info badge-lg mr-2"><i class="fas fa-check-circle"></i> Convertido em Pedido</span>
                         <?php endif; ?>
@@ -1520,17 +1530,35 @@ include_once __DIR__ . '/../includes/header.php';
 
 
     .conjunto-grupo-guia td {
-        padding-top: 3px !important;
-        padding-bottom: 3px !important;
-        font-size: 0.72rem;
-        line-height: 1.15;
-        background: #fbfdff !important;
+        background: #f8fbff !important;
+        border-left: 4px solid #6ea8fe !important;
+        font-size: 0.82rem;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
         cursor: pointer;
     }
+    .conjunto-grupo-guia:hover td {
+        background: #eef6ff !important;
+    }
     .conjunto-grupo-guia .grupo-status-badge {
-        font-size: 0.68rem;
-        font-weight: 700;
+        display: inline-block;
+        border-radius: 999px;
+        padding: 2px 7px;
+        font-size: 0.70rem;
+        font-weight: 800;
         white-space: nowrap;
+    }
+    .conjunto-grupo-guia .grupo-ok {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+    .conjunto-grupo-guia .grupo-pendente {
+        background: #fff3cd;
+        color: #664d03;
+    }
+    .conjunto-grupo-guia .grupo-excesso {
+        background: #f8d7da;
+        color: #842029;
     }
     .item-conjunto-filho-row small.form-text {
         font-size: 0.66rem;
@@ -2176,11 +2204,20 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
             const $badge = $guia.find('.grupo-status-badge');
 
             if (falta === 0) {
-                $badge.removeClass('grupo-pendente').addClass('grupo-ok').text('OK: ' + atual + '/' + esperado);
+                $badge
+                    .removeClass('grupo-pendente grupo-excesso')
+                    .addClass('grupo-ok')
+                    .text('OK: ' + atual + '/' + esperado);
             } else if (falta > 0) {
-                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Faltam ' + falta + ' · ' + atual + '/' + esperado);
+                $badge
+                    .removeClass('grupo-ok grupo-excesso')
+                    .addClass('grupo-pendente')
+                    .text('Faltam ' + falta + ' · ' + atual + '/' + esperado);
             } else {
-                $badge.removeClass('grupo-ok').addClass('grupo-pendente').text('Excedeu ' + Math.abs(falta) + ' · ' + atual + '/' + esperado);
+                $badge
+                    .removeClass('grupo-ok grupo-pendente')
+                    .addClass('grupo-excesso')
+                    .text('Excesso ' + Math.abs(falta) + ' · ' + atual + '/' + esperado);
             }
         });
     }

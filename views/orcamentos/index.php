@@ -79,11 +79,39 @@ if (isset($_GET['orderBy']) && !empty($_GET['orderBy'])) {
 }
 
 // Verificar e atualizar status de orçamentos expirados
-$orcamentoModel->verificarEAtualizarExpirados();
+// DESATIVADO: validade comercial vencida não deve transformar orçamento em 'expirado' automaticamente.
+// $orcamentoModel->verificarEAtualizarExpirados();
 
 // Buscar dados
 $stmtOrcamentos = $orcamentoModel->listarTodos($filtros, $orderBy);
 $orcamentos = $stmtOrcamentos ? $stmtOrcamentos->fetchAll(PDO::FETCH_ASSOC) : [];
+
+// Filtros complementares no próprio index.
+// Motivo: o model Orcamento::listarTodos() original ainda não trata alguns filtros
+// usados por esta tela, como data_evento_de/data_evento_ate e tipo.
+// Mantemos aqui para não mexer no model agora.
+if (!empty($filtros['data_evento_de']) || !empty($filtros['data_evento_ate']) || !empty($filtros['tipo'])) {
+    $orcamentos = array_values(array_filter($orcamentos, function ($orc) use ($filtros) {
+        if (!empty($filtros['tipo']) && (($orc['tipo'] ?? '') !== $filtros['tipo'])) {
+            return false;
+        }
+
+        if (!empty($filtros['data_evento_de']) || !empty($filtros['data_evento_ate'])) {
+            $dataEvento = $orc['data_evento'] ?? null;
+            if (empty($dataEvento) || $dataEvento === '0000-00-00') {
+                return false;
+            }
+            if (!empty($filtros['data_evento_de']) && $dataEvento < $filtros['data_evento_de']) {
+                return false;
+            }
+            if (!empty($filtros['data_evento_ate']) && $dataEvento > $filtros['data_evento_ate']) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
+}
 
 // Buscar clientes para o filtro
 $stmtClientes = $clienteModel->listarTodos();
@@ -276,9 +304,9 @@ include_once __DIR__ . '/../includes/header.php';
                                             Validade <?php echo sort_icon('o.data_validade', $orderBy); ?>
                                         </a>
                                     </th>
-                                    <th style="width: 100px;">
+                                    <th style="width: 170px;">
                                         <a href="<?php echo build_url(['orderBy' => (isset($_GET['orderBy']) && $_GET['orderBy'] == 'o.data_evento ASC' ? 'o.data_evento DESC' : 'o.data_evento ASC')]); ?>">
-                                            Data Evento <?php echo sort_icon('o.data_evento', $orderBy); ?>
+                                            Período <?php echo sort_icon('o.data_evento', $orderBy); ?>
                                         </a>
                                     </th>
                                     <th style="width: 100px;">
@@ -309,7 +337,11 @@ include_once __DIR__ . '/../includes/header.php';
                                             <td><?php echo htmlspecialchars($orc['nome_cliente'] ?? '-'); ?></td>
                                             <td><?php echo formatar_data_br($orc['data_orcamento']); ?></td>
                                             <td><?php echo formatar_data_br($orc['data_validade']); ?></td>
-                                            <td><?php echo $orc['data_evento'] ? formatar_data_br($orc['data_evento']) : '-'; ?></td>
+                                            <td>
+                                                <small class="d-block"><strong>Evento:</strong> <?php echo $orc['data_evento'] ? formatar_data_br($orc['data_evento']) : '-'; ?></small>
+                                                <small class="d-block text-muted"><strong>Entrega:</strong> <?php echo $orc['data_entrega'] ? formatar_data_br($orc['data_entrega']) : '-'; ?></small>
+                                                <small class="d-block text-muted"><strong>Coleta:</strong> <?php echo $orc['data_devolucao_prevista'] ? formatar_data_br($orc['data_devolucao_prevista']) : '-'; ?></small>
+                                            </td>
                                             <td>
                                                 <?php 
                                                 $tipo_texto = 'Desconhecido';
@@ -347,6 +379,15 @@ include_once __DIR__ . '/../includes/header.php';
                                                 }
                                                 ?>
                                                 <span class="<?php echo $status_classe; ?>"><?php echo htmlspecialchars($status_texto); ?></span>
+                                                <?php
+                                                $validadeVencidaComercial = !empty($orc['data_validade'])
+                                                    && strtotime($orc['data_validade']) !== false
+                                                    && strtotime($orc['data_validade']) < strtotime(date('Y-m-d'))
+                                                    && strtolower($orc['status'] ?? '') !== 'convertido';
+                                                ?>
+                                                <?php if ($validadeVencidaComercial): ?>
+                                                    <br><span class="badge badge-light text-muted mt-1" title="Validade comercial vencida; orçamento ainda pode ser editado/reaproveitado.">Validade vencida</span>
+                                                <?php endif; ?>
                                             </td>
                                             <td>
     <div class="btn-group">
@@ -374,7 +415,7 @@ include_once __DIR__ . '/../includes/header.php';
     <i class="fas fa-print"></i>
 </button>
         
-        <?php if (strtolower($orc['status'] ?? '') === 'aprovado'): ?>
+        <?php if (in_array(strtolower($orc['status'] ?? ''), ['pendente', 'aprovado'], true)): ?>
             <?php if (!empty($orc['pedido_id'])): ?>
                 <a href="<?php echo BASE_URL; ?>/views/pedidos/show.php?id=<?php echo $orc['pedido_id']; ?>" 
                    class="btn btn-xs btn-success" title="Ver Pedido #<?php echo $orc['pedido_numero']; ?>">
@@ -406,6 +447,7 @@ include_once __DIR__ . '/../includes/header.php';
                 data-content="
                 <strong>Local:</strong> <?php echo htmlspecialchars($orc['local_evento'] ?? '-'); ?><br>
                 <strong>Hora Evento:</strong> <?php echo $orc['hora_evento'] ? substr($orc['hora_evento'], 0, 5) : '-'; ?><br>
+                <strong>Entrega:</strong> <?php echo $orc['data_entrega'] ? formatar_data_br($orc['data_entrega']) : '-'; ?><br>
                 <strong>Devolução:</strong> <?php echo $orc['data_devolucao_prevista'] ? formatar_data_br($orc['data_devolucao_prevista']) : '-'; ?><br>
                 <strong>Subtotal Locação:</strong> <?php echo formatar_moeda_br($orc['subtotal_locacao']); ?><br>
                 <strong>Subtotal Venda:</strong> <?php echo formatar_moeda_br($orc['subtotal_venda']); ?><br>
@@ -481,6 +523,8 @@ include_once __DIR__ . '/../includes/header.php';
                                                 <p class="text-muted">
                                                     <i class="fas fa-calendar"></i> Orçamento: <?php echo formatar_data_br($orc['data_orcamento']); ?><br>
                                                     <i class="fas fa-calendar-check"></i> Evento: <?php echo $orc['data_evento'] ? formatar_data_br($orc['data_evento']) : '-'; ?><br>
+                                                    <i class="fas fa-truck"></i> Entrega: <?php echo $orc['data_entrega'] ? formatar_data_br($orc['data_entrega']) : '-'; ?><br>
+                                                    <i class="fas fa-undo"></i> Coleta: <?php echo $orc['data_devolucao_prevista'] ? formatar_data_br($orc['data_devolucao_prevista']) : '-'; ?><br>
                                                     <i class="fas fa-clock"></i> Hora: <?php echo $orc['hora_evento'] ? substr($orc['hora_evento'], 0, 5) : '-'; ?><br>
                                                     <i class="fas fa-map-marker-alt"></i> Local: <?php echo htmlspecialchars(substr($orc['local_evento'] ?? '-', 0, 30)) . (strlen($orc['local_evento'] ?? '') > 30 ? '...' : ''); ?>
                                                 </p>
@@ -571,9 +615,15 @@ $(function () {
         theme: 'bootstrap4'
     });
 
-    // Inicializar Datepicker
+    // Inicializar Datepicker em padrão brasileiro.
+    // O projeto usa bootstrap-datepicker em outras telas; estes campos mantêm dd/mm/aaaa.
     $('.datepicker').datepicker({
+        format: 'dd/mm/yyyy',
         dateFormat: 'dd/mm/yy',
+        language: 'pt-BR',
+        autoclose: true,
+        todayHighlight: true,
+        orientation: 'bottom auto',
         changeMonth: true,
         changeYear: true,
         dayNames: ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
@@ -583,6 +633,7 @@ $(function () {
         monthNamesShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
     });
     
+    $('.datepicker').attr('placeholder', 'dd/mm/aaaa');    
     // Inicializar Popovers
     $('[data-toggle="popover"]').popover({
         html: true,

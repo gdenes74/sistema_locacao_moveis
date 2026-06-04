@@ -2541,6 +2541,103 @@ $(document).ready(function() {
         return lancado;
     }
 
+
+    function obterRegraDoItemConjunto($rowItem) {
+        if (!$rowItem || !$rowItem.length || ($rowItem.data('tipo-linha') || '') !== 'ITEM_CONJUNTO') {
+            return null;
+        }
+
+        const conjuntoIndex = parseInt($rowItem.data('conjunto-pai-index') || 0, 10) || 0;
+        if (!conjuntoIndex) {
+            return null;
+        }
+
+        const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoIndex);
+        if (!$rowConjunto.length) {
+            return null;
+        }
+
+        const regras = $rowConjunto.data('regras-conjunto') || [];
+        const produtoLinha = {
+            categoria_id: parseInt($rowItem.data('categoria-id') || 0, 10) || 0,
+            subcategoria_id: parseInt($rowItem.data('subcategoria-id') || 0, 10) || 0
+        };
+
+        for (let i = 0; i < regras.length; i++) {
+            if (regraCasaComProduto(regras[i], produtoLinha)) {
+                return { regra: regras[i], $rowConjunto: $rowConjunto };
+            }
+        }
+
+        return null;
+    }
+
+    function somarItensDoGrupoConjunto($rowConjunto, regra, $rowIgnorar = null) {
+        if (!$rowConjunto || !$rowConjunto.length || !regra) { return 0; }
+
+        const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+        let total = 0;
+
+        $('#tabela_itens_pedido tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
+            const $row = $(this);
+
+            if ($rowIgnorar && $rowIgnorar.length && this === $rowIgnorar[0]) {
+                return;
+            }
+
+            const produtoLinha = {
+                categoria_id: parseInt($row.data('categoria-id') || 0, 10) || 0,
+                subcategoria_id: parseInt($row.data('subcategoria-id') || 0, 10) || 0
+            };
+
+            if (regraCasaComProduto(regra, produtoLinha)) {
+                total += parseInt($row.find('.item-qtd').val(), 10) || 0;
+            }
+        });
+
+        return total;
+    }
+
+    function validarLimiteItemConjunto($rowItem, mostrarAlerta = true) {
+        if (!$rowItem || !$rowItem.length || ($rowItem.data('tipo-linha') || '') !== 'ITEM_CONJUNTO') {
+            return true;
+        }
+
+        const info = obterRegraDoItemConjunto($rowItem);
+        if (!info) {
+            return true;
+        }
+
+        const qtdConjunto = parseInt(info.$rowConjunto.find('.item-qtd').val(), 10) || 0;
+        const limiteGrupo = Math.round(qtdConjunto * (parseFloat(info.regra.quantidade_por_conjunto || 0) || 0));
+        const jaUsado = somarItensDoGrupoConjunto(info.$rowConjunto, info.regra, $rowItem);
+        const maxLinha = Math.max(0, Math.floor(limiteGrupo - jaUsado));
+        const $inputQtd = $rowItem.find('.item-qtd').first();
+        let qtdLinha = parseInt($inputQtd.val(), 10) || 0;
+
+        if (qtdLinha > maxLinha) {
+            $inputQtd.val(maxLinha).attr('data-valor-original', maxLinha);
+            calcularSubtotalItem($rowItem);
+            calcularTotaisPedido();
+            atualizarGuiasConjunto(info.$rowConjunto);
+            revalidarTodasLinhasPedido($rowItem);
+
+            if (mostrarAlerta) {
+                Swal.fire({
+                    title: 'Limite do conjunto',
+                    html: 'Este conjunto permite no máximo <strong>' + limiteGrupo + '</strong> item(ns) no grupo <strong>' + escapeHtml(info.regra.nome_grupo || 'Grupo') + '</strong>.<br>Esta linha foi ajustada para <strong>' + maxLinha + '</strong>.',
+                    icon: 'warning',
+                    confirmButtonText: 'Entendi'
+                });
+            }
+
+            return false;
+        }
+
+        atualizarGuiasConjunto(info.$rowConjunto);
+        return true;
+    }
+
     function adicionarItemAoConjuntoAtivo(produto) {
         const $rowConjunto = obterLinhaConjuntoPorIndex(conjuntoAtivoIndex);
         const regras = $rowConjunto.length ? ($rowConjunto.data('regras-conjunto') || []) : [];
@@ -2632,9 +2729,24 @@ $(document).ready(function() {
                 }
             });
 
-            const texto = lancado >= necessario ? 'OK: ' + lancado + '/' + necessario : 'Faltam ' + (necessario - lancado) + ' · ' + lancado + '/' + necessario;
-            const classe = lancado >= necessario ? 'badge-success' : 'badge-warning';
-            $guia.find('.grupo-status-badge').removeClass('badge-success badge-warning').addClass(classe).text(texto);
+            let texto = '';
+            let classe = '';
+
+            if (lancado === necessario) {
+                texto = 'OK: ' + lancado + '/' + necessario;
+                classe = 'badge-success';
+            } else if (lancado < necessario) {
+                texto = 'Faltam ' + (necessario - lancado) + ' · ' + lancado + '/' + necessario;
+                classe = 'badge-warning';
+            } else {
+                texto = 'Excesso ' + (lancado - necessario) + ' · ' + lancado + '/' + necessario;
+                classe = 'badge-danger';
+            }
+
+            $guia.find('.grupo-status-badge')
+                .removeClass('badge-success badge-warning badge-danger')
+                .addClass(classe)
+                .text(texto);
         });
     }
 
@@ -2649,7 +2761,7 @@ $(document).ready(function() {
 
         $('#tabela_itens_pedido tbody tr.conjunto-grupo-guia[data-conjunto-pai-index="' + conjuntoIndex + '"]').each(function() {
             const texto = $(this).find('.grupo-status-badge').text() || '';
-            if (texto.indexOf('Faltam') === 0) {
+            if (texto.indexOf('Faltam') === 0 || texto.indexOf('Excesso') === 0) {
                 incompleto = true;
                 mensagens.push($(this).find('td:first .font-weight-bold').text() + ': ' + texto);
             }
@@ -3243,6 +3355,10 @@ if (response.produto_composto && response.componentes && response.componentes.le
         clearTimeout($input.data('validacao-timeout'));
 
         $input.data('validacao-timeout', setTimeout(function() {
+            if ($row.hasClass('item-conjunto-filho-row')) {
+                validarLimiteItemConjunto($row, true);
+            }
+
             validarEstoqueQuantidade($row);
 
             if ($row.hasClass('item-conjunto-row')) {
@@ -3664,9 +3780,11 @@ $('#data_devolucao_prevista').on('change dp.change', function() {
     });
 
     function atualizarOrdemDosItens() {
+        // IMPORTANTE: data-index é a identidade temporária da linha/conjunto durante a edição.
+        // Não pode ser regravado ao ordenar, senão guias e filhos perdem o vínculo do conjunto.
+        // A ordem visual salva no banco continua sendo atualizada apenas pelo input ordem[].
         let ordemReal = 1;
         $('#tabela_itens_pedido tbody tr.item-pedido-row').each(function() {
-            $(this).attr('data-index', ordemReal);
             $(this).find('input[name="ordem[]"]').val(ordemReal);
             ordemReal++;
         });
