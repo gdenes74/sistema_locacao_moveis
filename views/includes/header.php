@@ -31,7 +31,8 @@ if (strpos($_SERVER['REQUEST_URI'], '/views/dashboard/') !== false) {
     $page_group = 'produtos';
 } elseif (strpos($_SERVER['REQUEST_URI'], '/views/usuarios/') !== false) {
     $page_group = 'usuarios';
-} elseif (strpos($_SERVER['REQUEST_URI'], '/views/configuracoes/') !== false) {
+} elseif (strpos($_SERVER['REQUEST_URI'], '/views/configuracoes/') !== false ||
+          strpos($_SERVER['REQUEST_URI'], '/views/configuracoes_textos/') !== false) {
     $page_group = 'configuracoes';
 }
 
@@ -345,6 +346,11 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                             <li class="nav-item">
                                 <a href="<?= BASE_URL ?>/views/configuracoes/numeracao.php" class="nav-link <?= ($current_page == 'numeracao.php' && $page_group == 'configuracoes') ? 'active' : '' ?>">
                                     <i class="far fa-circle nav-icon"></i><p>Numeração Sequencial</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="<?= BASE_URL ?>/views/configuracoes_textos/index.php" class="nav-link <?= (strpos($_SERVER['REQUEST_URI'], '/views/configuracoes_textos/') !== false) ? 'active' : '' ?>">
+                                    <i class="far fa-comment-dots nav-icon"></i><p>Textos Padrão</p>
                                 </a>
                             </li>
                         </ul>

@@ -87,9 +87,48 @@ if (!empty($produtoIdsPedido)) {
     }
 }
 
-// Textos padrão para observações e condições (se não houver no pedido)
-$textoPadraoObservacoesDisplay = !empty($pedidoDados['observacoes']) ? $pedidoDados['observacoes'] : "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\n* Não Inclui Posicionamento dos Móveis no Local.";
-$textoPadraoCondicoesDisplay = !empty($pedidoDados['condicoes_pagamento']) ? $pedidoDados['condicoes_pagamento'] : "50% na aprovação para reserva em PIX ou Depósito.\nSaldo em PIX ou Depósito 7 dias antes do evento.\n* Consulte disponibilidade e preços para pagamento no cartão de crédito.";
+// Textos padrão para observações e condições.
+// Regra: o edit carrega o texto salvo no pedido. Se o pedido estiver vazio, usa a matriz atual.
+// Os botões "Usar texto padrão" abaixo apenas substituem o texto deste pedido na tela.
+function buscarTextoPadraoPedidoEdit(PDO $db, string $chave, string $fallback = ''): string
+{
+    try {
+        $stmtTextoPadrao = $db->prepare("SELECT conteudo FROM configuracoes_textos WHERE chave = :chave AND ativo = 1 LIMIT 1");
+        $stmtTextoPadrao->bindValue(':chave', $chave, PDO::PARAM_STR);
+        $stmtTextoPadrao->execute();
+        $conteudo = $stmtTextoPadrao->fetchColumn();
+
+        if ($conteudo !== false && trim((string)$conteudo) !== '') {
+            return (string)$conteudo;
+        }
+    } catch (Throwable $e) {
+        error_log('[pedidos/edit.php] Falha ao buscar texto padrão ' . $chave . ': ' . $e->getMessage());
+    }
+
+    return $fallback;
+}
+
+$fallbackObservacoesPedido = "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.
+# Não inclui posicionamento dos móveis no local.
+# DOMINGO/FERIADO após as 8h e antes das 12h: Taxa R$ 250,00
+# MADRUGADA após as 4:30h e antes das 8:30h: Taxa R$ 800,00
+# HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado: Taxa R$ 500,00
+# HORA MARCADA segunda a sexta das 8:30h até as 17h e sábado das 8:30h às 12h: Taxa R$ 200,00
+# Infelizmente não dispomos de entregas ou coletas no período das 23:30h às 5h.";
+$fallbackCondicoesPedido = "Entrada de 30% para reserva, via PIX ou depósito.
+O saldo deverá ser pago via PIX ou depósito até 7 dias antes da data do evento.
+Consulte previamente a disponibilidade e as condições para locações com período estendido, mais de uma diária ou necessidades especiais de entrega/coleta.";
+
+$textoPadraoObservacoesMatriz = buscarTextoPadraoPedidoEdit($db, 'observacoes_gerais_padrao', $fallbackObservacoesPedido);
+$textoPadraoCondicoesMatriz = buscarTextoPadraoPedidoEdit($db, 'condicoes_pagamento_padrao', $fallbackCondicoesPedido);
+
+$textoObservacoesPedidoDisplay = isset($pedidoDados['observacoes']) && trim((string)$pedidoDados['observacoes']) !== ''
+    ? (string)$pedidoDados['observacoes']
+    : $textoPadraoObservacoesMatriz;
+
+$textoCondicoesPedidoDisplay = isset($pedidoDados['condicoes_pagamento']) && trim((string)$pedidoDados['condicoes_pagamento']) !== ''
+    ? (string)$pedidoDados['condicoes_pagamento']
+    : $textoPadraoCondicoesMatriz;
 
 // Valores padrão FIXOS para as taxas (para o data-valor-padrao)
 $valorPadraoTaxaDomingo = 250.00;
@@ -636,6 +675,8 @@ $selected_client_full_data = json_encode([
 
 // Define a variável JavaScript PEDIDO_ID que será injetada no footer.php
 $inline_js_setup = "const PEDIDO_ID = " . $pedidoId . ";";
+$inline_js_setup .= "const TEXTO_PADRAO_OBSERVACOES_PEDIDO = " . json_encode($textoPadraoObservacoesMatriz, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ";";
+$inline_js_setup .= "const TEXTO_PADRAO_CONDICOES_PEDIDO = " . json_encode($textoPadraoCondicoesMatriz, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ";";
 
 include_once __DIR__ . '/../includes/header.php';
 ?>
@@ -1025,14 +1066,26 @@ include_once __DIR__ . '/../includes/header.php';
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="observacoes_gerais">Observações Gerais</label>
-                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais"
-                                        rows="3" placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($pedidoDados['observacoes'] ?? $textoPadraoObservacoesDisplay) ?></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label for="observacoes_gerais" class="mb-0">Observações Gerais</label>
+                                        <button type="button" class="btn btn-xs btn-outline-primary btn-usar-texto-padrao-documento" data-target-textarea="observacoes_gerais" data-texto-padrao="observacoes" title="Substituir o texto deste pedido pelo padrão atual do sistema">
+                                            <i class="fas fa-magic"></i> Usar texto padrão
+                                        </button>
+                                    </div>
+                                    <textarea class="form-control textarea-texto-padrao" id="observacoes_gerais" name="observacoes_gerais"
+                                        rows="6" placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($textoObservacoesPedidoDisplay) ?></textarea>
+                                    <small class="form-text text-muted">Este texto será salvo somente neste pedido. Para alterar o padrão definitivo, use Configurações &gt; Textos Padrão.</small>
                                 </div>
                                 <div class="form-group">
-                                    <label for="condicoes_pagamento">Condições de Pagamento</label>
-                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento"
-                                        rows="3" placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($pedidoDados['condicoes_pagamento'] ?? $textoPadraoCondicoesDisplay) ?></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label for="condicoes_pagamento" class="mb-0">Condições de Pagamento</label>
+                                        <button type="button" class="btn btn-xs btn-outline-primary btn-usar-texto-padrao-documento" data-target-textarea="condicoes_pagamento" data-texto-padrao="condicoes" title="Substituir o texto deste pedido pelo padrão atual do sistema">
+                                            <i class="fas fa-magic"></i> Usar texto padrão
+                                        </button>
+                                    </div>
+                                    <textarea class="form-control textarea-texto-padrao" id="condicoes_pagamento" name="condicoes_pagamento"
+                                        rows="5" placeholder="Ex: Entrada, saldo, PIX, locação estendida..."><?= htmlspecialchars($textoCondicoesPedidoDisplay) ?></textarea>
+                                    <small class="form-text text-muted">Este texto será salvo somente neste pedido. Para alterar o padrão definitivo, use Configurações &gt; Textos Padrão.</small>
                                 </div>
 
                                 <!-- SEÇÃO ESPECÍFICA DE PEDIDOS - PAGAMENTOS -->
@@ -1418,6 +1471,14 @@ include_once __DIR__ . '/../includes/header.php';
                         margin-right: 3px;
                     }
 
+                    .textarea-texto-padrao {
+                        line-height: 1.15 !important;
+                        font-size: 0.88rem !important;
+                        padding: 5px 8px !important;
+                        resize: vertical;
+                        white-space: pre-wrap;
+                    }
+
                     .btn-group-xs.d-flex .btn {
                         flex-grow: 1;
                     }
@@ -1734,8 +1795,29 @@ $(document).ready(function() {
     let conjuntoAtivoNome = '';
     
     console.log('itemIndex inicializado:', itemIndex);
-    // PEDIDO_ID e itemIndex são definidos via PHP antes deste bloco JS
+    // PEDIDO_ID, TEXTO_PADRAO_OBSERVACOES_PEDIDO e TEXTO_PADRAO_CONDICOES_PEDIDO são definidos via PHP antes deste bloco JS
     // BASE_URL também foi injetado pelo PHP
+
+    $('#observacoes_gerais, #condicoes_pagamento').scrollTop(0);
+
+    $('.btn-usar-texto-padrao-documento').on('click', function() {
+        const targetTextareaId = $(this).data('target-textarea');
+        const tipoTexto = $(this).data('texto-padrao');
+        const $textarea = $('#' + targetTextareaId);
+
+        if (!$textarea.length) {
+            return;
+        }
+
+        let textoPadrao = '';
+        if (tipoTexto === 'observacoes') {
+            textoPadrao = typeof TEXTO_PADRAO_OBSERVACOES_PEDIDO !== 'undefined' ? TEXTO_PADRAO_OBSERVACOES_PEDIDO : '';
+        } else if (tipoTexto === 'condicoes') {
+            textoPadrao = typeof TEXTO_PADRAO_CONDICOES_PEDIDO !== 'undefined' ? TEXTO_PADRAO_CONDICOES_PEDIDO : '';
+        }
+
+        $textarea.val(textoPadrao).scrollTop(0).focus();
+    });
     
     // 🛡️ PROTEÇÃO GLOBAL CONTRA LOOP INFINITO
     window.calculandoTotais = false;

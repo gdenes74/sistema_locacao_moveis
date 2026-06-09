@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../models/Pedido.php';
 require_once __DIR__ . '/../../models/Cliente.php';
 require_once __DIR__ . '/../../models/Produto.php';
+require_once __DIR__ . '/../../models/ConfiguracaoTexto.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -73,6 +74,55 @@ if (!function_exists('formatarTelefone')) {
             return '(' . substr($telefone, 0, 2) . ') ' . substr($telefone, 2, 4) . '-' . substr($telefone, 6);
         }
         return $telefone;
+    }
+}
+
+
+if (!function_exists('valorOuNAPedidoShow')) {
+    function valorOuNAPedidoShow(mixed $valor): string
+    {
+        $valor = trim((string)($valor ?? ''));
+        return $valor !== '' ? htmlspecialchars($valor, ENT_QUOTES, 'UTF-8') : 'N/A';
+    }
+}
+
+if (!function_exists('formatarTextoMultilinhaPedidoShow')) {
+    function formatarTextoMultilinhaPedidoShow(mixed $texto): string
+    {
+        $texto = trim((string)($texto ?? ''));
+        if ($texto === '') {
+            return '';
+        }
+        return nl2br(htmlspecialchars($texto, ENT_QUOTES, 'UTF-8'));
+    }
+}
+
+if (!function_exists('formatarPixPedidoShow')) {
+    function formatarPixPedidoShow(mixed $texto): string
+    {
+        $texto = trim((string)($texto ?? ''));
+        if ($texto === '') {
+            return '';
+        }
+
+        $linhas = preg_split('/\r\n|\r|\n/', $texto);
+        $saida = [];
+        foreach ($linhas as $idx => $linha) {
+            $linha = trim((string)$linha);
+            if ($linha === '') {
+                $saida[] = '';
+                continue;
+            }
+
+            $linhaEscapada = htmlspecialchars($linha, ENT_QUOTES, 'UTF-8');
+            if ($idx === 0 || stripos($linha, 'PIX') !== false || stripos($linha, 'CNPJ') !== false) {
+                $saida[] = '<strong>' . $linhaEscapada . '</strong>';
+            } else {
+                $saida[] = '<small>' . $linhaEscapada . '</small>';
+            }
+        }
+
+        return implode('<br>', $saida);
     }
 }
 
@@ -463,6 +513,34 @@ if (!empty($pedidoModel->cliente_id)) {
     $clienteModel->getById($pedidoModel->cliente_id);
 }
 
+// Textos padrão do sistema: usados como fallback quando o pedido ainda não tiver texto próprio.
+$fallbackObservacoesGerais = "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\n# Não inclui posicionamento dos móveis no local.\n# DOMINGO/FERIADO após as 8h e antes das 12h: Taxa R$ 250,00\n# MADRUGADA após as 4:30h e antes das 8:30h: Taxa R$ 800,00\n# HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado: Taxa R$ 500,00\n# HORA MARCADA segunda a sexta das 8:30h até as 17h e sábado das 8:30h às 12h: Taxa R$ 200,00\n# Infelizmente não dispomos de entregas ou coletas no período das 23:30h às 5h.";
+$fallbackCondicoesPagamento = "Entrada de 30% para reserva, via PIX ou depósito.\nO saldo deverá ser pago via PIX ou depósito até 7 dias antes da data do evento.\nConsulte previamente a disponibilidade e as condições para locações com período estendido, mais de uma diária ou necessidades especiais de entrega/coleta.";
+$fallbackPix = "PIX SICREDI\nCNPJ: 19.318.614/0001-44\nPedimos a gentileza de enviar o comprovante por WhatsApp para baixa no sistema, confirmação da reserva e organização do estoque.";
+
+$textosPadraoPedido = ConfiguracaoTexto::carregarMapa($conn, [
+    'observacoes_gerais_padrao',
+    'condicoes_pagamento_padrao',
+    'pix_padrao'
+]);
+
+$textoObservacoesPedido = trim((string)($pedidoModel->observacoes ?? ''));
+if ($textoObservacoesPedido === '') {
+    $textoObservacoesPedido = trim((string)($textosPadraoPedido['observacoes_gerais_padrao'] ?? '')) ?: $fallbackObservacoesGerais;
+}
+
+$textoCondicoesPagamentoPedido = trim((string)($pedidoModel->condicoes_pagamento ?? ''));
+if ($textoCondicoesPagamentoPedido === '') {
+    $textoCondicoesPagamentoPedido = trim((string)($textosPadraoPedido['condicoes_pagamento_padrao'] ?? '')) ?: $fallbackCondicoesPagamento;
+}
+
+$textoPixPedido = trim((string)($textosPadraoPedido['pix_padrao'] ?? '')) ?: $fallbackPix;
+
+$clienteTelefone = trim((string)($clienteModel->telefone ?? ''));
+$clienteEmail = trim((string)($clienteModel->email ?? ''));
+$clienteCpfCnpj = trim((string)($clienteModel->cpf_cnpj ?? ''));
+$clienteEndereco = trim((string)($clienteModel->endereco ?? ''));
+
 $itens = $pedidoModel->getItens($id);
 $componentesPorProduto = is_array($itens) ? carregarComponentesProdutosCompostosPedidoShow($conn, $itens) : [];
 $resumoComponentesProducao = [];
@@ -620,72 +698,75 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                     <hr>
 
                     <!-- INFORMAÇÕES DO CLIENTE E EVENTO -->
-                    <div class="row mb-2 bloco-cliente-logistica">
-                        <div class="col-12">
-                            <div><strong>Cliente:</strong> <?= htmlspecialchars($clienteModel->nome ?? 'Não informado') ?></div>
-                            <?php if (!empty($clienteModel->telefone)): ?>
-                                <div><strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?></div>
-                            <?php endif; ?>
-                            <?php if (!empty($clienteModel->cpf_cnpj)): ?>
-                                <div><strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj) ?></div>
-                            <?php endif; ?>
+                    <div class="box-dados-principais mt-2 bloco-cliente-logistica">
+                        <div class="row">
+                            <div class="col-7">
+                                <div class="dados-cliente-impressao dados-cliente-show">
+                                    <strong>Cliente:</strong> <?= valorOuNAPedidoShow($clienteModel->nome ?? '') ?><br>
+                                    <strong>Telefone:</strong> <?= $clienteTelefone !== '' ? htmlspecialchars(formatarTelefone($clienteTelefone), ENT_QUOTES, 'UTF-8') : 'N/A' ?><br>
+                                    <strong>E-mail:</strong> <?= $clienteEmail !== '' ? htmlspecialchars($clienteEmail, ENT_QUOTES, 'UTF-8') : 'N/A' ?><br>
+                                    <strong>CPF/CNPJ:</strong> <?= $clienteCpfCnpj !== '' ? htmlspecialchars($clienteCpfCnpj, ENT_QUOTES, 'UTF-8') : 'N/A' ?><br>
+                                    <strong>Endereço:</strong> <?= $clienteEndereco !== '' ? htmlspecialchars($clienteEndereco, ENT_QUOTES, 'UTF-8') : 'N/A' ?>
+                                </div>
 
-                            <?php
-                            $dataEventoCompleta = '';
-                            if (!empty($pedidoModel->data_evento)) {
-                                $dataEventoCompleta = formatarDataDiaSemana($pedidoModel->data_evento);
-                                if (!empty($pedidoModel->hora_evento) && $pedidoModel->hora_evento !== '00:00:00') {
-                                    try {
-                                        $horaEventoFormatada = date('H\H', strtotime($pedidoModel->hora_evento));
-                                        $dataEventoCompleta .= ' às ' . $horaEventoFormatada;
-                                    } catch (Exception $e) {}
+                                <?php
+                                $dataEventoCompleta = '';
+                                if (!empty($pedidoModel->data_evento)) {
+                                    $dataEventoCompleta = formatarDataDiaSemana($pedidoModel->data_evento);
+                                    if (!empty($pedidoModel->hora_evento) && $pedidoModel->hora_evento !== '00:00:00') {
+                                        try {
+                                            $horaEventoFormatada = date('H\H', strtotime($pedidoModel->hora_evento));
+                                            $dataEventoCompleta .= ' às ' . $horaEventoFormatada;
+                                        } catch (Exception $e) {}
+                                    }
+                                } else {
+                                    $dataEventoCompleta = '-';
                                 }
-                            } else {
-                                $dataEventoCompleta = '-';
-                            }
 
-                            $dataEntregaCompleta = '';
-                            if (!empty($pedidoModel->data_entrega)) {
-                                $dataEntregaCompleta = formatarDataDiaSemana($pedidoModel->data_entrega);
-                                $turnoHoraEntrega = formatarTurnoHora($pedidoModel->turno_entrega ?? null, $pedidoModel->hora_entrega ?? null);
-                                if ($turnoHoraEntrega !== '-') {
-                                    $dataEntregaCompleta .= ' - ' . $turnoHoraEntrega;
+                                $dataEntregaCompleta = '';
+                                if (!empty($pedidoModel->data_entrega)) {
+                                    $dataEntregaCompleta = formatarDataDiaSemana($pedidoModel->data_entrega);
+                                    $turnoHoraEntrega = formatarTurnoHora($pedidoModel->turno_entrega ?? null, $pedidoModel->hora_entrega ?? null);
+                                    if ($turnoHoraEntrega !== '-') {
+                                        $dataEntregaCompleta .= ' - ' . $turnoHoraEntrega;
+                                    }
+                                } else {
+                                    $dataEntregaCompleta = '-';
                                 }
-                            } else {
-                                $dataEntregaCompleta = '-';
-                            }
 
-                            $dataColetaCompleta = '';
-                            if (!empty($pedidoModel->data_devolucao_prevista)) {
-                                $dataColetaCompleta = formatarDataDiaSemana($pedidoModel->data_devolucao_prevista);
-                                $turnoHoraColeta = formatarTurnoHora($pedidoModel->turno_devolucao ?? null, $pedidoModel->hora_devolucao ?? null);
-                                if ($turnoHoraColeta !== '-') {
-                                    $dataColetaCompleta .= ' - ' . $turnoHoraColeta;
+                                $dataColetaCompleta = '';
+                                if (!empty($pedidoModel->data_devolucao_prevista)) {
+                                    $dataColetaCompleta = formatarDataDiaSemana($pedidoModel->data_devolucao_prevista);
+                                    $turnoHoraColeta = formatarTurnoHora($pedidoModel->turno_devolucao ?? null, $pedidoModel->hora_devolucao ?? null);
+                                    if ($turnoHoraColeta !== '-') {
+                                        $dataColetaCompleta .= ' - ' . $turnoHoraColeta;
+                                    }
+                                } else {
+                                    $dataColetaCompleta = '-';
                                 }
-                            } else {
-                                $dataColetaCompleta = '-';
-                            }
-                            ?>
+                                ?>
 
-                            <div class="bloco-datas-operacionais">
-                                <div class="linha-data-operacional data-evento-destaque"><span>DATA DO EVENTO</span><strong><?= htmlspecialchars($dataEventoCompleta) ?></strong></div>
-                                <div class="linha-data-operacional data-entrega-destaque"><span>DATA DA ENTREGA</span><strong><?= htmlspecialchars($dataEntregaCompleta) ?></strong></div>
-                                <div class="linha-data-operacional data-coleta-destaque"><span>DATA DA COLETA</span><strong><?= htmlspecialchars($dataColetaCompleta) ?></strong></div>
+                                <div class="local-entrega-show linha-local-entrega">
+                                    <strong>Local de Entrega:</strong> <?= htmlspecialchars($pedidoModel->local_evento ?: '-', ENT_QUOTES, 'UTF-8') ?>
+                                </div>
                             </div>
 
-                            <div class="linha-local-entrega"><strong>Local de Entrega:</strong> <?= htmlspecialchars($pedidoModel->local_evento ?: '-') ?></div>
+                            <div class="col-5 box-logistica">
+                                <div class="linha-logistica destaque-evento">
+                                    <strong>Data do Evento:</strong>
+                                    <?= htmlspecialchars($dataEventoCompleta, ENT_QUOTES, 'UTF-8') ?>
+                                </div>
+                                <div class="linha-logistica destaque-entrega mt-1">
+                                    <strong>Data da Entrega:</strong>
+                                    <?= htmlspecialchars($dataEntregaCompleta, ENT_QUOTES, 'UTF-8') ?>
+                                </div>
+                                <div class="linha-logistica destaque-coleta mt-1">
+                                    <strong>Data da Coleta:</strong>
+                                    <?= htmlspecialchars($dataColetaCompleta, ENT_QUOTES, 'UTF-8') ?>
+                                </div>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- OBSERVAÇÕES DE TAXAS -->
-                    <div class="obs-taxas-regras taxas-alerta-compactas">
-                        <div># DOMINGO/FERIADO após as 8h e antes das 12h Taxa R$ 250,00</div>
-                        <div># MADRUGADA após as 4:30h e antes das 8:30h Taxa R$ 800,00</div>
-                        <div># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$ 500,00</div>
-                        <div># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$ 200,00</div>
-                        <div># Infelizmente não dispomos de entregas ou coletas no período das 24h as 5h</div>
-                    </div>
-                    <hr>
 
                     <!-- ATENDIMENTO E TIPO -->
                     <div class="row mb-3">
@@ -906,13 +987,11 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                     <?php endif; ?>
 
                     <!-- OBSERVAÇÕES GERAIS E SUBTOTAL -->
-                    <div class="row mb-3">
-                        <div class="col-7 obs-gerais">
-                            <small># Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa</small><br>
-                            <small>&nbsp;&nbsp;desde que não ultrapasse 10% do valor total contratado #</small><br>
-                            <small>* Não Inclui Posicionamento dos Móveis no Local *</small>
+                    <div class="row mb-3 bloco-observacoes-subtotal">
+                        <div class="col-7 obs-gerais texto-padrao-documento">
+                            <?= formatarTextoMultilinhaPedidoShow($textoObservacoesPedido) ?>
                         </div>
-                        <div class="col-5 text-right">
+                        <div class="col-5 text-right subtotal-pedido-bloco">
                             <strong>Sub total p/ PIX ou Depósito</strong>
                             <strong class="ml-3">R$ <?= formatarValor($subtotalItensPIX) ?></strong>
                         </div>
@@ -921,13 +1000,9 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
                     <!-- FORMA DE PAGAMENTO E TAXAS/FRETES -->
                     <div class="row">
-                        <div class="col-7 forma-pagamento">
+                        <div class="col-7 forma-pagamento texto-padrao-documento">
                             <strong>Forma de Pagamento:</strong><br>
-                            <small>ENTRADA 30% PARA RESERVA EM PIX OU DEPÓSITO</small><br>
-                            <small>SALDO EM PIX OU DEPÓSITO 7 DIAS ANTES EVENTO</small><br><br>
-                            <small>* Consulte se há disponibilidade e</small><br>
-                            <small>&nbsp;&nbsp;quais os preços de locação para pagamento</small><br>
-                            <small>&nbsp;&nbsp;no cartão de crédito</small>
+                            <?= formatarTextoMultilinhaPedidoShow($textoCondicoesPagamentoPedido) ?>
                         </div>
                         <div class="col-5 taxas-fretes text-right">
                             <?php
@@ -957,16 +1032,16 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                 <span><?= exibirTaxa($pedidoModel->taxa_hora_marcada ?? 0) ?></span>
                             </div>
                             <div class="mb-1">
+                                <span class="text-left-label">FRETE TÉRREO</span>
+                                <span><?= exibirTaxa($pedidoModel->frete_terreo ?? 0) ?></span>
+                            </div>
+                            <div class="mb-1">
                                 <span class="text-left-label">FRETE ELEVADOR</span>
                                 <span><?= exibirTaxa($pedidoModel->frete_elevador ?? 0) ?></span>
                             </div>
-                            <div class="mb-1">
+                            <div class="mb-2">
                                 <span class="text-left-label">FRETE ESCADAS</span>
                                 <span><?= exibirTaxa($pedidoModel->frete_escadas ?? 0) ?></span>
-                            </div>
-                            <div class="mb-2">
-                                <span class="text-left-label"><strong>FRETE TÉRREO SEM ESCADAS</strong></span>
-                                <span><strong>R$ <?= formatarValor($pedidoModel->frete_terreo ?? 0, true) ?></strong></span>
                             </div>
 
                             <?php if (!empty($pedidoModel->desconto) && $pedidoModel->desconto > 0): ?>
@@ -1010,31 +1085,14 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                 <?php endif; ?>
                             </span>
                         </div>
-                        <?php if (!empty($pedidoModel->condicoes_pagamento)): ?>
-                            <div class="financeiro-linha-condicoes somente-tela">
-                                <strong>Condições:</strong> <?= nl2br(htmlspecialchars($pedidoModel->condicoes_pagamento)) ?>
-                            </div>
-                        <?php endif; ?>
                     </div>
 
                     <!-- INFORMAÇÕES DO PIX -->
                     <div class="row mt-3">
                         <div class="col-12 text-center info-pix">
-                            <strong>PIX SICREDI CNPJ 19.318.614 / 0001-44</strong><br>
-                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
+                            <?= formatarPixPedidoShow($textoPixPedido) ?>
                         </div>
                     </div>
-
-                    <!-- Observações adicionais -->
-                    <?php if (!empty($pedidoModel->observacoes)): ?>
-                        <div class="row mt-4 observacoes-adicionais">
-                            <div class="col-12">
-                                <hr>
-                                <h5>Observações Adicionais:</h5>
-                                <p><?= nl2br(htmlspecialchars($pedidoModel->observacoes)) ?></p>
-                            </div>
-                        </div>
-                    <?php endif; ?>
 
                     <?php if (!empty($pedidoModel->motivo_ajuste) && !empty($pedidoModel->desconto) && $pedidoModel->desconto > 0): ?>
                         <div class="row mt-2">
@@ -1184,14 +1242,6 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         color: #555;
     }
 
-    .financeiro-linha-condicoes {
-        margin-top: 3px;
-        border-top: 1px solid #ddd;
-        padding-top: 3px;
-        font-size: 8.2pt;
-        line-height: 1.15;
-    }
-
     .somente-tela {
         display: block;
     }
@@ -1284,7 +1334,6 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
             font-size: 7.2pt !important;
         }
 
-        .impressao-cliente .financeiro-linha-condicoes,
         .impressao-producao .financeiro-linha-unica {
             display: none !important;
         }
@@ -1308,6 +1357,28 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         font-size: 12.2pt;
         line-height: 1.28;
         color: #000;
+    }
+
+    .dados-cliente-impressao {
+        font-size: 12.8pt;
+        line-height: 1.28;
+        margin-bottom: 5px;
+    }
+
+    .texto-padrao-documento {
+        white-space: normal;
+        font-size: 12pt;
+        line-height: 1.25;
+        color: #000;
+    }
+
+    .texto-padrao-documento small {
+        font-size: inherit !important;
+        line-height: inherit !important;
+    }
+
+    .subtotal-pedido-bloco {
+        font-size: 12.4pt;
     }
 
     .bloco-datas-operacionais {
@@ -1669,7 +1740,14 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
         }
 
         .linha-branco-visual {
-            display: none !important;
+            display: table-row !important;
+        }
+
+        .linha-branco-visual td {
+            height: 26px !important;
+            min-height: 26px !important;
+            padding: 2px 5px !important;
+            border: 1px solid #777 !important;
         }
 
         body {
@@ -2475,6 +2553,838 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
     .observacoes-adicionais {
         font-size: 10.8pt !important;
+    }
+}
+
+
+/* ==========================================================
+   AJUSTE TEXTOS PADRÃO / CLIENTE COMPLETO - 06/06/2026
+   Usa observações/condições salvas no pedido e PIX das configurações.
+   ========================================================== */
+.dados-cliente-impressao div {
+    margin-bottom: 1px;
+}
+
+.bloco-observacoes-subtotal .obs-gerais,
+.forma-pagamento.texto-padrao-documento {
+    font-size: 12.2pt !important;
+    line-height: 1.24 !important;
+}
+
+.info-pix strong {
+    font-size: 12.2pt !important;
+}
+
+.info-pix small {
+    font-size: 11.6pt !important;
+}
+
+@media print {
+    .dados-cliente-impressao {
+        font-size: 12.1pt !important;
+        line-height: 1.12 !important;
+        margin-bottom: 3px !important;
+    }
+
+    .bloco-observacoes-subtotal .obs-gerais,
+    .forma-pagamento.texto-padrao-documento {
+        font-size: 10.8pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .info-pix strong {
+        font-size: 11pt !important;
+    }
+
+    .info-pix small {
+        font-size: 10.5pt !important;
+        line-height: 1.12 !important;
+    }
+}
+
+
+/* ==========================================================
+   AJUSTE MOBEL - SHOW PEDIDO NO PADRÃO DO SHOW DE ORÇAMENTO
+   Mantém a lógica do pedido e ajusta visual/impressão.
+   ========================================================== */
+.box-dados-principais {
+    font-size: 12pt;
+    line-height: 1.22;
+}
+
+.dados-cliente-show {
+    font-size: 11.9pt;
+    line-height: 1.20;
+    margin-bottom: 4px;
+}
+
+.local-entrega-show {
+    margin-top: 5px;
+    font-size: 11.9pt;
+    line-height: 1.20;
+    font-weight: 800;
+}
+
+.box-logistica {
+    padding-left: 8px;
+}
+
+.linha-logistica {
+    border: 1px solid #777;
+    padding: 5px 7px;
+    font-weight: 900;
+    color: #000;
+    font-size: 11.8pt;
+    line-height: 1.16;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+}
+
+.destaque-evento {
+    background: #d9ead3 !important;
+    border-color: #6aa84f !important;
+}
+
+.destaque-entrega {
+    background: #fff2cc !important;
+    border-color: #d6b656 !important;
+}
+
+.destaque-coleta {
+    background: #f4cccc !important;
+    border-color: #cc0000 !important;
+    color: #7a0000 !important;
+}
+
+.card-pedido-visual {
+    font-size: 12.8pt !important;
+}
+
+.table-itens-pedido th,
+.table-itens-pedido td {
+    font-size: 12.7pt !important;
+    line-height: 1.16 !important;
+}
+
+.descricao-item strong {
+    font-size: 12.7pt !important;
+    font-weight: 900 !important;
+}
+
+.texto-filho-conjunto {
+    font-size: 11.8pt !important;
+    font-weight: 900 !important;
+    color: #0b5ed7 !important;
+}
+
+.qtd-item-conjunto-filho,
+.qtd-item-conjunto-filho strong,
+.linha-conjunto-filho .qtd-item,
+.linha-conjunto-filho .qtd-item strong {
+    color: #0b5ed7 !important;
+    font-size: 10.9pt !important;
+    font-weight: 900 !important;
+}
+
+.bloco-observacoes-subtotal .obs-gerais,
+.forma-pagamento.texto-padrao-documento {
+    font-size: 11.6pt !important;
+    line-height: 1.15 !important;
+}
+
+.info-pix {
+    line-height: 1.15 !important;
+}
+
+.info-pix strong {
+    font-size: 11.8pt !important;
+}
+
+.info-pix small {
+    font-size: 11.1pt !important;
+    line-height: 1.12 !important;
+}
+
+.taxas-fretes div {
+    font-size: 11.4pt !important;
+    line-height: 1.13 !important;
+}
+
+.taxas-fretes h4 {
+    font-size: 12.8pt !important;
+}
+
+.financeiro-linha-unica {
+    margin-top: 5px !important;
+}
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 5mm 6mm 5mm 6mm;
+    }
+
+    body {
+        font-size: 11.8pt !important;
+    }
+
+    .card-pedido-visual .card-body {
+        padding: 0 !important;
+    }
+
+    .cabecalho-empresa {
+        padding-bottom: 5px !important;
+        margin-bottom: 5px !important;
+    }
+
+    .info-empresa h4 {
+        font-size: 13.4pt !important;
+    }
+
+    .info-empresa small,
+    .info-pedido,
+    .info-pedido small {
+        font-size: 9.5pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .box-dados-principais,
+    .bloco-cliente-logistica {
+        font-size: 11.5pt !important;
+        line-height: 1.16 !important;
+        margin-bottom: 4px !important;
+    }
+
+    .dados-cliente-show,
+    .dados-cliente-impressao {
+        font-size: 11.4pt !important;
+        line-height: 1.13 !important;
+        margin-bottom: 3px !important;
+    }
+
+    .local-entrega-show,
+    .linha-local-entrega {
+        font-size: 11.3pt !important;
+        line-height: 1.14 !important;
+        font-weight: 800 !important;
+        margin: 3px 0 0 0 !important;
+    }
+
+    .box-logistica {
+        padding-left: 6px !important;
+    }
+
+    .linha-logistica {
+        font-size: 11.2pt !important;
+        line-height: 1.10 !important;
+        padding: 4px 6px !important;
+        page-break-inside: avoid;
+    }
+
+    .row.mb-3 {
+        margin-bottom: 0.35rem !important;
+    }
+
+    .table-itens-pedido th,
+    .table-itens-pedido td {
+        font-size: 11.6pt !important;
+        line-height: 1.10 !important;
+        padding: 0.22rem 0.36rem !important;
+        color: #000 !important;
+        border: 1px solid #777 !important;
+    }
+
+    .table-itens-pedido thead th {
+        font-size: 11.4pt !important;
+        font-weight: 900 !important;
+    }
+
+    .descricao-item strong {
+        font-size: 11.7pt !important;
+    }
+
+    .produto-foto-impressao {
+        width: 36px !important;
+        height: 36px !important;
+        margin-right: 7px !important;
+    }
+
+    .texto-produto-impressao {
+        min-height: 38px !important;
+    }
+
+    .texto-filho-conjunto {
+        font-size: 10.9pt !important;
+        color: #0b5ed7 !important;
+    }
+
+    .qtd-item-conjunto-filho,
+    .qtd-item-conjunto-filho strong,
+    .linha-conjunto-filho .qtd-item,
+    .linha-conjunto-filho .qtd-item strong {
+        font-size: 10.3pt !important;
+        color: #0b5ed7 !important;
+    }
+
+    .indicador-conjunto-pai {
+        font-size: 8.2pt !important;
+    }
+
+    .bloco-observacoes-subtotal .obs-gerais,
+    .forma-pagamento.texto-padrao-documento {
+        font-size: 10.6pt !important;
+        line-height: 1.10 !important;
+    }
+
+    .taxas-fretes div {
+        font-size: 10.4pt !important;
+        line-height: 1.09 !important;
+        margin-bottom: 0 !important;
+    }
+
+    .taxas-fretes h4 {
+        font-size: 12.2pt !important;
+    }
+
+    .info-pix {
+        padding-top: 3px !important;
+        margin-top: 4px !important;
+    }
+
+    .info-pix strong {
+        font-size: 10.8pt !important;
+    }
+
+    .info-pix small {
+        font-size: 10.0pt !important;
+        line-height: 1.08 !important;
+    }
+
+    .financeiro-linha-unica {
+        padding: 4px 6px !important;
+        margin-top: 3px !important;
+        margin-bottom: 3px !important;
+    }
+
+    .financeiro-linha-titulo {
+        font-size: 10pt !important;
+        margin-bottom: 2px !important;
+    }
+
+    .financeiro-linha-conteudo {
+        font-size: 10.1pt !important;
+        line-height: 1.05 !important;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 3px 8px !important;
+    }
+
+    .financeiro-linha-conteudo span {
+        margin-right: 0 !important;
+        white-space: nowrap !important;
+    }
+}
+
+
+
+/* ==========================================================
+   AJUSTE FINAL IMPRESSÃO MAIOR - PEDIDO - 08/06/2026
+   Objetivo: impressão física mais legível sem mexer na lógica.
+   Fica no final para prevalecer sobre os blocos @media print antigos.
+   ========================================================== */
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 5mm 6mm 5mm 6mm;
+    }
+
+    html,
+    body {
+        font-size: 13.2pt !important;
+        line-height: 1.16 !important;
+        color: #000 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .content-wrapper,
+    .container-fluid,
+    .content,
+    .card-pedido-visual,
+    .card-pedido-visual .card-body {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    .cabecalho-empresa {
+        padding-bottom: 5px !important;
+        margin-bottom: 5px !important;
+        border-bottom: 2px solid #000 !important;
+    }
+
+    .logo-placeholder {
+        min-height: 44px !important;
+        padding: 2px !important;
+    }
+
+    .logo-placeholder img,
+    .logo-empresa img {
+        max-height: 44px !important;
+    }
+
+    .info-empresa h4 {
+        font-size: 15pt !important;
+        line-height: 1.08 !important;
+        margin-bottom: 2px !important;
+    }
+
+    .info-empresa small,
+    .info-pedido,
+    .info-pedido small {
+        font-size: 10.8pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .info-pedido h5 {
+        font-size: 14.2pt !important;
+        line-height: 1.08 !important;
+        margin-bottom: 1px !important;
+    }
+
+    .badge {
+        font-size: 9.8pt !important;
+        line-height: 1 !important;
+        padding: 2px 5px !important;
+    }
+
+    .dados-cliente-impressao,
+    .bloco-cliente-logistica {
+        font-size: 13.2pt !important;
+        line-height: 1.14 !important;
+        margin-bottom: 3px !important;
+    }
+
+    .dados-cliente-impressao div {
+        margin-bottom: 1px !important;
+    }
+
+    .linha-local-entrega {
+        font-size: 13pt !important;
+        line-height: 1.12 !important;
+        margin: 2px 0 3px 0 !important;
+        font-weight: 900 !important;
+    }
+
+    .bloco-datas-operacionais {
+        grid-template-columns: 176px 1fr !important;
+        margin-top: 2px !important;
+        margin-bottom: 3px !important;
+        border: 2px solid #000 !important;
+    }
+
+    .linha-data-operacional span,
+    .linha-data-operacional strong {
+        min-height: 28px !important;
+    }
+
+    .linha-data-operacional span {
+        font-size: 12.4pt !important;
+        line-height: 1.05 !important;
+        padding: 3px 6px !important;
+        font-weight: 900 !important;
+    }
+
+    .linha-data-operacional strong {
+        font-size: 14.8pt !important;
+        line-height: 1.05 !important;
+        padding: 3px 7px !important;
+        font-weight: 900 !important;
+        white-space: normal !important;
+    }
+
+    .row.mb-3,
+    .table-responsive.mb-3,
+    .bloco-observacoes-subtotal.mb-3 {
+        margin-bottom: 0.38rem !important;
+    }
+
+    .table-itens-pedido th,
+    .table-itens-pedido td {
+        font-size: 13.8pt !important;
+        line-height: 1.12 !important;
+        padding: 0.28rem 0.42rem !important;
+        border: 1px solid #555 !important;
+        color: #000 !important;
+    }
+
+    .table-itens-pedido thead th {
+        font-size: 13.2pt !important;
+        font-weight: 900 !important;
+        background: #f2f2f2 !important;
+    }
+
+    .descricao-item strong {
+        font-size: 13.8pt !important;
+        font-weight: 900 !important;
+    }
+
+    .qtd-item,
+    .qtd-item strong {
+        font-size: 13.8pt !important;
+        font-weight: 900 !important;
+    }
+
+    .valor-col,
+    .col-financeira,
+    .total-item {
+        font-size: 13pt !important;
+        font-weight: 800 !important;
+    }
+
+    .produto-foto-impressao {
+        width: 40px !important;
+        height: 40px !important;
+        margin-right: 7px !important;
+    }
+
+    .texto-produto-impressao {
+        min-height: 42px !important;
+    }
+
+    .texto-filho-conjunto {
+        font-size: 12.2pt !important;
+        font-weight: 900 !important;
+        color: #0b5ed7 !important;
+    }
+
+    .qtd-item-conjunto-filho,
+    .qtd-item-conjunto-filho strong,
+    .linha-conjunto-filho .qtd-item,
+    .linha-conjunto-filho .qtd-item strong {
+        font-size: 11.8pt !important;
+        font-weight: 900 !important;
+        color: #0b5ed7 !important;
+    }
+
+    .marcador-item-conjunto {
+        height: 35px !important;
+        font-size: 13pt !important;
+        color: #0b5ed7 !important;
+    }
+
+    .indicador-conjunto-pai {
+        font-size: 10.2pt !important;
+        font-weight: 800 !important;
+    }
+
+    .bloco-observacoes-subtotal .obs-gerais,
+    .forma-pagamento.texto-padrao-documento,
+    .texto-padrao-documento {
+        font-size: 12.4pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .subtotal-pedido-bloco {
+        font-size: 12.8pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .taxas-fretes div {
+        font-size: 12.0pt !important;
+        line-height: 1.10 !important;
+        margin-bottom: 0 !important;
+    }
+
+    .taxas-fretes h4 {
+        font-size: 13.6pt !important;
+        line-height: 1.08 !important;
+        margin: 2px 0 0 0 !important;
+    }
+
+    .financeiro-linha-unica {
+        padding: 5px 7px !important;
+        margin-top: 3px !important;
+        margin-bottom: 3px !important;
+        border: 1.5px solid #555 !important;
+    }
+
+    .financeiro-linha-titulo {
+        font-size: 11.2pt !important;
+        line-height: 1.05 !important;
+        margin-bottom: 2px !important;
+    }
+
+    .financeiro-linha-titulo i {
+        display: none !important;
+    }
+
+    .financeiro-linha-conteudo {
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 4px 10px !important;
+        font-size: 11.6pt !important;
+        line-height: 1.08 !important;
+        align-items: center !important;
+    }
+
+    .financeiro-linha-conteudo span {
+        margin-right: 0 !important;
+        white-space: nowrap !important;
+    }
+
+    .info-pix {
+        margin-top: 5px !important;
+        font-size: 11.6pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .info-pix strong {
+        font-size: 12.2pt !important;
+        line-height: 1.1 !important;
+    }
+
+    .info-pix small {
+        font-size: 11.4pt !important;
+        line-height: 1.12 !important;
+    }
+}
+
+
+/* ==========================================================
+   AJUSTE FINAL - MANTER LINHAS EM BRANCO NA IMPRESSÃO
+   Evita que pedido com poucos itens fique espremido em meia página.
+   ========================================================== */
+@media print {
+    .linha-branco-visual {
+        display: table-row !important;
+    }
+
+    .linha-branco-visual td {
+        height: 26px !important;
+        min-height: 26px !important;
+        padding: 2px 5px !important;
+        border: 1px solid #777 !important;
+    }
+
+    .table-itens-pedido {
+        margin-bottom: 7px !important;
+    }
+}
+
+
+
+/* ==========================================================
+   AJUSTE PRODUÇÃO MAIOR - 08/06/2026
+   Aumenta componentes internos e resumo de produção/separação.
+   Não altera cálculo, itens, estoque ou impressão cliente.
+   ========================================================== */
+.componentes-producao {
+    font-size: 12.2pt !important;
+    line-height: 1.22 !important;
+    padding: 6px 8px !important;
+    margin-top: 5px !important;
+}
+
+.componentes-producao strong {
+    display: block !important;
+    font-size: 12.6pt !important;
+    font-weight: 900 !important;
+    margin-bottom: 2px !important;
+}
+
+.componentes-producao div {
+    font-size: 12.2pt !important;
+    line-height: 1.22 !important;
+    font-weight: 800 !important;
+}
+
+.resumo-componentes-producao {
+    padding: 8px 10px !important;
+}
+
+.titulo-resumo-producao {
+    font-size: 13.6pt !important;
+    line-height: 1.18 !important;
+    font-weight: 900 !important;
+}
+
+.tabela-resumo-producao th,
+.tabela-resumo-producao td {
+    font-size: 12.4pt !important;
+    line-height: 1.18 !important;
+    padding: 4px 7px !important;
+}
+
+.grupo-resumo-producao td {
+    font-size: 12.8pt !important;
+    font-weight: 900 !important;
+}
+
+@media print {
+    .impressao-producao .componentes-producao {
+        display: block !important;
+        font-size: 13pt !important;
+        line-height: 1.20 !important;
+        padding: 6px 8px !important;
+        margin-top: 5px !important;
+        border-left: 4px solid #444 !important;
+        background: #f7f7f7 !important;
+    }
+
+    .impressao-producao .componentes-producao strong {
+        display: block !important;
+        font-size: 13.2pt !important;
+        font-weight: 900 !important;
+        margin-bottom: 2px !important;
+    }
+
+    .impressao-producao .componentes-producao div {
+        font-size: 13pt !important;
+        line-height: 1.20 !important;
+        font-weight: 800 !important;
+    }
+
+    .impressao-producao .resumo-componentes-producao {
+        padding: 8px 10px !important;
+        margin-top: 8px !important;
+    }
+
+    .impressao-producao .titulo-resumo-producao {
+        font-size: 14pt !important;
+        line-height: 1.15 !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao th,
+    .impressao-producao .tabela-resumo-producao td {
+        font-size: 13pt !important;
+        line-height: 1.15 !important;
+        padding: 4px 7px !important;
+    }
+
+    .impressao-producao .grupo-resumo-producao td {
+        font-size: 13.2pt !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.01em !important;
+    }
+}
+
+
+/* ==========================================================
+   AJUSTE PRODUÇÃO EXTRA GRANDE - 08/06/2026
+   Reforça ainda mais a via produção para leitura operacional.
+   Componentes e resumo ficam com peso de item principal.
+   ========================================================== */
+.componentes-producao,
+.componentes-producao div,
+.componentes-producao strong {
+    color: #000 !important;
+    font-weight: 900 !important;
+}
+
+.componentes-producao {
+    font-size: 14.6pt !important;
+    line-height: 1.22 !important;
+    padding: 8px 10px !important;
+    margin-top: 6px !important;
+    border-left: 5px solid #000 !important;
+    background: #f2f2f2 !important;
+}
+
+.componentes-producao strong {
+    display: block !important;
+    font-size: 15.0pt !important;
+    line-height: 1.16 !important;
+    margin-bottom: 3px !important;
+    text-transform: uppercase !important;
+}
+
+.componentes-producao div {
+    font-size: 14.6pt !important;
+    line-height: 1.20 !important;
+}
+
+.resumo-componentes-producao {
+    padding: 10px 12px !important;
+    border: 2px solid #000 !important;
+}
+
+.titulo-resumo-producao {
+    font-size: 15.2pt !important;
+    line-height: 1.16 !important;
+    font-weight: 900 !important;
+}
+
+.tabela-resumo-producao th,
+.tabela-resumo-producao td {
+    font-size: 14.4pt !important;
+    line-height: 1.18 !important;
+    padding: 6px 8px !important;
+    font-weight: 900 !important;
+}
+
+.grupo-resumo-producao td {
+    font-size: 14.8pt !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+}
+
+@media print {
+    .impressao-producao .componentes-producao {
+        display: block !important;
+        font-size: 15.4pt !important;
+        line-height: 1.18 !important;
+        padding: 8px 10px !important;
+        margin-top: 6px !important;
+        border-left: 5px solid #000 !important;
+        background: #f2f2f2 !important;
+        page-break-inside: avoid !important;
+    }
+
+    .impressao-producao .componentes-producao strong {
+        display: block !important;
+        font-size: 15.8pt !important;
+        line-height: 1.14 !important;
+        font-weight: 900 !important;
+        margin-bottom: 3px !important;
+        text-transform: uppercase !important;
+    }
+
+    .impressao-producao .componentes-producao div {
+        font-size: 15.4pt !important;
+        line-height: 1.18 !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .resumo-componentes-producao {
+        padding: 10px 12px !important;
+        margin-top: 10px !important;
+        border: 2px solid #000 !important;
+    }
+
+    .impressao-producao .titulo-resumo-producao {
+        font-size: 16pt !important;
+        line-height: 1.12 !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao th,
+    .impressao-producao .tabela-resumo-producao td {
+        font-size: 15.2pt !important;
+        line-height: 1.14 !important;
+        padding: 6px 8px !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .grupo-resumo-producao td {
+        font-size: 15.6pt !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
     }
 }
 

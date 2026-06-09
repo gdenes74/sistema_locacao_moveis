@@ -130,6 +130,27 @@ if (!function_exists('exibirTaxaOrcamentoShow')) {
 }
 
 
+
+if (!function_exists('carregarConfiguracaoTextoOrcamentoShow')) {
+    function carregarConfiguracaoTextoOrcamentoShow(PDO $conn, string $chave, string $fallback = ''): string
+    {
+        try {
+            $stmt = $conn->prepare("SELECT conteudo FROM configuracoes_textos WHERE chave = :chave AND ativo = 1 LIMIT 1");
+            $stmt->bindValue(':chave', $chave, PDO::PARAM_STR);
+            $stmt->execute();
+            $conteudo = $stmt->fetchColumn();
+
+            if (is_string($conteudo) && trim($conteudo) !== '') {
+                return trim($conteudo);
+            }
+        } catch (PDOException $e) {
+            error_log('[orcamentos/show.php] Erro ao carregar configuração de texto "' . $chave . '": ' . $e->getMessage());
+        }
+
+        return trim($fallback);
+    }
+}
+
 if (!function_exists('carregarComponentesProdutosCompostosOrcamentoShow')) {
     function carregarComponentesProdutosCompostosOrcamentoShow(PDO $conn, array $itens): array
     {
@@ -424,6 +445,34 @@ if (!empty($orcamentoModel->cliente_id)) {
     $clienteModel->getById($orcamentoModel->cliente_id);
 }
 
+$fallbackObservacoesOrcamento = "Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\nNão inclui posicionamento dos móveis no local.\nDOMINGO/FERIADO após as 8h e antes das 12h: Taxa R$ 250,00\nMADRUGADA após as 4:30h e antes das 8:30h: Taxa R$ 800,00\nHORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado: Taxa R$ 500,00\nHORA MARCADA segunda a sexta das 8:30h até as 17h e sábado das 8:30h às 12h: Taxa R$ 200,00\nInfelizmente não dispomos de entregas ou coletas no período das 23:30h às 5h.";
+$fallbackCondicoesOrcamento = "Entrada de 30% para reserva, via PIX ou depósito.\nO saldo deverá ser pago via PIX ou depósito até 7 dias antes da data do evento.\nConsulte previamente a disponibilidade e as condições para locações com período estendido, mais de uma diária ou necessidades especiais de entrega/coleta.";
+$fallbackPixOrcamento = "PIX SICREDI\nCNPJ: 19.318.614/0001-44\nPedimos a gentileza de enviar o comprovante por WhatsApp para baixa no sistema, confirmação da reserva e organização do estoque.";
+
+$textoObservacoesOrcamento = trim((string)($orcamentoModel->observacoes ?? ''));
+if ($textoObservacoesOrcamento === '') {
+    $textoObservacoesOrcamento = carregarConfiguracaoTextoOrcamentoShow($conn, 'observacoes_gerais_padrao', $fallbackObservacoesOrcamento);
+}
+
+$textoCondicoesOrcamento = trim((string)($orcamentoModel->condicoes_pagamento ?? ''));
+if ($textoCondicoesOrcamento === '') {
+    $textoCondicoesOrcamento = carregarConfiguracaoTextoOrcamentoShow($conn, 'condicoes_pagamento_padrao', $fallbackCondicoesOrcamento);
+}
+
+$textoPixOrcamento = carregarConfiguracaoTextoOrcamentoShow($conn, 'pix_padrao', $fallbackPixOrcamento);
+
+$clienteNomeShow = trim((string)($clienteModel->nome ?? '')) ?: 'Não informado';
+$clienteTelefoneShow = !empty($clienteModel->telefone) ? formatarTelefone($clienteModel->telefone) : 'N/A';
+$clienteEmailShow = trim((string)($clienteModel->email ?? '')) ?: 'N/A';
+$clienteCpfCnpjShow = trim((string)($clienteModel->cpf_cnpj ?? '')) ?: 'N/A';
+$clienteEnderecoBaseShow = trim((string)($clienteModel->endereco ?? ''));
+$clienteCidadeShow = trim((string)($clienteModel->cidade ?? ''));
+$clienteEnderecoShow = $clienteEnderecoBaseShow;
+if ($clienteCidadeShow !== '') {
+    $clienteEnderecoShow .= ($clienteEnderecoShow !== '' ? ', ' : '') . $clienteCidadeShow;
+}
+$clienteEnderecoShow = $clienteEnderecoShow !== '' ? $clienteEnderecoShow : 'N/A';
+
 $itens = $orcamentoModel->getItens($id);
 $componentesPorProduto = is_array($itens) ? carregarComponentesProdutosCompostosOrcamentoShow($conn, $itens) : [];
 $resumoComponentesProducao = [];
@@ -566,13 +615,13 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                     <div class="box-dados-principais mt-2">
                         <div class="row">
                             <div class="col-7">
-                                <strong>Cliente:</strong> <?= htmlspecialchars($clienteModel->nome ?? 'Não informado', ENT_QUOTES, 'UTF-8') ?><br>
-                                <?php if (!empty($clienteModel->telefone)): ?>
-                                    <strong>Telefone:</strong> <?= formatarTelefone($clienteModel->telefone) ?><br>
-                                <?php endif; ?>
-                                <?php if (!empty($clienteModel->cpf_cnpj)): ?>
-                                    <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteModel->cpf_cnpj, ENT_QUOTES, 'UTF-8') ?><br>
-                                <?php endif; ?>
+                                <div class="dados-cliente-show">
+                                    <strong>Cliente:</strong> <?= htmlspecialchars($clienteNomeShow, ENT_QUOTES, 'UTF-8') ?><br>
+                                    <strong>Telefone:</strong> <?= htmlspecialchars($clienteTelefoneShow, ENT_QUOTES, 'UTF-8') ?><br>
+                                    <strong>E-mail:</strong> <?= htmlspecialchars($clienteEmailShow, ENT_QUOTES, 'UTF-8') ?><br>
+                                    <strong>CPF/CNPJ:</strong> <?= htmlspecialchars($clienteCpfCnpjShow, ENT_QUOTES, 'UTF-8') ?><br>
+                                    <strong>Endereço:</strong> <?= htmlspecialchars($clienteEnderecoShow, ENT_QUOTES, 'UTF-8') ?>
+                                </div>
                                 <?php
                                 $dataEventoCompleta = '-';
                                 if (!empty($orcamentoModel->data_evento)) {
@@ -584,14 +633,16 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                     }
                                 }
                                 ?>
-                                <div class="box-data-evento">
-                                    <span>DATA DO EVENTO</span>
-                                    <strong><?= htmlspecialchars($dataEventoCompleta, ENT_QUOTES, 'UTF-8') ?></strong>
+                                <div class="local-entrega-show">
+                                    <strong>Local de Entrega:</strong> <?= htmlspecialchars($orcamentoModel->local_evento ?: '-', ENT_QUOTES, 'UTF-8') ?>
                                 </div>
-                                <strong>Local de Entrega:</strong> <?= htmlspecialchars($orcamentoModel->local_evento ?: '-', ENT_QUOTES, 'UTF-8') ?>
                             </div>
                             <div class="col-5 box-logistica">
-                                <div class="linha-logistica destaque-amarelo">
+                                <div class="linha-logistica destaque-evento">
+                                    <strong>Data do Evento:</strong>
+                                    <?= htmlspecialchars($dataEventoCompleta, ENT_QUOTES, 'UTF-8') ?>
+                                </div>
+                                <div class="linha-logistica destaque-entrega mt-1">
                                     <strong>Data da Entrega:</strong>
                                     <?php
                                     $dataEntregaCompleta = '-';
@@ -605,7 +656,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                     echo $dataEntregaCompleta;
                                     ?>
                                 </div>
-                                <div class="linha-logistica destaque-amarelo mt-1">
+                                <div class="linha-logistica destaque-coleta mt-1">
                                     <strong>Data da Coleta:</strong>
                                     <?php
                                     $dataColetaCompleta = '-';
@@ -620,16 +671,6 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                                     ?>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-
-                    <div class="row obs-taxas-regras mt-2 mb-2">
-                        <div class="col-12">
-                            <small># DOMINGO/FERIADO após as 8h e antes das 12h Taxa R$ 250,00</small>
-                            <small># MADRUGADA após as 4:30h e antes das 8:30h Taxa R$ 800,00</small>
-                            <small># HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado Taxa R$ 500,00</small>
-                            <small># HORA MARCADA SEGUNDA A SEXTA das 8:30h até as 17h e SÁBADO das 8:30h as 12h Taxa R$ 200,00</small>
-                            <small># Infelizmente não dispomos de entregas ou coletas no período das 24h as 5h</small>
                         </div>
                     </div>
 
@@ -842,10 +883,9 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                     <?php endif; ?>
 
                     <div class="row bloco-pos-itens mb-2">
-                        <div class="col-7 obs-gerais">
-                            <small># Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa</small><br>
-                            <small>&nbsp;&nbsp;desde que não ultrapasse 10% do valor total contratado #</small><br>
-                            <small>* Não Inclui Posicionamento dos Móveis no Local *</small>
+                        <div class="col-7 obs-gerais bloco-texto-documento">
+                            <strong>Observações Gerais:</strong>
+                            <div><?= nl2br(htmlspecialchars($textoObservacoesOrcamento, ENT_QUOTES, 'UTF-8')) ?></div>
                         </div>
                         <div class="col-5 text-right box-subtotal">
                             <strong>Sub total p/ PIX ou Depósito</strong>
@@ -854,24 +894,22 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
                     </div>
 
                     <div class="row bloco-pagamento-taxas">
-                        <div class="col-7 forma-pagamento">
-                            <strong>Forma de Pagamento:</strong><br>
-                            <small>ENTRADA 30% PARA RESERVA EM PIX OU DEPÓSITO</small><br>
-                            <small>SALDO EM PIX OU DEPÓSITO 7 DIAS ANTES EVENTO</small><br><br>
-                            <small>* Consulte se há disponibilidade e</small><br>
-                            <small>&nbsp;&nbsp;quais os preços de locação para pagamento</small><br>
-                            <small>&nbsp;&nbsp;no cartão de crédito</small>
+                        <div class="col-7 forma-pagamento bloco-texto-documento">
+                            <strong>Forma de Pagamento:</strong>
+                            <div><?= nl2br(htmlspecialchars($textoCondicoesOrcamento, ENT_QUOTES, 'UTF-8')) ?></div>
                         </div>
                         <div class="col-5 taxas-fretes text-right">
                             <div><span class="text-left-label">TAXA DOMINGO E FERIADO R$ 250,00</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->taxa_domingo_feriado ?? 0) ?></span></div>
                             <div><span class="text-left-label">TAXA MADRUGADA R$ 800,00</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->taxa_madrugada ?? 0) ?></span></div>
                             <div><span class="text-left-label">TAXA HORÁRIO ESPECIAL R$ 500,00</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->taxa_horario_especial ?? 0) ?></span></div>
                             <div><span class="text-left-label">TAXA HORA MARCADA R$ 200,00</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->taxa_hora_marcada ?? 0) ?></span></div>
+
+                            <!-- Fretes na mesma ordem do create/edit: térreo, elevador, escadas. -->
+                            <div><span class="text-left-label">FRETE TÉRREO</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->frete_terreo ?? 0) ?></span></div>
                             <div><span class="text-left-label">FRETE ELEVADOR</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->frete_elevador ?? 0) ?></span></div>
                             <div><span class="text-left-label">FRETE ESCADAS</span><span><?= exibirTaxaOrcamentoShow($orcamentoModel->frete_escadas ?? 0) ?></span></div>
-                            <div><span class="text-left-label"><strong>FRETE TÉRREO SEM ESCADAS</strong></span><span><strong>R$ <?= formatarValor($orcamentoModel->frete_terreo ?? 0, true) ?></strong></span></div>
 
-                            <?php if (!empty($orcamentoModel->desconto) && $orcamentoModel->desconto > 0): ?>
+                            <?php if (!empty($orcamentoModel->desconto) && (float)$orcamentoModel->desconto > 0): ?>
                                 <div class="text-danger"><span class="text-left-label">DESCONTO GERAL</span><span>- R$ <?= formatarValor($orcamentoModel->desconto) ?></span></div>
                             <?php endif; ?>
 
@@ -884,19 +922,9 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
                     <div class="row mt-2 info-pix">
                         <div class="col-12 text-center">
-                            <strong>PIX SICREDI CNPJ 19.318.614 / 0001-44</strong><br>
-                            <small>* Pedimos a gentileza de enviar por Whatsapp seu comprovante para baixar no estoque e garantir sua reserva</small>
+                            <div><?= nl2br(htmlspecialchars($textoPixOrcamento, ENT_QUOTES, 'UTF-8')) ?></div>
                         </div>
                     </div>
-
-                    <?php if (!empty($orcamentoModel->observacoes)): ?>
-                        <div class="row mt-2 observacoes-adicionais">
-                            <div class="col-12">
-                                <strong>Observações Adicionais:</strong>
-                                <div><?= nl2br(htmlspecialchars($orcamentoModel->observacoes, ENT_QUOTES, 'UTF-8')) ?></div>
-                            </div>
-                        </div>
-                    <?php endif; ?>
 
                     <?php if (!empty($orcamentoModel->motivo_ajuste) && !empty($orcamentoModel->desconto) && $orcamentoModel->desconto > 0): ?>
                         <div class="row mt-1">
@@ -914,7 +942,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 <style>
     .card-orcamento-visual {
         font-family: Calibri, Arial, sans-serif;
-        font-size: 11.5pt;
+        font-size: 12.2pt;
         border: 1px solid #bbb;
         color: #000;
     }
@@ -964,17 +992,64 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     }
 
     .box-dados-principais {
-        font-size: 11.5pt;
-        line-height: 1.25;
+        font-size: 12.0pt;
+        line-height: 1.24;
     }
 
-    .destaque-amarelo {
+    .dados-cliente-show {
+        font-size: 11.9pt;
+        line-height: 1.22;
+        margin-bottom: 3px;
+    }
+
+    .bloco-texto-documento {
+        font-size: 11.4pt;
+        line-height: 1.18;
+        color: #000;
+    }
+
+    .bloco-texto-documento strong {
+        font-size: 11.8pt;
+        font-weight: 900;
+        display: block;
+        margin-bottom: 2px;
+    }
+
+    .bloco-texto-documento div {
+        white-space: normal;
+    }
+
+    .linha-logistica {
+        border: 1px solid #777;
+        padding: 5px 7px;
+        font-weight: 800;
+        color: #000;
+        font-size: 11.7pt;
+        line-height: 1.18;
+    }
+
+    .destaque-amarelo,
+    .destaque-entrega {
         background: #fff2cc;
-        border: 1px solid #d6b656;
-        padding: 4px 6px;
+        border-color: #d6b656;
+    }
+
+    .destaque-evento {
+        background: #d9ead3;
+        border-color: #6aa84f;
+    }
+
+    .destaque-coleta {
+        background: #f4cccc;
+        border-color: #cc0000;
+    }
+
+    .local-entrega-show {
+        margin-top: 5px;
+        font-size: 11.7pt;
+        line-height: 1.22;
         font-weight: 700;
     }
-
 
     .box-data-evento {
         display: inline-block;
@@ -1061,27 +1136,24 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         border-top: 2px solid #000 !important;
     }
 
-    .obs-taxas-regras {
-        line-height: 1.15;
-        border-top: 1px solid #000;
-        border-bottom: 1px solid #000;
-        padding: 5px 0;
+    .obs-gerais,
+    .forma-pagamento,
+    .info-pix {
+        color: #000;
     }
 
-    .obs-taxas-regras small,
-    .obs-gerais small,
-    .forma-pagamento small,
-    .info-pix small {
-        font-size: 9.5pt;
-        color: #000;
-        display: block;
+    .info-pix {
+        border-top: 1px solid #999;
+        padding-top: 5px;
+        font-size: 10.8pt;
         line-height: 1.2;
+        font-weight: 700;
     }
 
     .linha-atendimento {
         border-bottom: 1px solid #000;
         padding-bottom: 4px;
-        font-size: 11pt;
+        font-size: 11.8pt;
     }
 
 
@@ -1098,7 +1170,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         display: inline-block;
         margin-top: 2px;
         color: #0b5ed7;
-        font-size: 8.8pt;
+        font-size: 9.6pt;
         font-weight: 800;
         letter-spacing: 0.01em;
     }
@@ -1142,7 +1214,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
     .texto-filho-conjunto {
         font-weight: 700 !important;
-        font-size: 10.7pt;
+        font-size: 11.4pt;
         color: #0b5ed7 !important;
     }
 
@@ -1175,7 +1247,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         padding: 4px 6px;
         vertical-align: middle;
         border: 1px solid #777;
-        font-size: 11.2pt;
+        font-size: 12.0pt;
         color: #000;
     }
 
@@ -1192,12 +1264,12 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     }
 
     .qtd-item {
-        font-size: 12pt !important;
+        font-size: 12.8pt !important;
     }
 
     .valor-col {
         white-space: nowrap;
-        font-size: 10.8pt !important;
+        font-size: 11.4pt !important;
     }
 
     .total-item {
@@ -1205,7 +1277,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     }
 
     .observacao-item {
-        font-size: 10.2pt;
+        font-size: 10.9pt;
         color: #000 !important;
         font-weight: 700;
         font-style: normal;
@@ -1215,7 +1287,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     .titulo-secao td {
         background-color: #e7f1ff !important;
         font-weight: bold;
-        font-size: 12pt;
+        font-size: 12.8pt;
         padding: 5px 6px !important;
         color: #000 !important;
     }
@@ -1237,7 +1309,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     }
 
     .box-subtotal {
-        font-size: 11.5pt;
+        font-size: 12.0pt;
     }
 
     .bloco-pagamento-taxas {
@@ -1247,7 +1319,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
     }
 
     .taxas-fretes div {
-        font-size: 10.5pt;
+        font-size: 11.0pt;
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -1271,17 +1343,11 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         background: #fff2cc;
         border: 1px solid #d6b656;
         padding: 3px 5px;
-        font-size: 12pt !important;
+        font-size: 12.5pt !important;
     }
 
     .info-pix {
-        font-size: 10.5pt;
-    }
-
-    .observacoes-adicionais {
-        border-top: 1px solid #999;
-        padding-top: 5px;
-        font-size: 10pt;
+        font-size: 11.2pt;
     }
 
     .badge {
@@ -1297,7 +1363,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
         html,
         body {
-            font-size: 10.5pt;
+            font-size: 11.2pt;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color: #000 !important;
@@ -1332,7 +1398,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
             box-shadow: none !important;
             border: none !important;
             margin-bottom: 0 !important;
-            font-size: 10.7pt !important;
+            font-size: 11.6pt !important;
         }
 
         .card-orcamento-visual .card-body {
@@ -1358,7 +1424,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .documento-gerado-em {
-            font-size: 7.8pt !important;
+            font-size: 8.9pt !important;
             color: #444 !important;
         }
 
@@ -1367,21 +1433,53 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .box-dados-principais {
-            font-size: 10.3pt !important;
+            font-size: 11.6pt !important;
+            line-height: 1.22 !important;
         }
 
-        .obs-taxas-regras small,
-        .obs-gerais small,
-        .forma-pagamento small,
-        .info-pix small {
-            font-size: 8.5pt !important;
-            line-height: 1.1 !important;
+        .dados-cliente-show {
+            font-size: 11.4pt !important;
+            line-height: 1.18 !important;
+        }
+
+        .bloco-texto-documento {
+            font-size: 10.7pt !important;
+            line-height: 1.14 !important;
+        }
+
+        .bloco-texto-documento strong {
+            font-size: 11.3pt !important;
+            margin-bottom: 1px !important;
+        }
+
+        .info-pix {
+            font-size: 10.7pt !important;
+            line-height: 1.13 !important;
+            padding-top: 4px !important;
+        }
+
+
+
+        .box-logistica {
+            padding-left: 6px !important;
+        }
+
+        .linha-logistica {
+            font-size: 11.5pt !important;
+            line-height: 1.12 !important;
+            padding: 4px 6px !important;
+            page-break-inside: avoid;
+        }
+
+        .local-entrega-show {
+            font-size: 11.4pt !important;
+            line-height: 1.18 !important;
         }
 
         .table-itens-orcamento th,
         .table-itens-orcamento td {
             border: 1px solid #777 !important;
-            font-size: 10.5pt !important;
+            font-size: 11.4pt !important;
             color: #000 !important;
             padding: 3px 5px !important;
         }
@@ -1397,7 +1495,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .observacao-item {
-            font-size: 9.5pt !important;
+            font-size: 10.4pt !important;
             color: #000 !important;
             font-weight: 700 !important;
         }
@@ -1415,15 +1513,12 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .taxas-fretes div {
-            font-size: 9.3pt !important;
+            font-size: 10.6pt !important;
+            line-height: 1.16 !important;
         }
 
         .total-final-box {
-            font-size: 11pt !important;
-        }
-
-        .observacoes-adicionais {
-            font-size: 8.8pt !important;
+            font-size: 11.8pt !important;
         }
 
 
@@ -1434,7 +1529,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .indicador-conjunto-pai {
-            font-size: 7.8pt !important;
+            font-size: 8.9pt !important;
             color: #0b5ed7 !important;
             font-weight: 700 !important;
         }
@@ -1455,13 +1550,13 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
         }
 
         .texto-filho-conjunto {
-            font-size: 9.4pt !important;
+            font-size: 10.4pt !important;
             font-weight: 700 !important;
             color: #0b5ed7 !important;
         }
 
         .linha-conjunto-filho .qtd-item {
-            font-size: 9.0pt !important;
+            font-size: 10.0pt !important;
             color: #0b5ed7 !important;
         }
 
@@ -1488,10 +1583,8 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
             display: none !important;
         }
 
-        .impressao-producao .obs-taxas-regras,
         .impressao-producao .bloco-pagamento-taxas,
         .impressao-producao .info-pix,
-        .impressao-producao .observacoes-adicionais,
         .impressao-producao .bloco-pos-itens .obs-gerais {
             display: none !important;
         }
@@ -1511,7 +1604,7 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
         .impressao-producao .componentes-producao {
             display: block !important;
-            font-size: 9.2pt !important;
+            font-size: 10.0pt !important;
             margin-top: 3px !important;
             padding: 3px 5px !important;
         }
@@ -1522,15 +1615,242 @@ $inline_js_setup = "window.ORCAMENTO_ID = " . $id
 
         .impressao-producao .tabela-resumo-producao th,
         .impressao-producao .tabela-resumo-producao td {
-            font-size: 9.6pt !important;
+            font-size: 10.4pt !important;
             padding: 2px 5px !important;
         }
 
         .impressao-producao .box-data-evento,
+        .impressao-producao .linha-logistica,
         .impressao-producao .destaque-amarelo {
-            font-size: 10.8pt !important;
+            font-size: 11.4pt !important;
         }
     }
+
+/* ==========================================================
+   AJUSTE MOBEL - ORÇAMENTO IMPRESSÃO MAIOR + TABELA COM RESPIRO
+   Mantém lógica do show; reforça legibilidade no papel.
+   ========================================================== */
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 5mm 6mm 5mm 6mm;
+    }
+
+    html,
+    body {
+        font-size: 12pt !important;
+    }
+
+    .card-orcamento-visual {
+        font-size: 12.1pt !important;
+    }
+
+    .info-empresa h4 {
+        font-size: 13.8pt !important;
+    }
+
+    .info-empresa small,
+    .info-orcamento small {
+        font-size: 9.4pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .titulo-documento {
+        font-size: 13.8pt !important;
+    }
+
+    .box-dados-principais,
+    .dados-cliente-show,
+    .local-entrega-show,
+    .linha-atendimento {
+        font-size: 12.1pt !important;
+        line-height: 1.15 !important;
+    }
+
+    .linha-logistica {
+        font-size: 12.0pt !important;
+        line-height: 1.12 !important;
+        padding: 4px 7px !important;
+    }
+
+    .table-itens-orcamento th,
+    .table-itens-orcamento td {
+        font-size: 12.5pt !important;
+        line-height: 1.13 !important;
+        padding: 3px 5px !important;
+    }
+
+    .descricao-item strong {
+        font-size: 12.6pt !important;
+        font-weight: 900 !important;
+    }
+
+    .qtd-item {
+        font-size: 12.8pt !important;
+    }
+
+    .valor-col {
+        font-size: 11.9pt !important;
+    }
+
+    .texto-filho-conjunto {
+        font-size: 11.4pt !important;
+        font-weight: 900 !important;
+    }
+
+    .linha-conjunto-filho .qtd-item,
+    .linha-conjunto-filho .qtd-item strong {
+        font-size: 10.9pt !important;
+        font-weight: 900 !important;
+        color: #0b5ed7 !important;
+    }
+
+    .indicador-conjunto-pai {
+        font-size: 9.0pt !important;
+    }
+
+    .linha-vazia-impressao {
+        display: table-row !important;
+    }
+
+    .linha-vazia-impressao td {
+        height: 24px !important;
+        min-height: 24px !important;
+        padding: 2px 5px !important;
+    }
+
+    .bloco-texto-documento {
+        font-size: 11.2pt !important;
+        line-height: 1.13 !important;
+    }
+
+    .bloco-texto-documento strong {
+        font-size: 11.8pt !important;
+        font-weight: 900 !important;
+    }
+
+    .box-subtotal,
+    .taxas-fretes div,
+    .info-pix {
+        font-size: 11.2pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .total-final-box {
+        font-size: 12.4pt !important;
+        padding: 4px 5px !important;
+    }
+
+    .impressao-producao .componentes-producao {
+        font-size: 10.8pt !important;
+        line-height: 1.12 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao th,
+    .impressao-producao .tabela-resumo-producao td {
+        font-size: 10.8pt !important;
+        padding: 3px 5px !important;
+    }
+}
+
+
+
+/* ==========================================================
+   AJUSTE FINAL PRODUÇÃO EXTRA GRANDE - ORÇAMENTO - 08/06/2026
+   Objetivo: deixar componentes e resumo de produção legíveis para equipe.
+   Somente visual de impressão/produção; não altera lógica, fretes ou desconto.
+   ========================================================== */
+@media print {
+    .impressao-producao .componentes-producao {
+        display: block !important;
+        font-size: 13.2pt !important;
+        line-height: 1.16 !important;
+        margin-top: 5px !important;
+        padding: 6px 8px !important;
+        border-left: 5px solid #000 !important;
+        background: #f2f2f2 !important;
+        color: #000 !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .componentes-producao strong {
+        display: block !important;
+        font-size: 13.6pt !important;
+        line-height: 1.12 !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        margin-bottom: 3px !important;
+        color: #000 !important;
+    }
+
+    .impressao-producao .componentes-producao div {
+        font-size: 13.2pt !important;
+        line-height: 1.15 !important;
+        font-weight: 900 !important;
+        color: #000 !important;
+        margin: 2px 0 !important;
+    }
+
+    .impressao-producao .resumo-componentes-producao {
+        display: block !important;
+        margin-top: 8px !important;
+        padding: 7px 8px !important;
+        border: 2px solid #000 !important;
+        background: #f2f2f2 !important;
+        color: #000 !important;
+        page-break-inside: avoid !important;
+    }
+
+    .impressao-producao .titulo-resumo-producao {
+        font-size: 14.2pt !important;
+        line-height: 1.12 !important;
+        font-weight: 900 !important;
+        text-align: center !important;
+        text-transform: uppercase !important;
+        border-bottom: 2px solid #000 !important;
+        padding-bottom: 5px !important;
+        margin-bottom: 5px !important;
+        color: #000 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao th,
+    .impressao-producao .tabela-resumo-producao td {
+        font-size: 13.4pt !important;
+        line-height: 1.14 !important;
+        padding: 5px 7px !important;
+        border: 1.5px solid #000 !important;
+        color: #000 !important;
+        font-weight: 900 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao th {
+        background: #e6e6e6 !important;
+        text-transform: uppercase !important;
+        font-size: 13.2pt !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao .linha-grupo-resumo-producao td {
+        background: #d9d9d9 !important;
+        font-size: 13.8pt !important;
+        line-height: 1.12 !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        border-top: 2px solid #000 !important;
+        color: #000 !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao td:first-child {
+        font-size: 13.8pt !important;
+        font-weight: 900 !important;
+        text-align: center !important;
+    }
+
+    .impressao-producao .tabela-resumo-producao td:last-child {
+        font-size: 13.4pt !important;
+        font-weight: 900 !important;
+    }
+}
+
 </style>
 
 <script>

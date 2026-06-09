@@ -10,9 +10,33 @@ require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/NumeracaoSequencial.php';
 require_once __DIR__ . '/../../models/Orcamento.php'; // Model que acabamos de ajustar
 require_once __DIR__ . '/../../models/EstoqueMovimentacao.php';
+require_once __DIR__ . '/../../models/ConfiguracaoTexto.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
+}
+
+if (!function_exists('obterTextoPadraoSistema')) {
+    function obterTextoPadraoSistema(PDO $db, string $chave, string $fallback = ''): string
+    {
+        try {
+            // Prioriza a leitura direta da matriz no banco para evitar textos antigos
+            // ficarem aparecendo quando já foram atualizados em Configurações > Textos Padrão.
+            $stmt = $db->prepare("SELECT conteudo FROM configuracoes_textos WHERE chave = :chave AND ativo = 1 LIMIT 1");
+            $stmt->bindParam(':chave', $chave, PDO::PARAM_STR);
+            $stmt->execute();
+            $conteudo = $stmt->fetchColumn();
+
+            if ($conteudo !== false && trim((string) $conteudo) !== '') {
+                return (string) $conteudo;
+            }
+
+            return $fallback;
+        } catch (Throwable $e) {
+            error_log('[orcamentos/create.php] Falha ao obter texto padrão ' . $chave . ': ' . $e->getMessage());
+            return $fallback;
+        }
+    }
 }
 
 $database = new Database();
@@ -24,9 +48,21 @@ $orcamentoModel = new Orcamento($db); // Instância do nosso model ajustado
 $estoqueModel = new EstoqueMovimentacao($db);
 $numeroFormatado = 'Gerado ao Salvar';
 
-// Textos padrão para observações e condições
-$textoPadraoObservacoes = "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.\n* Não Inclui Posicionamento dos Móveis no Local.";
-$textoPadraoCondicoes = "50% na aprovação para reserva em PIX ou Depósito.\nSaldo em PIX ou Depósito 7 dias antes do evento.\n* Consulte disponibilidade e preços para pagamento no cartão de crédito.";
+// Textos padrão vindos de Configurações > Textos Padrão.
+// No create, eles apenas pré-preenchem os campos; ao salvar, o texto fica gravado neste orçamento.
+$fallbackObservacoesOrcamento = "# Confirmação de quantidades e diminuições são aceitos no máximo até 7 dias antes da festa, desde que não ultrapasse 10% do valor total contratado.
+# Não inclui posicionamento dos móveis no local.
+# DOMINGO/FERIADO após as 8h e antes das 12h: Taxa R$ 250,00
+# MADRUGADA após as 4:30h e antes das 8:30h: Taxa R$ 800,00
+# HORÁRIO ESPECIAL após as 12h de sábado até as 23:30h de segunda a sábado: Taxa R$ 500,00
+# HORA MARCADA segunda a sexta das 8:30h até as 17h e sábado das 8:30h às 12h: Taxa R$ 200,00
+# Infelizmente não dispomos de entregas ou coletas no período das 23:30h às 5h.";
+$fallbackCondicoesOrcamento = "Entrada de 30% para reserva, via PIX ou depósito.
+O saldo deverá ser pago via PIX ou depósito até 7 dias antes da data do evento.
+Consulte previamente a disponibilidade e as condições para locações com período estendido, mais de uma diária ou necessidades especiais de entrega/coleta.";
+
+$textoPadraoObservacoes = obterTextoPadraoSistema($db, 'observacoes_gerais_padrao', $fallbackObservacoesOrcamento);
+$textoPadraoCondicoes = obterTextoPadraoSistema($db, 'condicoes_pagamento_padrao', $fallbackCondicoesOrcamento);
 
 // Valores padrão para taxas (para exibição inicial no formulário)
 $valorPadraoTaxaDomingo = 250.00;
@@ -846,16 +882,24 @@ include_once __DIR__ . '/../includes/header.php';
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
-                                    <label for="observacoes_gerais">Observações Gerais</label>
-                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais"
-                                        rows="3"
-                                        placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($textoPadraoObservacoes ?? '') ?></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label for="observacoes_gerais" class="mb-0">Observações Gerais</label>
+                                        <button type="button" class="btn btn-xs btn-outline-primary btn-usar-texto-padrao" data-target-textarea="observacoes_gerais" data-chave-padrao="observacoes">
+                                            <i class="fas fa-magic"></i> Usar texto padrão
+                                        </button>
+                                    </div>
+                                    <textarea class="form-control" id="observacoes_gerais" name="observacoes_gerais" rows="6" placeholder="Ex: Cliente solicitou montagem especial..."><?= htmlspecialchars($textoPadraoObservacoes ?? '') ?></textarea>
+                                    <small class="form-text text-muted">Este texto será salvo somente neste orçamento. Para alterar o padrão definitivo, use Configurações &gt; Textos Padrão.</small>
                                 </div>
                                 <div class="form-group">
-                                    <label for="condicoes_pagamento">Condições de Pagamento</label>
-                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento"
-                                        rows="3"
-                                        placeholder="Ex: 50% na aprovação, 50% na entrega. PIX CNPJ ..."><?= htmlspecialchars($textoPadraoCondicoes ?? '') ?></textarea>
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label for="condicoes_pagamento" class="mb-0">Condições de Pagamento</label>
+                                        <button type="button" class="btn btn-xs btn-outline-primary btn-usar-texto-padrao" data-target-textarea="condicoes_pagamento" data-chave-padrao="condicoes">
+                                            <i class="fas fa-magic"></i> Usar texto padrão
+                                        </button>
+                                    </div>
+                                    <textarea class="form-control" id="condicoes_pagamento" name="condicoes_pagamento" rows="5" placeholder="Ex: Entrada, saldo, PIX, locação estendida..."><?= htmlspecialchars($textoPadraoCondicoes ?? '') ?></textarea>
+                                    <small class="form-text text-muted">Este texto será salvo somente neste orçamento. Para alterar o padrão definitivo, use Configurações &gt; Textos Padrão.</small>
                                 </div>
                                 <div class="form-group">
                                     <div class="custom-control custom-switch">
@@ -1543,6 +1587,54 @@ $(document).ready(function() {
     var disponibilidadeRequestSeq = 0;
     var conjuntoAtivoIndex = null;
     var conjuntoAtivoNome = '';
+    var textosPadraoOrcamento = window.TEXTOS_PADRAO_ORCAMENTO || {};
+    $('#observacoes_gerais, #condicoes_pagamento').scrollTop(0);
+
+    $(document).on('click', '.btn-usar-texto-padrao', function() {
+        var targetId = $(this).data('target-textarea');
+        var chave = $(this).data('chave-padrao');
+        var textoPadrao = textosPadraoOrcamento[chave] || '';
+        var $campo = $('#' + targetId);
+
+        if (!$campo.length) {
+            return;
+        }
+
+        if (!textoPadrao) {
+            if (typeof toastr !== 'undefined') {
+                toastr.warning('Texto padrão não encontrado em Configurações > Textos Padrão.');
+            } else {
+                alert('Texto padrão não encontrado em Configurações > Textos Padrão.');
+            }
+            return;
+        }
+
+        var aplicarTexto = function() {
+            $campo.val(textoPadrao).trigger('change').scrollTop(0).focus();
+        };
+
+        if ($campo.val().trim() !== '' && $campo.val().trim() !== textoPadrao.trim() && typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Usar texto padrão atual?',
+                text: 'O texto deste orçamento será substituído pelo padrão atual do sistema. Isso não altera a matriz.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Sim, substituir',
+                cancelButtonText: 'Cancelar'
+            }).then(function(result) {
+                if (result.isConfirmed) {
+                    aplicarTexto();
+                }
+            });
+        } else if ($campo.val().trim() !== '' && $campo.val().trim() !== textoPadrao.trim()) {
+            if (confirm('Substituir o texto deste orçamento pelo padrão atual do sistema?')) {
+                aplicarTexto();
+            }
+        } else {
+            aplicarTexto();
+        }
+    });
+
     function unformatCurrency(value) {
         if (!value || typeof value !== 'string') { return 0; }
         var number = parseFloat(value.replace(/R\$\s?/, '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -3468,6 +3560,12 @@ calcularTotaisOrcamento();
 
 });
 JS;
+
+$inline_js_setup = ($inline_js_setup ?? '') . "
+window.TEXTOS_PADRAO_ORCAMENTO = " . json_encode([
+    'observacoes' => $textoPadraoObservacoes,
+    'condicoes' => $textoPadraoCondicoes,
+], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) . ";";
 
 include_once __DIR__ . '/../includes/footer.php';
 ?>
