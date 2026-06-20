@@ -1,53 +1,221 @@
-# Sistema de Locação de Móveis e Toalhas
+📜 [Conheça a história completa do projeto](docs/negocio/historia-projeto.md)# 🎪 Sistema Operacional de Locação para Eventos — Mobel Festas
 
-![Status do Projeto](https://img.shields.io/badge/status-em%20desenvolvimento-brightgreen)
-![Linguagem Principal](https://img.shields.io/badge/linguagem-PHP-blue)
-![Banco de Dados](https://img.shields.io/badge/banco%20de%20dados-MariaDB%20%2F%20HeidiSQL-orange)
+![PHP](https://img.shields.io/badge/PHP-8%2B-777BB4?logo=php\&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB-003545?logo=mariadb\&logoColor=white)
+![MVC](https://img.shields.io/badge/Architecture-MVC-blue)
+![Status](https://img.shields.io/badge/Status-Active%20Development-success)
+![Real Business](https://img.shields.io/badge/Built%20for-Real%20Business-success)
+![Started](https://img.shields.io/badge/Started-2019-orange)
 
-Bem-vindo ao **Sistema de Locação de Móveis e Toalhas**, uma solução digital desenvolvida para modernizar a gestão de locações e vendas de uma empresa familiar com **18 anos de experiência** no mercado brasileiro. Este projeto substitui processos manuais baseados em planilhas de Excel por um sistema web robusto, trazendo eficiência, organização e escalabilidade ao negócio.
-
-## 📋 Sobre o Projeto
-
-Este sistema foi idealizado como uma ferramenta prática para gerenciar clientes, orçamentos, pedidos e produtos (móveis, toalhas e itens relacionados), com foco em atender às necessidades reais de uma empresa consolidada. Além disso, serve como um portfólio técnico, demonstrando habilidades em desenvolvimento de software e gestão empresarial.
-
-- **Objetivo**: Automatizar e integrar processos de locação e venda, com funcionalidades como CRUD completo, pesquisa avançada e transformação de orçamentos em pedidos.
-- **Tecnologias**: PHP, MariaDB (gerenciado via HeidiSQL), HTML, CSS, JavaScript (com base na estrutura MVC observada no código).
-- **Contexto**: Um projeto que combina inovação tecnológica com a experiência de uma empresa que superou a pandemia de COVID-19 e uma enchente devastadora, mostrando resiliência e determinação.
-
-## 🚀 Funcionalidades Implementadas
-
-- **Gestão de Clientes**: Cadastro, edição, exclusão e pesquisa avançada de clientes com autocomplete.
-- **Estrutura MVC**: Organização do código em Models, Views e Controllers para melhor manutenção e escalabilidade.
-- **Interface Simples**: Páginas web com design funcional para facilitar o uso no dia a dia.
-
-## 📈 Funcionalidades Planejadas
-
-- **Orçamentos**: Criação, edição e conversão de orçamentos em pedidos com numeração sequencial e controle de datas.
-- **Pedidos**: Gestão de pedidos, incluindo status, agendamentos e detalhes dos itens locados ou vendidos.
-- **Produtos**: Cadastro e controle de estoque de móveis, toalhas e outros itens disponíveis.
-- **Segurança**: Reforço contra SQL Injection e outras vulnerabilidades, garantindo proteção de dados.
-- **Relatórios**: Ferramentas para análise de desempenho e faturamento.
-
-*(Mais funcionalidades serão adicionadas conforme o desenvolvimento avança.)*
-
-## 🛠️ Como Instalar ou Testar
-
-*(Instruções detalhadas serão incluídas em breve, após a estabilização do código. Por enquanto, o sistema está em desenvolvimento local.)*
-
-## 📜 Histórico e Resiliência
-
-Este projeto é mais do que um sistema: é um marco de superação. Desenvolvido por um empreendedor com vasta experiência em administração de pequenas empresas no Brasil, reflete a jornada de uma empresa que enfrentou desafios como a pandemia de COVID-19 e uma enchente devastadora. Após esses obstáculos, a busca por inovação tecnológica se tornou um pilar para reconstrução e crescimento, resultando neste sistema que combina expertise prática com soluções digitais.
-
-## 🌟 Por Que Este Projeto é Especial?
-
-- **Impacto Real**: Atende a uma necessidade concreta de uma empresa ativa, com potencial para beneficiar outros negócios do setor.
-- **Aprendizado Contínuo**: Representa não apenas um produto, mas também um processo de evolução técnica e profissional.
-- **Visão de Futuro**: Parte de um portfólio voltado para demonstrar habilidades em desenvolvimento e gestão, com objetivos internacionais como o visto EB-2 NIW.
-
-## 📞 Contato
-
-Para mais informações, sugestões ou colaborações, entre em contato pelo GitHub ou deixe uma mensagem nas issues do repositório.
+> Sistema desenvolvido a partir das necessidades reais da operação da Mobel Festas, empresa do segmento de locação de móveis e itens para eventos.
 
 ---
 
-*Última atualização: Maio de 2025*
+# 📖 Sobre o Projeto
+
+Este projeto surgiu da necessidade de transformar processos operacionais reais em uma ferramenta digital capaz de apoiar a gestão e execução das atividades da empresa.
+
+A ideia começou em 2019 e evoluiu ao longo dos anos, combinando experiência prática no setor de eventos com conhecimentos adquiridos em desenvolvimento de sistemas, banco de dados, modelagem e análise de processos.
+
+Hoje o sistema já é utilizado como apoio à operação e continua evoluindo conforme as necessidades da empresa.
+
+---
+
+# 📊 Projeto em Números
+
+* 🏢 Baseado em uma operação real de locação para eventos
+* 📅 Concebido em 2019
+* 🎓 Evoluído após formação técnica em Desenvolvimento de Sistemas
+* 🗄️ Mais de 30 tabelas no banco de dados
+* 📦 Controle completo de orçamentos e pedidos
+* ⏳ Controle temporal de estoque
+* 🧩 Produtos compostos, kits e componentes
+* 🖨️ Impressões operacionais
+* 🧺 Módulos de lavanderia e manutenção em evolução
+
+---
+
+# 🧭 Visão Geral
+
+```text
+Cliente
+   ↓
+Orçamento
+   ↓
+Pedido
+   ↓
+Produção
+   ↓
+Evento
+   ↓
+Retorno
+```
+
+O objetivo é representar digitalmente o fluxo operacional da empresa, desde o atendimento comercial até a execução e retorno dos eventos.
+
+---
+
+# 🚀 Principais Funcionalidades
+
+### 👥 Clientes
+
+* Cadastro de clientes
+* Consulta e histórico
+
+### 🪑 Produtos
+
+* Cadastro de produtos
+* Fotos
+* Categorias
+* Seções
+* Subcategorias
+
+### 📄 Comercial
+
+* Orçamentos
+* Conversão para pedidos
+* Impressões operacionais
+
+### 📦 Operação
+
+* Controle de pedidos
+* Controle temporal de estoque
+* Reserva de itens por período
+* Controle de disponibilidade
+
+### 🧩 Produtos Compostos
+
+* Kits
+* Componentes
+* Acabamentos
+* Grupos de composição
+
+### 🛠️ Produção
+
+* Fluxos operacionais
+* Organização dos itens
+
+### 🧺 Evoluções em andamento
+
+* Lavanderia
+* Manutenção
+* Ocorrências
+* Melhorias operacionais
+
+---
+
+# 🏗️ Arquitetura
+
+O sistema utiliza uma arquitetura MVC simples desenvolvida em PHP.
+
+```text
+Views
+   ↓
+Models
+   ↓
+Banco de Dados MariaDB
+```
+
+Ferramentas utilizadas:
+
+* PHP
+* MariaDB / MySQL
+* HeidiSQL
+* HTML
+* CSS
+* JavaScript
+* Git
+* GitHub
+
+---
+
+# 🎯 Objetivo
+
+Este projeto não tem como objetivo se tornar um ERP genérico ou competir com grandes plataformas empresariais.
+
+Seu foco é atender de forma prática e eficiente as necessidades da operação da Mobel Festas, evoluindo conforme os processos reais da empresa evoluem.
+
+---
+
+# 📚 Documentação
+
+A documentação do projeto encontra-se organizada em:
+
+```text
+docs/
+│
+├── arquitetura/
+├── banco-dados/
+├── diagramas/
+├── negocio/
+└── roadmap/
+```
+
+Documentos importantes:
+
+* História do Projeto
+* Diagramas
+* Arquitetura
+* Banco de Dados
+* Roadmap de Evolução
+
+---
+
+# 🧠 Conceito
+
+Mais do que um sistema de cadastro, este projeto busca representar o conhecimento operacional acumulado ao longo de anos de atuação no setor de eventos.
+
+O sistema combina:
+
+* Gestão operacional
+* Regras de negócio
+* Controle de estoque
+* Organização de eventos
+* Desenvolvimento de software
+* Modelagem de dados
+
+---
+
+# 📌 Status Atual
+
+✅ Clientes
+
+✅ Produtos
+
+✅ Categorias e Subcategorias
+
+✅ Orçamentos
+
+✅ Pedidos
+
+✅ Impressões
+
+✅ Controle Temporal de Estoque
+
+✅ Produtos Compostos
+
+🔄 Cadastro completo do catálogo de produtos
+
+🔄 Lavanderia
+
+🔄 Manutenção
+
+🔄 Melhorias operacionais
+
+---
+
+# 📜 História do Projeto
+
+A história completa do projeto pode ser encontrada em:
+
+```text
+docs/negocio/historia-projeto.md
+```
+
+---
+
+# 🤝 Observação
+
+Este projeto é desenvolvido continuamente e reflete tanto a evolução técnica quanto a evolução dos processos operacionais da empresa.
+
+Cada nova funcionalidade implementada busca resolver problemas reais identificados no dia a dia da operação.
