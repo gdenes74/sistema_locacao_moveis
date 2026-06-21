@@ -1,4 +1,6 @@
-📜 [Conheça a história completa do projeto](docs/negocio/historia-projeto.md)# 🎪 Sistema Operacional de Locação para Eventos — Mobel Festas
+📜 [Conheça a história completa do projeto](docs/negocio/historia-projeto.md)
+
+# 🎪 Sistema Operacional de Locação para Eventos — Mobel Festas
 
 ![PHP](https://img.shields.io/badge/PHP-8%2B-777BB4?logo=php\&logoColor=white)
 ![MariaDB](https://img.shields.io/badge/MariaDB-003545?logo=mariadb\&logoColor=white)
@@ -31,7 +33,8 @@ Hoje o sistema já é utilizado como apoio à operação e continua evoluindo co
 * ⏳ Controle temporal de estoque
 * 🧩 Produtos compostos, kits e componentes
 * 🖨️ Impressões operacionais
-* 🧺 Módulos de lavanderia e manutenção em evolução
+* 📚 Documentação técnica estruturada
+* 📊 Diagramas e ERDs por domínio
 
 ---
 
@@ -87,7 +90,7 @@ O objetivo é representar digitalmente o fluxo operacional da empresa, desde o a
 
 * Kits
 * Componentes
-* Acabamentos
+* Variações e acabamentos
 * Grupos de composição
 
 ### 🛠️ Produção
@@ -95,20 +98,21 @@ O objetivo é representar digitalmente o fluxo operacional da empresa, desde o a
 * Fluxos operacionais
 * Organização dos itens
 
-### 🧺 Evoluções em andamento
+### 🔮 Estruturas Planejadas
 
 * Lavanderia
 * Manutenção
-* Ocorrências
-* Melhorias operacionais
+* Ocorrências operacionais
 
 ---
 
 # 🏗️ Arquitetura
 
-O sistema utiliza uma arquitetura MVC simples desenvolvida em PHP.
+O sistema utiliza uma arquitetura MVC simplificada desenvolvida em PHP.
 
 ```text
+Usuário
+   ↓
 Views
    ↓
 Models
@@ -135,6 +139,12 @@ Este projeto não tem como objetivo se tornar um ERP genérico ou competir com g
 
 Seu foco é atender de forma prática e eficiente as necessidades da operação da Mobel Festas, evoluindo conforme os processos reais da empresa evoluem.
 
+O conceito adotado é:
+
+```text
+Sistema Operacional de Locação para Eventos
+```
+
 ---
 
 # 📚 Documentação
@@ -151,13 +161,41 @@ docs/
 └── roadmap/
 ```
 
-Documentos importantes:
+Documentação principal:
 
 * História do Projeto
-* Diagramas
-* Arquitetura
-* Banco de Dados
-* Roadmap de Evolução
+* Contexto Operacional
+* Regras de Negócio
+* Arquitetura Geral
+* Estrutura MVC
+* Modelagem do Banco
+* Roadmap
+
+---
+
+# 📊 Documentação Visual
+
+Os diagramas do projeto estão organizados por domínio em:
+
+```text
+docs/diagramas/
+```
+
+Incluindo:
+
+* Blueprint Geral do Sistema
+* Visão Geral dos Domínios
+* Fluxo Comercial
+* Fluxo Operacional
+* Catálogo de Produtos
+* Estoque Temporal
+* Produtos Compostos
+* Arquitetura MVC
+* ERD Comercial
+* ERD Catálogo
+* ERD Operação
+* ERD Completo Resumido
+* Roadmap Visual
 
 ---
 
@@ -169,7 +207,7 @@ O sistema combina:
 
 * Gestão operacional
 * Regras de negócio
-* Controle de estoque
+* Controle de estoque temporal
 * Organização de eventos
 * Desenvolvimento de software
 * Modelagem de dados
@@ -194,13 +232,15 @@ O sistema combina:
 
 ✅ Produtos Compostos
 
+✅ Documentação Técnica
+
+✅ Diagramas e ERDs
+
 🔄 Cadastro completo do catálogo de produtos
 
-🔄 Lavanderia
+🔄 Melhorias operacionais contínuas
 
-🔄 Manutenção
-
-🔄 Melhorias operacionais
+🔄 Evolução da documentação
 
 ---
 
@@ -219,3 +259,5 @@ docs/negocio/historia-projeto.md
 Este projeto é desenvolvido continuamente e reflete tanto a evolução técnica quanto a evolução dos processos operacionais da empresa.
 
 Cada nova funcionalidade implementada busca resolver problemas reais identificados no dia a dia da operação.
+
+A documentação e os diagramas evoluem juntamente com o sistema, servindo como registro técnico e histórico do projeto.
