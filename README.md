@@ -1,7 +1,13 @@
 📜 [Conheça a história completa do projeto](docs/negocio/historia-projeto.md)
 
 # 🎪 Sistema Operacional de Locação para Eventos — Mobel Festas
+## 🚀 Navegação Rápida
 
+📚 [Documentação Completa](docs/README.md)
+
+📊 [Diagramas e Blueprint](docs/diagramas/README.md)
+
+📜 [História do Projeto](docs/negocio/historia-projeto.md)
 ![PHP](https://img.shields.io/badge/PHP-8%2B-777BB4?logo=php\&logoColor=white)
 ![MariaDB](https://img.shields.io/badge/MariaDB-003545?logo=mariadb\&logoColor=white)
 ![MVC](https://img.shields.io/badge/Architecture-MVC-blue)
