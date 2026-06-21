@@ -1,3 +1,5 @@
+← [Voltar para a documentação](../README.md)
+
 # 📊 Diagramas
 
 ![Blueprint](https://img.shields.io/badge/Blueprint-System%20Architecture-blue)
@@ -10,174 +12,53 @@ Esta pasta concentra os diagramas visuais do Sistema Operacional de Locação pa
 
 Os diagramas complementam a documentação textual e ajudam a compreender:
 
-* Fluxos operacionais
-* Regras de negócio
-* Estrutura do banco de dados
-* Arquitetura do sistema
-* Evolução do projeto
+- Fluxos operacionais
+- Regras de negócio
+- Estrutura do banco de dados
+- Arquitetura do sistema
+- Evolução do projeto
 
 ---
 
-## Estratégia de Documentação Visual
+## Estratégia Visual
 
-Em vez de criar um único diagrama gigante e difícil de interpretar, a documentação foi dividida em diagramas menores e especializados.
+A documentação visual foi dividida em diagramas menores e especializados.
 
-Essa abordagem facilita:
-
-* Leitura
-* Impressão
-* Manutenção
-* Evolução da documentação
+Essa abordagem evita diagramas grandes demais, melhora a leitura, facilita impressão e torna a manutenção mais simples.
 
 ---
 
-## Diagramas Planejados
+## Catálogo de Diagramas
 
-### 01 — Visão Geral
-
-```text
-01-visao-geral.png
-```
-
-Apresenta os principais módulos e o fluxo geral do sistema.
-
----
-
-### 02 — Fluxo Comercial
-
-```text
-02-fluxo-comercial.png
-```
-
-Fluxo:
-
-```text
-Cliente
-   ↓
-Orçamento
-   ↓
-Pedido
-```
+| Status | Diagrama | Arquivo |
+|--------|----------|---------|
+| ✅ | Blueprint Geral | [00-blueprint-geral](blueprint/00-blueprint-geral.md) |
+| ✅ | Visão Geral do Sistema | [01-visao-geral-sistema](dominios/01-visao-geral-sistema.md) |
+| ✅ | Fluxo Comercial | [02-fluxo-comercial](fluxos/02-fluxo-comercial.md) |
+| ✅ | Fluxo Operacional | [03-fluxo-operacional](fluxos/03-fluxo-operacional.md) |
+| ✅ | Catálogo de Produtos | [04-catalogo-produtos](dominios/04-catalogo-produtos.md) |
+| ✅ | Estoque Temporal | [05-estoque-temporal](dominios/05-estoque-temporal.md) |
+| ✅ | Produtos Compostos | [06-produtos-compostos](dominios/06-produtos-compostos.md) |
+| ✅ | Arquitetura MVC Simplificada | [07-arquitetura-mvc-simplificada](arquitetura/07-arquitetura-mvc-simplificada.md) |
+| ✅ | ERD Comercial | [08-erd-comercial](erd/08-erd-comercial.md) |
+| ✅ | ERD Catálogo | [09-erd-catalogo](erd/09-erd-catalogo.md) |
+| ✅ | ERD Operação | [10-erd-operacao](erd/10-erd-operacao.md) |
+| ✅ | ERD Completo Resumido | [11-erd-completo-resumido](erd/11-erd-completo-resumido.md) |
+| ✅ | Roadmap Visual | [12-roadmap-visual](roadmap/12-roadmap-visual.md) |
 
 ---
 
-### 03 — Fluxo Operacional
+## Observação Sobre o Blueprint
+
+Materiais anteriores utilizavam o termo ERP, mas o conceito atual do projeto foi refinado.
+
+A definição correta é:
 
 ```text
-03-fluxo-operacional.png
+Sistema Operacional de Locação para Eventos
 ```
 
-Fluxo:
-
-```text
-Pedido
-   ↓
-Produção
-   ↓
-Entrega
-   ↓
-Evento
-   ↓
-Retorno
-   ↓
-Conferência
-```
-
----
-
-### 04 — Catálogo de Produtos
-
-```text
-04-catalogo-produtos.png
-```
-
-Relacionamentos entre:
-
-* Produtos
-* Seções
-* Categorias
-* Subcategorias
-* Fotos
-
----
-
-### 05 — Estoque Temporal
-
-```text
-05-estoque-temporal.png
-```
-
-Representação visual do controle de disponibilidade por período.
-
----
-
-### 06 — Produtos Compostos
-
-```text
-06-produtos-compostos.png
-```
-
-Relacionamentos entre:
-
-* Produtos
-* Kits
-* Componentes
-* Acabamentos
-* Grupos
-
----
-
-### 07 — Roadmap
-
-```text
-07-roadmap.png
-```
-
-Representação visual da evolução planejada do sistema.
-
----
-
-### 08 — ERD Comercial
-
-```text
-08-erd-comercial.png
-```
-
-Tabelas relacionadas a:
-
-* Clientes
-* Orçamentos
-* Pedidos
-
----
-
-### 09 — ERD Catálogo
-
-```text
-09-erd-catalogo.png
-```
-
-Tabelas relacionadas a:
-
-* Produtos
-* Categorias
-* Fotos
-
----
-
-### 10 — ERD Operação
-
-```text
-10-erd-operacao.png
-```
-
-Tabelas relacionadas a:
-
-* Estoque temporal
-* Movimentações
-* Lavanderia
-* Manutenção
-* Ocorrências
+O projeto não tem como objetivo ser um ERP corporativo completo.
 
 ---
 
@@ -185,16 +66,26 @@ Tabelas relacionadas a:
 
 Sempre que possível:
 
-* Utilizar fontes legíveis para impressão.
-* Evitar excesso de elementos em um único diagrama.
-* Dividir diagramas por assunto.
-* Manter versões PNG e PDF.
-* Atualizar os diagramas conforme a evolução do sistema.
+- Utilizar fontes grandes e legíveis.
+- Evitar excesso de elementos em um único diagrama.
+- Dividir diagramas por domínio.
+- Manter versões editáveis em Markdown/Mermaid.
+- Exportar PNG, SVG ou PDF quando necessário para apresentações.
 
 ---
 
-## Observação
+## Situação Atual
 
-Os diagramas representam uma visão complementar da documentação.
+Este conjunto inicial de diagramas foi criado como base para a documentação visual do projeto.
 
-Para detalhes completos sobre regras, arquitetura e contexto operacional, consultar os documentos presentes nas demais pastas da estrutura `/docs`.
+Pontos considerados:
+
+- Remover linguagem de ERP.
+- Não apresentar lavanderia/manutenção como módulos implementados.
+- Reforçar controle temporal de estoque.
+- Reforçar produtos compostos.
+- Destacar o fluxo real da operação.
+
+---
+
+← [Voltar para a documentação](../README.md)

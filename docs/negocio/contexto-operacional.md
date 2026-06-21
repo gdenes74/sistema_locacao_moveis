@@ -1,3 +1,5 @@
+← [Voltar para a documentação](../README.md)
+
 # 🎪 Contexto Operacional
 
 ![Business](https://img.shields.io/badge/Business-Event%20Rental-success)
@@ -8,7 +10,7 @@
 
 Este documento apresenta o contexto operacional que motivou o desenvolvimento do Sistema Operacional de Locação para Eventos da Mobel Festas.
 
-Compreender o funcionamento da operação é fundamental para entender as decisões arquiteturais e as regras de negócio implementadas no sistema.
+Compreender o funcionamento da operação é fundamental para entender as decisões arquiteturais, a modelagem de dados e as regras de negócio implementadas no sistema.
 
 ---
 
@@ -19,6 +21,18 @@ A Mobel Festas atua na locação de móveis, toalhas e itens para eventos.
 Diferentemente de uma venda tradicional, a locação envolve controle de datas, disponibilidade, logística, produção, entrega, retorno e conferência dos itens.
 
 O mesmo produto pode participar de diversos eventos ao longo do ano, desde que esteja disponível no período solicitado.
+
+---
+
+## Sistema Operacional de Locação para Eventos
+
+O projeto foi concebido como um Sistema Operacional de Locação para Eventos.
+
+Seu objetivo não é reproduzir todas as funcionalidades de um ERP corporativo tradicional.
+
+O foco está nos processos efetivamente utilizados pela operação da empresa, concentrando-se no ciclo completo da locação de produtos para eventos.
+
+Essa abordagem permite que o sistema evolua diretamente a partir das necessidades observadas no dia a dia da operação.
 
 ---
 
@@ -48,15 +62,57 @@ Cada etapa possui necessidades específicas de controle e acompanhamento.
 
 ---
 
+## Domínios Operacionais
+
+Os principais domínios atendidos atualmente pelo sistema são:
+
+### 👥 Comercial
+
+* Clientes
+* Orçamentos
+* Pedidos
+
+### 🪑 Catálogo
+
+* Produtos
+* Categorias
+* Seções
+* Subcategorias
+* Fotos
+
+### 📦 Operação
+
+* Controle temporal de estoque
+* Reservas
+* Disponibilidade
+
+### 🧩 Produtos Compostos
+
+* Kits
+* Componentes
+* Acabamentos
+* Grupos de composição
+
+### 🛠️ Pós-Evento
+
+* Conferência
+* Lavanderia
+* Manutenção
+* Ocorrências
+
+---
+
 ## Controle Temporal
 
 Uma das características mais importantes do negócio é o controle temporal de estoque.
 
-Ao contrário de uma venda comum, um produto não deixa de existir após ser utilizado.
+Ao contrário de uma venda convencional, um produto não deixa de existir após ser utilizado.
 
-Ele apenas fica indisponível durante determinado período.
+Ele apenas permanece indisponível durante determinado período.
 
 Por esse motivo, a disponibilidade de um item depende das reservas existentes para as datas informadas.
+
+Esse conceito é uma das principais regras de negócio implementadas no sistema.
 
 ---
 
@@ -77,6 +133,8 @@ Isso exige uma separação entre a visão comercial apresentada ao cliente e a v
 Após a confirmação do pedido, inicia-se o processo operacional de preparação dos itens.
 
 A produção é responsável por organizar, separar e preparar os materiais necessários para cada evento.
+
+Dependendo da natureza do pedido, essa etapa pode envolver montagem de kits, conferência de componentes e preparação logística.
 
 ---
 
@@ -100,3 +158,15 @@ Esses processos influenciam diretamente a disponibilidade futura dos produtos.
 O sistema foi criado para apoiar todas essas etapas, transformando processos operacionais em informações estruturadas e acessíveis.
 
 Seu objetivo principal é aumentar a organização, reduzir controles paralelos e fornecer maior visibilidade sobre a operação da empresa.
+
+---
+
+## Considerações
+
+A compreensão do contexto operacional é fundamental para entender as decisões arquiteturais, as regras de negócio e a modelagem de dados adotadas no projeto.
+
+Grande parte das funcionalidades existentes foi desenvolvida para representar processos reais observados na operação da Mobel Festas.
+
+---
+
+📚 [Voltar para a documentação](../README.md)

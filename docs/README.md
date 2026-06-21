@@ -1,144 +1,76 @@
 # 📚 Documentação do Projeto
 
-![Documentation](https://img.shields.io/badge/Documentation-Project%20Docs-blue)
-![Project](https://img.shields.io/badge/Project-Mobel%20Festas-success)
-![Status](https://img.shields.io/badge/Status-Active%20Development-orange)
-
 > Documentação oficial do Sistema Operacional de Locação para Eventos da Mobel Festas.
 
-Esta documentação reúne informações sobre o negócio, arquitetura, modelagem de dados, regras operacionais e evolução do projeto.
+Esta seção reúne a documentação técnica, operacional e histórica do projeto.
 
 ---
 
-# 🧭 Navegação
+# 🧭 Índice da Documentação
 
 ## 🎪 Negócio
 
-Documentos relacionados ao contexto da operação e às regras do sistema.
+Documentação relacionada ao contexto da empresa, operação e regras do sistema.
 
-### História do Projeto
-
-```text
-negocio/historia-projeto.md
-```
-
-Apresenta a origem do projeto, sua evolução e os principais marcos desde 2019.
-
----
-
-### Contexto Operacional
-
-```text
-negocio/contexto-operacional.md
-```
-
-Explica como funciona a operação de locação de móveis e itens para eventos.
+| Documento                                               | Descrição                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------- |
+| [História do Projeto](negocio/historia-projeto.md)      | Origem do projeto, evolução e principais marcos desde 2019 |
+| [Contexto Operacional](negocio/contexto-operacional.md) | Funcionamento da operação de locação para eventos          |
+| [Regras de Negócio](negocio/regras-negocio.md)          | Regras operacionais implementadas no sistema               |
+| [README Original](negocio/readme-original.md)           | Primeira versão pública da documentação                    |
 
 ---
 
-### Regras de Negócio
+## 🏗️ Arquitetura
 
-```text
-negocio/regras-negocio.md
-```
+Documentação técnica da estrutura do sistema.
 
-Documenta as principais regras implementadas no sistema.
-
----
-
-### README Original
-
-```text
-negocio/readme-original.md
-```
-
-Registro histórico da primeira versão pública da documentação do projeto.
+| Documento                                             | Descrição                             |
+| ----------------------------------------------------- | ------------------------------------- |
+| [Arquitetura Geral](arquitetura/arquitetura-geral.md) | Visão geral dos módulos e componentes |
+| [MVC](arquitetura/mvc.md)                             | Organização do código baseada em MVC  |
 
 ---
 
-# 🏗️ Arquitetura
+## 🗄️ Banco de Dados
 
-### Arquitetura Geral
-
-```text
-arquitetura/arquitetura-geral.md
-```
-
-Visão geral da estrutura e dos principais módulos do sistema.
+| Documento                                            | Descrição                                    |
+| ---------------------------------------------------- | -------------------------------------------- |
+| [Modelagem do Banco](banco-dados/modelagem-banco.md) | Estrutura de dados e agrupamento das tabelas |
 
 ---
 
-### MVC
+## 📊 Diagramas
 
-```text
-arquitetura/mvc.md
-```
-
-Organização do código baseada em uma estrutura inspirada no padrão MVC.
+| Documento                                   | Descrição                                              |
+| ------------------------------------------- | ------------------------------------------------------ |
+| [Diagramas do Projeto](diagramas/README.md) | Catálogo de diagramas, fluxos e representações visuais |
 
 ---
 
-# 🗄️ Banco de Dados
+## 🛣️ Roadmap
 
-### Modelagem do Banco
-
-```text
-banco-dados/modelagem-banco.md
-```
-
-Descrição da estrutura de dados e dos principais grupos de tabelas.
+| Documento                                 | Descrição                                   |
+| ----------------------------------------- | ------------------------------------------- |
+| [Roadmap de Evolução](roadmap/roadmap.md) | Histórico e planejamento de funcionalidades |
 
 ---
 
-# 📊 Diagramas
+# 🎯 Objetivos da Documentação
 
-### Diagramas do Projeto
-
-```text
-diagramas/README.md
-```
-
-Catálogo dos diagramas utilizados para documentar o sistema.
-
-Inclui:
-
-* Fluxos
-* Arquitetura
-* Roadmap
-* ERD
-* Blueprint
-
----
-
-# 🛣️ Roadmap
-
-### Evolução do Projeto
-
-```text
-roadmap/roadmap.md
-```
-
-Registro das funcionalidades implementadas, em desenvolvimento e planejadas.
-
----
-
-# 🎯 Objetivo da Documentação
-
-Esta documentação tem como finalidade:
-
-* Registrar conhecimento do projeto.
-* Facilitar manutenção futura.
-* Apoiar evolução do sistema.
+* Registrar o conhecimento acumulado do projeto.
+* Facilitar manutenção e evolução futura.
+* Documentar arquitetura e regras de negócio.
 * Servir como material de referência técnica.
-* Complementar o portfólio profissional do projeto.
+* Apoiar a apresentação profissional do projeto.
 
 ---
 
 # 📌 Conceito do Projeto
 
-O Sistema Operacional de Locação para Eventos não tem como objetivo ser um ERP corporativo completo.
+O Sistema Operacional de Locação para Eventos foi desenvolvido para atender necessidades reais da operação da Mobel Festas.
 
-Seu foco é apoiar de forma prática a operação real da Mobel Festas, incluindo:
+Seu foco está em:
 
 * Clientes
 * Produtos
@@ -150,4 +82,4 @@ Seu foco é apoiar de forma prática a operação real da Mobel Festas, incluind
 * Manutenção
 * Operação de eventos
 
-A evolução do sistema é guiada por necessidades reais observadas na operação da empresa.
+Não se trata de um ERP corporativo genérico. O sistema evolui conforme as necessidades operacionais da empresa.

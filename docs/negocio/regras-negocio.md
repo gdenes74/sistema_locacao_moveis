@@ -1,34 +1,125 @@
-# Regras de Negócio
+← [Voltar para a documentação](../README.md)
 
-Este documento registra regras importantes do sistema.
+# 📋 Regras de Negócio
 
-## Orçamentos e pedidos
+Este documento registra as principais regras de negócio identificadas durante a operação da Mobel Festas e implementadas no Sistema Operacional de Locação para Eventos.
 
-- Um orçamento representa uma proposta comercial.
-- Um orçamento aprovado pode ser convertido em pedido.
-- O pedido representa uma operação confirmada.
-- O pedido pode ter status próprios conforme a etapa operacional.
+Grande parte dessas regras foi construída a partir da experiência prática da empresa e não de documentação formal pré-existente.
 
-## Produtos
+---
 
-- Produtos podem ser cadastrados com fotos, categorias e subcategorias.
-- Produtos podem ter componentes internos.
-- Produtos podem compor kits ou conjuntos.
-- Nem todo item interno precisa aparecer da mesma forma para o cliente.
+## 🎯 Objetivo
 
-## Estoque temporal
+O objetivo deste documento é registrar comportamentos e restrições importantes do sistema, facilitando sua manutenção e evolução futura.
 
-- O estoque deve considerar o período do evento.
-- A disponibilidade de um item depende de reservas já existentes no mesmo intervalo.
-- Um item pode estar disponível em uma data e indisponível em outra.
+---
 
-## Produção
+## 📄 Orçamentos e Pedidos
 
-- A produção deve considerar os itens do pedido.
-- A separação precisa apoiar a preparação do evento.
-- Alguns itens exigem conferência, manutenção ou lavanderia após o retorno.
+### Orçamentos
 
-## Pagamentos
+* Um orçamento representa uma proposta comercial.
+* Um orçamento pode conter múltiplos produtos e serviços.
+* O orçamento não reserva estoque automaticamente.
+* O orçamento pode ser alterado durante o processo de negociação.
 
-- O sistema prevê registros funcionais de pagamentos vinculados aos pedidos.
-- O objetivo não é criar um módulo financeiro completo com contas a pagar, fornecedores ou DRE.
+### Pedidos
+
+* Um pedido representa uma operação confirmada.
+* Um pedido normalmente é gerado a partir da aprovação de um orçamento.
+* O pedido passa a fazer parte do planejamento operacional.
+* O pedido pode possuir diferentes status conforme sua etapa de execução.
+
+---
+
+## 🪑 Produtos
+
+### Cadastro de Produtos
+
+* Produtos podem possuir fotos.
+* Produtos podem ser organizados por categorias, seções e subcategorias.
+* Produtos podem possuir informações operacionais específicas.
+
+### Produtos Compostos
+
+* Um produto pode ser composto por diversos componentes internos.
+* Um kit pode agrupar vários itens em uma única unidade comercial.
+* Componentes internos podem ser utilizados apenas para controle operacional.
+* A estrutura interna de um produto nem sempre é apresentada ao cliente.
+
+---
+
+## 📦 Controle Temporal de Estoque
+
+O controle temporal é uma das regras centrais do sistema.
+
+Diferentemente de uma venda convencional, os produtos retornam ao estoque após o evento.
+
+Por esse motivo:
+
+* A disponibilidade depende das datas informadas.
+* Reservas existentes devem ser consideradas durante a consulta.
+* Um mesmo item pode estar disponível em uma data e indisponível em outra.
+* O estoque precisa considerar períodos de utilização simultânea.
+
+Essa regra é fundamental para evitar conflitos de reserva.
+
+---
+
+## 🛠️ Produção
+
+Após a confirmação do pedido inicia-se o processo operacional.
+
+A produção deve:
+
+* Considerar os itens reservados para o evento.
+* Organizar a separação dos materiais.
+* Apoiar a montagem de kits e conjuntos.
+* Preparar os itens para entrega.
+
+Dependendo do tipo de produto, podem existir etapas adicionais de preparação.
+
+---
+
+## 🚚 Entrega e Retorno
+
+Após a preparação ocorre a entrega dos itens para o evento.
+
+Quando os produtos retornam à empresa podem ser necessários processos adicionais como:
+
+* Conferência
+* Lavanderia
+* Manutenção
+* Registro de ocorrências
+
+Essas atividades influenciam diretamente a disponibilidade futura dos itens.
+
+---
+
+## 💰 Pagamentos
+
+O sistema prevê registros funcionais de pagamentos vinculados aos pedidos.
+
+Entretanto, o objetivo não é implementar um módulo financeiro corporativo completo.
+
+O foco está apenas nos controles necessários para apoiar a operação de locação.
+
+Não fazem parte do escopo atual:
+
+* Contas a pagar
+* Gestão de fornecedores
+* Fluxo de caixa completo
+* DRE
+* Contabilidade
+
+---
+
+## 📌 Considerações
+
+As regras documentadas neste arquivo representam apenas parte do conhecimento operacional existente na empresa.
+
+Novas regras podem ser incorporadas conforme o sistema evolui e novos processos são formalizados.
+
+---
+
+📚 [Voltar para a documentação](../README.md)

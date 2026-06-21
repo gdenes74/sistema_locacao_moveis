@@ -1,3 +1,5 @@
+← [Voltar para a documentação](../README.md)
+
 # 📜 História do Projeto
 
 ![Project Origin](https://img.shields.io/badge/Origin-2019-orange)
@@ -12,9 +14,9 @@
 
 # 🎯 Propósito
 
-Este documento tem como objetivo registrar a evolução do projeto, seu contexto de criação e os principais marcos que contribuíram para sua construção.
+Este documento registra a evolução do projeto, seu contexto de criação e os principais marcos que contribuíram para sua construção.
 
-Mais do que um sistema de software, este projeto representa a digitalização gradual de processos operacionais construídos ao longo de anos de atuação no setor de eventos.
+Mais do que um sistema de software, este projeto representa a digitalização gradual de processos operacionais desenvolvidos ao longo de anos de atuação no setor de eventos.
 
 ---
 
@@ -22,7 +24,7 @@ Mais do que um sistema de software, este projeto representa a digitalização gr
 
 A ideia do sistema surgiu por volta de 2019.
 
-Na época, diversas atividades da empresa eram controladas através de planilhas, documentos e processos manuais.
+Na época, diversas atividades da empresa eram controladas por planilhas, documentos impressos e processos manuais.
 
 Alguns exemplos:
 
@@ -50,23 +52,29 @@ Durante esse período foram estudados temas como:
 * Orientação a Objetos
 * Análise de Requisitos
 
-Como trabalho de conclusão foi desenvolvido um protótipo de sistema que serviu como ponto de partida para a evolução futura do projeto.
+Como trabalho de conclusão foi desenvolvido um protótipo que serviu como ponto de partida para a evolução futura do sistema.
 
 ---
 
 # 🏢 Retorno à Operação
 
-Após o retorno das atividades da empresa, o projeto deixou de ser apenas um exercício acadêmico.
+Com a retomada das atividades da empresa, o projeto deixou de ser apenas um exercício acadêmico.
 
-A partir desse momento o foco passou a ser resolver problemas reais observados na operação da Mobel Festas.
+O foco passou a ser resolver problemas reais observados na operação da Mobel Festas.
 
-Cada nova funcionalidade passou a surgir a partir de necessidades identificadas no dia a dia.
+Cada nova funcionalidade passou a surgir a partir de necessidades identificadas no dia a dia da empresa.
 
 ---
 
-# 🚀 Evolução do Sistema
+# 🚀 Desenvolvimento Contínuo
 
-Com o passar do tempo foram incorporados diversos módulos:
+A partir de 2025, o projeto passou a receber desenvolvimento mais intenso e estruturado.
+
+Novos módulos foram implementados, regras de negócio passaram a ser formalizadas e a documentação começou a ser construída para registrar o conhecimento acumulado durante a evolução do sistema.
+
+---
+
+# 🧩 Evolução dos Módulos
 
 ### 👥 Comercial
 
@@ -109,7 +117,7 @@ Grande parte das regras implementadas não surgiu de documentação formal.
 
 Elas foram construídas a partir da experiência prática adquirida na operação da empresa.
 
-Alguns exemplos:
+Exemplos:
 
 * Controle temporal de disponibilidade
 * Montagem de kits
@@ -120,11 +128,11 @@ Alguns exemplos:
 
 ---
 
-# 🌊 Desafios
+# 🌊 Desafios Encontrados
 
-O desenvolvimento do projeto ocorreu paralelamente à administração da empresa.
+O desenvolvimento ocorreu paralelamente à administração da empresa.
 
-Nesse período também ocorreram desafios significativos para o setor de eventos, incluindo:
+Nesse período também ocorreram desafios significativos para o setor de eventos:
 
 * Impactos da pandemia
 * Retomada gradual das operações
@@ -139,7 +147,7 @@ Mesmo diante desses desafios, o projeto continuou evoluindo.
 
 Atualmente o sistema encontra-se funcional e em utilização como apoio à operação.
 
-Entre os módulos já implementados estão:
+Entre os módulos implementados estão:
 
 * Clientes
 * Produtos
@@ -164,7 +172,7 @@ Os próximos ciclos de evolução estão concentrados em:
 * Manutenção
 * Ocorrências
 * Melhorias operacionais
-* Documentação técnica
+* Expansão da documentação técnica
 
 ---
 
@@ -186,6 +194,10 @@ O projeto permitiu aplicar, na prática, conhecimentos relacionados a:
 
 O Sistema Operacional de Locação para Eventos representa a união entre tecnologia e experiência operacional.
 
-Seu desenvolvimento continua sendo guiado por necessidades reais da Mobel Festas e pela busca constante de melhoria dos processos internos.
+Seu desenvolvimento continua sendo guiado por necessidades reais da Mobel Festas e pela busca contínua por melhorias nos processos internos.
 
 Mais do que um projeto acadêmico ou exercício técnico, este sistema representa a transformação de conhecimento operacional acumulado ao longo dos anos em uma ferramenta digital de apoio à gestão e execução das atividades da empresa.
+
+---
+
+📚 [Voltar para a documentação](../README.md)

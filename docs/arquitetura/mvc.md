@@ -1,3 +1,5 @@
+← [Voltar para a documentação](../README.md)
+
 # 🧱 Estrutura MVC
 
 ![MVC](https://img.shields.io/badge/Pattern-MVC-blue)
@@ -7,11 +9,15 @@
 
 O projeto utiliza uma organização inspirada no padrão MVC (Model-View-Controller).
 
-A implementação foi adaptada à realidade e à evolução do sistema, priorizando simplicidade e facilidade de manutenção.
+A implementação adotada é simplificada e não possui uma camada Controller formalmente separada, concentrando parte do fluxo da aplicação em arquivos de entrada e nas próprias rotinas dos módulos.
+
+A estrutura foi adaptada às necessidades do sistema e evoluiu de forma incremental ao longo do desenvolvimento.
+
+O objetivo principal sempre foi manter uma organização simples, compreensível e de fácil manutenção.
 
 ---
 
-## Estrutura Geral
+## Visão Geral
 
 ```text
 Usuário
@@ -21,128 +27,128 @@ Views
 Models
    ↓
 Banco de Dados
-```
+Embora inspirado no padrão MVC tradicional, o sistema utiliza uma abordagem simplificada adequada ao porte e às necessidades atuais da aplicação.
 
----
+Estrutura do Projeto
+sistema_locacao_moveis/
+│
+├── ajax/
+├── assets/
+├── config/
+├── docs/
+├── models/
+├── utils/
+├── views/
+│
+└── index.php
 
-## Views
+Cada diretório possui responsabilidades específicas dentro da aplicação.
+
+Views
 
 Localização:
 
-```text
 /views
-```
 
 Responsáveis por:
 
-* Interfaces do sistema
-* Formulários
-* Listagens
-* Impressões
-* Interação com usuários
+Interfaces do sistema
+Formulários
+Listagens
+Impressões
+Interação com usuários
 
-Exemplos:
+Principais módulos:
 
-* Clientes
-* Produtos
-* Orçamentos
-* Pedidos
-* Dashboard
-
----
-
-## Models
+Clientes
+Produtos
+Orçamentos
+Pedidos
+Dashboard
+Configurações
+Models
 
 Localização:
 
-```text
 /models
-```
 
 Responsáveis por:
 
-* Comunicação com banco de dados
-* Consultas
-* Inserções
-* Atualizações
-* Regras relacionadas às entidades
+Comunicação com o banco de dados
+Consultas
+Inserções
+Atualizações
+Regras relacionadas às entidades
 
 Principais models:
 
-* Cliente
-* Produto
-* Orcamento
-* Pedido
-* Categoria
-* Secao
-* Subcategoria
-* EstoqueMovimentacao
-
----
-
-## Configuração
+Cliente
+Produto
+Orcamento
+Pedido
+Categoria
+Secao
+Subcategoria
+EstoqueMovimentacao
+ConfiguracaoTexto
+NumeracaoSequencial
+Configuração
 
 Localização:
 
-```text
 /config
-```
 
 Responsável por:
 
-* Conexão com banco
-* Configurações gerais
-* Parâmetros do sistema
-
----
-
-## Utilitários
+Conexão com banco de dados
+Configurações gerais
+Parâmetros do sistema
+Utilitários
 
 Localização:
 
-```text
 /utils
-```
 
 Responsáveis por:
 
-* Funções auxiliares
-* Uploads
-* Helpers
-
----
-
-## Recursos Estáticos
+Funções auxiliares
+Upload de arquivos
+Helpers
+Recursos de apoio à aplicação
+Recursos Estáticos
 
 Localização:
 
-```text
 /assets
-```
 
 Contém:
 
-* Imagens
-* Uploads
-* Logos
-* Arquivos estáticos
-
----
-
-## AJAX
+Imagens
+Uploads
+Logos
+Arquivos estáticos
+AJAX
 
 Localização:
 
-```text
-/ ajax
-```
+/ajax
 
 Utilizado para consultas assíncronas e recursos auxiliares da interface.
 
----
+Exemplo:
 
-## Considerações
+Busca dinâmica de clientes
+Papel do index.php
 
-Embora inspirado em MVC, o projeto foi desenvolvido de forma incremental e pragmática.
+O arquivo index.php atua como ponto de entrada principal da aplicação.
+
+Ele é responsável por receber as requisições e direcionar o fluxo para os módulos correspondentes.
+
+Considerações
+
+Embora inspirado em MVC, o projeto foi desenvolvido de forma pragmática e incremental.
 
 O foco principal sempre foi apoiar a operação real da empresa, mantendo o código compreensível, funcional e passível de evolução contínua.
+
+A estrutura atual representa a evolução natural do sistema ao longo do tempo e poderá ser ajustada conforme novas necessidades surgirem.
+📚 [Voltar para a documentação](../README.md)

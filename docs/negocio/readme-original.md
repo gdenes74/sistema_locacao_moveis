@@ -1,3 +1,13 @@
+← [Voltar para a documentação](../README.md)
+
+# 📜 README Original (Maio de 2025)
+
+> Este documento preserva a primeira versão pública do README do projeto.
+>
+> Foi mantido por motivos históricos para registrar a evolução da documentação e da visão do sistema ao longo do tempo.
+
+---
+
 # Sistema de Locação de Móveis e Toalhas
 
 ![Status do Projeto](https://img.shields.io/badge/status-em%20desenvolvimento-brightgreen)
@@ -51,3 +61,11 @@ Para mais informações, sugestões ou colaborações, entre em contato pelo Git
 ---
 
 *Última atualização: Maio de 2025*
+Observação:
+Na época desta versão, o projeto ainda era apresentado como
+"Sistema de Locação de Móveis e Toalhas".
+Posteriormente o conceito evoluiu para
+"Sistema Operacional de Locação para Eventos".
+---
+
+📚 [Voltar para a documentação](../README.md)
