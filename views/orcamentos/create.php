@@ -519,6 +519,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     } else {
                         $item_data['preco_unitario'] = $fnConverterMoeda($_POST['valor_unitario'][$index] ?? '0,00');
                         $item_data['desconto'] = $fnConverterMoeda($_POST['desconto_item'][$index] ?? '0,00');
+
+                        if ($tipo_linha_atual === 'CONJUNTO' && $item_data['preco_unitario'] <= 0) {
+                            $nomeProdutoErro = isset($_POST['nome_produto_display'][$index]) ? trim($_POST['nome_produto_display'][$index]) : 'Kit/conjunto sem nome';
+                            throw new Exception("O kit/conjunto '" . $nomeProdutoErro . "' está com preço zerado. Informe o valor unitário antes de salvar.");
+                        }
+
                         $item_data['preco_final'] = $item_data['quantidade'] * ($item_data['preco_unitario'] - $item_data['desconto']);
                     }
 
@@ -3466,6 +3472,41 @@ $('#data_devolucao_prevista').on('change dp.change', function() {
         return true;
     }
 
+    function validarConjuntosComPrecoZero() {
+        let conjuntoErro = null;
+
+        $('#tabela_itens_orcamento tbody tr.item-orcamento-row').each(function() {
+            const $row = $(this);
+            const tipoLinha = $row.data('tipo-linha') || $row.find('input[name="tipo_linha[]"]').val() || '';
+
+            // Apenas a linha comercial pai do kit/conjunto precisa ter preço.
+            // ITEM_CONJUNTO e CABECALHO_SECAO continuam podendo ficar zerados.
+            if (tipoLinha !== 'CONJUNTO') {
+                return;
+            }
+
+            const nomeProduto = String($row.find('.nome_produto_display').val() || '').trim() || 'Kit/conjunto sem nome';
+            const valorUnitario = unformatCurrency($row.find('.item-valor-unitario, .valor_unitario_item').first().val() || '0,00');
+
+            if (valorUnitario <= 0) {
+                conjuntoErro = nomeProduto;
+                return false;
+            }
+        });
+
+        if (conjuntoErro) {
+            Swal.fire({
+                title: 'Preço obrigatório',
+                text: 'O kit/conjunto "' + conjuntoErro + '" está com preço zerado. Informe o valor unitário antes de salvar o orçamento.',
+                icon: 'warning',
+                confirmButtonText: 'Entendi'
+            });
+            return false;
+        }
+
+        return true;
+    }
+
     $('#formNovoOrcamento').on('submit', function(e) {
         if (!validarSequenciaDatasLogisticaCreate(true)) {
             e.preventDefault();
@@ -3473,6 +3514,11 @@ $('#data_devolucao_prevista').on('change dp.change', function() {
         }
 
         if (!validarItensQuantidadeZeroCreate()) {
+            e.preventDefault();
+            return false;
+        }
+
+        if (!validarConjuntosComPrecoZero()) {
             e.preventDefault();
             return false;
         }
