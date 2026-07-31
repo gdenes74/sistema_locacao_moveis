@@ -304,7 +304,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
             exit;
         }
 
-        $sql .= " ORDER BY p.nome_produto LIMIT 15";
+        $sql .= " ORDER BY p.nome_produto";
 
         $stmt = $db->prepare($sql);
         $stmt->execute($executeParams);

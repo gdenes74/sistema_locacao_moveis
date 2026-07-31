@@ -182,7 +182,7 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             exit;
         }
 
-        $sql .= " ORDER BY p.nome_produto LIMIT 15";
+        $sql .= " ORDER BY p.nome_produto";
 
         $stmt = $db->prepare($sql);
         $stmt->execute($executeParams);
