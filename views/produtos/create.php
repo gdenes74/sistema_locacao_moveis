@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/Secao.php';
 require_once __DIR__ . '/../../models/Categoria.php';
 require_once __DIR__ . '/../../models/Subcategoria.php';
+require_once __DIR__ . '/../../utils/FileUpload.php';
 
 // Inicializa a conexão e os modelos
 $database = new Database();
@@ -282,19 +283,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Observações
     $produto->observacoes = isset($_POST['observacoes']) ? trim($_POST['observacoes']) : null;
 
-    // Processar upload de foto
+    // Processar upload de foto.
+    // Se o mesmo conteúdo já existir em assets/uploads/produtos, o arquivo
+    // existente será reutilizado e nenhuma cópia adicional será criada.
     if (isset($_FILES['foto']) && $_FILES['foto']['error'] == UPLOAD_ERR_OK) {
-        $upload_dir = __DIR__ . '/../../assets/uploads/produtos/';
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0755, true);
-        }
-        $foto_name = uniqid('foto_') . '_' . basename($_FILES['foto']['name']);
-        $foto_path = $upload_dir . $foto_name;
-        if (move_uploaded_file($_FILES['foto']['tmp_name'], $foto_path)) {
+        try {
+            $upload = new FileUpload(
+                __DIR__ . '/../../assets/uploads/produtos/',
+                2 * FileUpload::MB,
+                ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            );
+            $foto_name = $upload->upload($_FILES['foto'], 'foto_');
             $produto->foto_path = 'assets/uploads/produtos/' . $foto_name;
-        } else {
-            $error = "Erro ao fazer upload da foto.";
+        } catch (Exception $e) {
+            $error = "Erro ao processar a foto: " . $e->getMessage();
         }
+    } elseif (isset($_FILES['foto']) && $_FILES['foto']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $error = "Erro no upload da foto: código " . (int)$_FILES['foto']['error'] . ".";
     }
 
     // Se não houver erro, tenta criar o produto
@@ -595,7 +600,9 @@ include_once __DIR__ . '/../includes/header.php';
                                 <input type="file" class="custom-file-input" id="foto" name="foto" accept="image/*">
                                 <label class="custom-file-label" for="foto" data-browse="Procurar">Escolher arquivo...</label>
                             </div>
-                            <small class="form-text text-muted">Máximo 2MB (JPG, PNG, GIF, WebP)</small>
+                            <small class="form-text text-muted">
+                                Máximo 2MB (JPG, PNG, GIF, WebP). Se esta mesma imagem já existir nos arquivos do sistema, ela será reutilizada sem criar outra cópia.
+                            </small>
                         </div>
 
                         <div class="form-group">

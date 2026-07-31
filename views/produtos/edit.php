@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/Secao.php';
 require_once __DIR__ . '/../../models/Categoria.php';
 require_once __DIR__ . '/../../models/Subcategoria.php';
+require_once __DIR__ . '/../../utils/FileUpload.php';
 
 $page_title = "Editar Produto";
 $error = null;
@@ -326,47 +327,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $produto->observacoes = isset($_POST['observacoes']) ? trim($_POST['observacoes']) : null;
 
     // ----- TRATAMENTO DO UPLOAD DA NOVA FOTO -----
-    $novaFotoPath = $_POST['foto_atual_path'] ?? '';
-    $fotoAntigaPath = $_POST['foto_atual_path'] ?? '';
+    // O caminho atual vem do banco, não do campo oculto enviado pelo navegador.
+    $fotoAntigaPath = $produto_data['foto_path'] ?? '';
+    $novaFotoPath = $fotoAntigaPath;
     $uploadOk = true;
     $uploadErrorMsg = '';
 
     if (isset($_FILES['nova_foto']) && $_FILES['nova_foto']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['nova_foto'];
-        $uploadDir = __DIR__ . '/../../assets/uploads/produtos/';
-        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-        $maxFileSize = 2 * 1024 * 1024;
-
-        if (!file_exists($uploadDir)) {
-            mkdir($uploadDir, 0777, true);
-        }
-
-        if (!in_array($file['type'], $allowedTypes, true)) {
-            $uploadErrorMsg = "Erro: Tipo de arquivo inválido ({$file['type']}). Apenas JPG, PNG, GIF, WebP são permitidos.";
+        try {
+            $upload = new FileUpload(
+                __DIR__ . '/../../assets/uploads/produtos/',
+                2 * FileUpload::MB,
+                ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            );
+            $novoNomeArquivo = $upload->upload($_FILES['nova_foto'], 'prod_' . $produto_id . '_');
+            $novaFotoPath = 'assets/uploads/produtos/' . $novoNomeArquivo;
+        } catch (Exception $e) {
+            $uploadErrorMsg = "Erro ao processar a nova foto: " . $e->getMessage();
             $uploadOk = false;
-        } elseif ($file['size'] > $maxFileSize) {
-            $uploadErrorMsg = "Erro: Arquivo muito grande ({$file['size']} bytes). Máximo de 2MB.";
-            $uploadOk = false;
-        }
-
-        if ($uploadOk) {
-            $fileExtension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            $novoNomeArquivo = 'prod_' . $produto_id . '_' . time() . '.' . $fileExtension;
-            $caminhoCompletoFisico = $uploadDir . $novoNomeArquivo;
-
-            if (move_uploaded_file($file['tmp_name'], $caminhoCompletoFisico)) {
-                $novaFotoPath = 'assets/uploads/produtos/' . $novoNomeArquivo;
-
-                if (!empty($fotoAntigaPath) && $fotoAntigaPath !== 'assets/img/product_placeholder.png') {
-                    $caminhoFisicoAntigo = __DIR__ . '/../../' . $fotoAntigaPath;
-                    if (file_exists($caminhoFisicoAntigo)) {
-                        @unlink($caminhoFisicoAntigo);
-                    }
-                }
-            } else {
-                $uploadErrorMsg = "Erro ao mover o arquivo enviado.";
-                $uploadOk = false;
-            }
         }
     } elseif (isset($_FILES['nova_foto']) && $_FILES['nova_foto']['error'] !== UPLOAD_ERR_NO_FILE) {
         $uploadErrorMsg = "Erro no upload da foto: Código " . $_FILES['nova_foto']['error'];
@@ -562,7 +540,6 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
 
                 <form method="POST" action="edit.php?id=<?php echo $produto_id; ?>" enctype="multipart/form-data">
                     <input type="hidden" name="produto_id" value="<?php echo $produto_id; ?>">
-                    <input type="hidden" name="foto_atual_path" value="<?php echo htmlspecialchars($produto_data['foto_path'] ?? ''); ?>">
 
                     <div class="card-body">
                         <?php if ($error): ?>
@@ -762,7 +739,9 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
                                         <input type="file" class="custom-file-input" id="nova_foto" name="nova_foto" accept="image/png, image/jpeg, image/gif, image/webp">
                                         <label class="custom-file-label" for="nova_foto" data-browse="Procurar">Escolher novo arquivo...</label>
                                     </div>
-                                    <small class="form-text text-muted">Max 2MB (JPG, PNG, GIF, WebP). Se nenhum arquivo for selecionado, a foto atual será mantida.</small>
+                                    <small class="form-text text-muted">
+                                        Máximo 2MB (JPG, PNG, GIF, WebP). Se nenhum arquivo for selecionado, a foto atual será mantida. Se a imagem escolhida já existir no sistema, ela será reutilizada sem criar outra cópia.
+                                    </small>
                                 </div>
                             </div>
                         </div>

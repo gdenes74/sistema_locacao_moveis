@@ -9,6 +9,7 @@ class FileUpload {
     private $maxSize;   // Tamanho máximo permitido em bytes
     private $allowedTypes; // Array de tipos MIME permitidos
     private $lastError = ''; // Mensagem do último erro ocorrido
+    private $lastUploadReused = false; // Indica se o conteúdo já existia no diretório
 
     // Constantes para facilitar a configuração de tamanho
     const KB = 1024;
@@ -48,6 +49,7 @@ class FileUpload {
      */
     public function upload(array $fileInfo, string $filePrefix = 'file_'): string {
         $this->lastError = ''; // Reseta o erro
+        $this->lastUploadReused = false;
 
         // 1. Verificar erros básicos de upload do PHP
         if (!isset($fileInfo['error']) || is_array($fileInfo['error'])) {
@@ -65,8 +67,13 @@ class FileUpload {
                 throw new Exception('Erro desconhecido no upload do arquivo.');
         }
 
-        // 2. Verificar tamanho do arquivo
-        if ($fileInfo['size'] > $this->maxSize) {
+        // 2. Verificar o tamanho real do arquivo temporário
+        $actualFileSize = filesize($fileInfo['tmp_name']);
+        if ($actualFileSize === false) {
+            throw new Exception('Não foi possível verificar o tamanho do arquivo enviado.');
+        }
+
+        if ($actualFileSize > $this->maxSize) {
             throw new Exception('O arquivo enviado excede o limite de tamanho permitido (' . self::getMaxSizeStr($this->maxSize) . ').');
         }
 
@@ -78,24 +85,102 @@ class FileUpload {
              throw new Exception('Tipo de arquivo inválido (' . htmlspecialchars($fileMimeType) . '). Tipos permitidos: ' . implode(', ', $this->allowedTypes));
         }
 
-        // 4. Gerar um nome de arquivo único e seguro
-        // Pega a extensão original de forma segura
-        $originalName = $fileInfo['name'];
-        $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+        // 4. Reutilizar uma imagem idêntica que já esteja no diretório.
+        // Isso evita criar foto_xxx_arquivo.jpg toda vez que uma foto já existente
+        // em assets/uploads/produtos é escolhida novamente no formulário.
+        $existingFileName = $this->findIdenticalFile(
+            $fileInfo['tmp_name'],
+            (int)$actualFileSize
+        );
+
+        if ($existingFileName !== null) {
+            $this->lastUploadReused = true;
+            return $existingFileName;
+        }
+
+        // 5. Gerar um nome de arquivo único e seguro.
+        // A extensão é definida pelo MIME real, não pelo nome informado pelo navegador.
+        $extensionsByMime = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+        ];
+
+        $extension = $extensionsByMime[$fileMimeType] ?? strtolower(pathinfo($fileInfo['name'], PATHINFO_EXTENSION));
         
         // Gera nome único: prefixo + timestamp + string aleatória + .extensao
         $safeFileName = $filePrefix . dechex(time()) . '_' . bin2hex(random_bytes(4)) . '.' . $extension;
 
-        // 5. Montar o caminho completo de destino
+        // 6. Montar o caminho completo de destino
         $destinationPath = $this->uploadDir . $safeFileName;
 
-        // 6. Mover o arquivo do diretório temporário para o destino final
+        // 7. Mover o arquivo do diretório temporário para o destino final
         if (!move_uploaded_file($fileInfo['tmp_name'], $destinationPath)) {
             throw new Exception('Falha ao mover o arquivo enviado para o diretório de destino.');
         }
 
-        // 7. Retornar o nome do arquivo salvo (sem o caminho completo)
+        // 8. Retornar o nome do arquivo salvo (sem o caminho completo)
         return $safeFileName;
+    }
+
+    /**
+     * Procura um arquivo com o mesmo conteúdo do upload.
+     *
+     * Primeiro compara o tamanho e somente depois calcula o SHA-256. Entre
+     * arquivos idênticos, dá preferência ao nome original, sem os prefixos
+     * automáticos foto_ e prod_, para manter um caminho canônico.
+     */
+    private function findIdenticalFile(string $temporaryPath, int $fileSize): ?string {
+        $entries = scandir($this->uploadDir);
+        if ($entries === false) {
+            return null;
+        }
+
+        $candidates = [];
+
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || $entry === '.gitkeep') {
+                continue;
+            }
+
+            $candidatePath = $this->uploadDir . $entry;
+            if (!is_file($candidatePath) || filesize($candidatePath) !== $fileSize) {
+                continue;
+            }
+
+            $candidates[] = $entry;
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        usort($candidates, static function (string $a, string $b): int {
+            $aAutomatic = preg_match('/^(foto_|prod_)/i', $a) === 1;
+            $bAutomatic = preg_match('/^(foto_|prod_)/i', $b) === 1;
+
+            if ($aAutomatic !== $bAutomatic) {
+                return $aAutomatic <=> $bAutomatic;
+            }
+
+            $lengthComparison = strlen($a) <=> strlen($b);
+            return $lengthComparison !== 0 ? $lengthComparison : strcasecmp($a, $b);
+        });
+
+        $uploadedHash = hash_file('sha256', $temporaryPath);
+        if ($uploadedHash === false) {
+            return null;
+        }
+
+        foreach ($candidates as $candidate) {
+            $candidateHash = hash_file('sha256', $this->uploadDir . $candidate);
+            if ($candidateHash !== false && hash_equals($uploadedHash, $candidateHash)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -137,6 +222,13 @@ class FileUpload {
      */
     public function getLastError(): string {
         return $this->lastError;
+    }
+
+    /**
+     * Informa se o último upload reutilizou um arquivo idêntico já existente.
+     */
+    public function wasFileReused(): bool {
+        return $this->lastUploadReused;
     }
 
     /**
