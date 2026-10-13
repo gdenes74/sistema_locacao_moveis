@@ -323,7 +323,7 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             $produto_item['regras_conjunto'] = [];
 
             if ($produto_item['eh_conjunto'] === 1) {
-                $stmtRegras = $db->prepare("SELECT id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes
+                $stmtRegras = $db->prepare("SELECT id, nome_grupo, produto_id, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes
                                             FROM produto_conjunto_grupos
                                             WHERE produto_conjunto_id = ?
                                             ORDER BY ordem ASC, id ASC");
@@ -360,6 +360,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
         $sql = "SELECT 
                     pcg.id,
                     pcg.nome_grupo,
+                    pcg.produto_id,
                     pcg.categoria_id,
                     c.nome AS categoria_nome,
                     pcg.subcategoria_id,
@@ -367,10 +368,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
                     pcg.quantidade_por_conjunto,
                     pcg.obrigatorio,
                     pcg.ordem,
-                    pcg.observacoes
+                    pcg.observacoes,
+                    pf.nome_produto AS produto_fixo_nome,
+                    pf.foto_path AS produto_fixo_foto_path,
+                    pf.eh_conjunto AS produto_fixo_eh_conjunto,
+                    pf.subcategoria_id AS produto_fixo_subcategoria_id,
+                    ps.categoria_id AS produto_fixo_categoria_id
                 FROM produto_conjunto_grupos pcg
                 LEFT JOIN categorias c ON c.id = pcg.categoria_id
                 LEFT JOIN subcategorias s ON s.id = pcg.subcategoria_id
+                LEFT JOIN produtos pf ON pf.id = pcg.produto_id
+                LEFT JOIN subcategorias ps ON ps.id = pf.subcategoria_id
                 WHERE pcg.produto_conjunto_id = :produto_conjunto_id
                 ORDER BY pcg.ordem ASC, pcg.id ASC";
 
@@ -378,7 +386,16 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_grupos_conjunto') {
         $stmt->bindParam(':produto_conjunto_id', $produto_conjunto_id, PDO::PARAM_INT);
         $stmt->execute();
 
-        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $grupos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $base_url_config = rtrim(BASE_URL, '/');
+        foreach ($grupos as &$grupo) {
+            $foto_path = trim((string)($grupo['produto_fixo_foto_path'] ?? ''));
+            $grupo['produto_fixo_foto_path_completo'] = $foto_path !== ''
+                ? $base_url_config . '/' . ltrim(str_replace('\\', '/', $foto_path), '/')
+                : null;
+        }
+        unset($grupo);
+        echo json_encode($grupos);
         exit;
 
     } catch (PDOException $e) {
@@ -1752,6 +1769,10 @@ $(document).ready(function() {
     }
 
     function selecionarLinhaParaTrocaProduto($row) {
+        if (parseInt($row.data('item-fixo-conjunto') || 0, 10) === 1) {
+            Swal.fire('Item definido pelo conjunto', 'Para trocar este bistrô, altere o conjunto comercial completo.', 'info');
+            return;
+        }
         limparSelecaoTrocaProduto();
         linhaSelecionadaParaTrocaProduto = $row;
         $row.addClass('row-em-troca-produto');
@@ -1782,10 +1803,13 @@ $(document).ready(function() {
 
     function regraCasaComProduto(regra, produto) {
         if (!regra || !produto) { return false; }
+        const regraProduto = parseInt(regra.produto_id || 0, 10) || 0;
+        const produtoId = parseInt(produto.id || produto.produto_id || 0, 10) || 0;
         const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
         const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
         const produtoSubcategoria = parseInt(produto.subcategoria_id || 0, 10) || 0;
         const produtoCategoria = parseInt(produto.categoria_id || 0, 10) || 0;
+        if (regraProduto > 0) { return produtoId === regraProduto; }
         if (regraSubcategoria > 0) { return produtoSubcategoria === regraSubcategoria; }
         if (regraCategoria > 0) { return produtoCategoria === regraCategoria; }
         return false;
@@ -2401,7 +2425,9 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
                 </td>
             </tr>`;
         } else if (tipoLinha === 'ITEM_CONJUNTO') {
-            var quantidadeFilhoDefault = 0; 
+            var quantidadeFilhoDefault = (dadosItem && dadosItem.quantidade !== undefined && dadosItem.quantidade !== null && dadosItem.quantidade !== '')
+                ? parseInt(dadosItem.quantidade, 10)
+                : 0;
             var imagemFilhoHtml = dadosItem && dadosItem.foto_path_completo ? `<img src="${dadosItem.foto_path_completo}" alt="Miniatura" class="foto-produto-linha" data-foto-completa="${dadosItem.foto_path_completo}" data-nome-produto="${nomeDisplay}" title="Clique para ampliar a foto" style="width: 42px; height: 42px; object-fit: cover; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; vertical-align: middle; cursor: zoom-in;">` : '';
             var conjuntoNomeEscapado = conjuntoAtivoNome ? escapeHtml(conjuntoAtivoNome) : 'conjunto';
             htmlLinha = `<tr class="item-orcamento-row item-conjunto-filho-row" data-index="${itemIndex}" data-tipo-linha="${tipoLinha}" data-conjunto-pai-index="${conjuntoAtivoIndex || ''}" data-categoria-id="${categoriaIdItem}" data-subcategoria-id="${subcategoriaIdItem}" style="background-color: #f8fbff !important;">
@@ -2685,7 +2711,12 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     });
 
     $('#tabela_itens_orcamento').on('click', '.btn_trocar_produto', function() {
-        selecionarLinhaParaTrocaProduto($(this).closest('tr'));
+        const $row = $(this).closest('tr');
+        if (parseInt($row.data('item-fixo-conjunto') || 0, 10) === 1) {
+            Swal.fire('Item definido pelo conjunto', 'Para trocar este bistrô, altere o conjunto comercial completo.', 'info');
+            return;
+        }
+        selecionarLinhaParaTrocaProduto($row);
     });
 
     $('#tabela_itens_orcamento').on('click', '.btn_obs_item', function() {
@@ -2702,6 +2733,7 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
 
         if (!$rowConjunto.data('regras-conjunto') || !($rowConjunto.data('regras-conjunto') || []).length) {
             carregarRegrasConjunto(produtoId, $rowConjunto, function() {
+                sincronizarItensFixosConjunto($rowConjunto, true);
                 ativarMontagemConjunto($rowConjunto, true);
                 // Igual ao create: mostra as guias e aguarda o clique do usuário.
             });
@@ -2761,6 +2793,7 @@ function carregarRegrasConjunto(produtoId, $rowConjunto, callback) {
             if (!Array.isArray(grupos)) { grupos = []; }
 
             grupos = grupos.map(function(grupo) {
+                grupo.produto_id = parseInt(grupo.produto_id || 0, 10) || 0;
                 grupo.categoria_id = parseInt(grupo.categoria_id || 0, 10) || 0;
                 grupo.subcategoria_id = parseInt(grupo.subcategoria_id || 0, 10) || 0;
                 grupo.quantidade_por_conjunto = parseFloat(grupo.quantidade_por_conjunto || 0) || 0;
@@ -2780,12 +2813,15 @@ function carregarRegrasConjunto(produtoId, $rowConjunto, callback) {
 
             let resumo = grupos.map(function(grupo) {
                 let qtd = parseFloat(grupo.quantidade_por_conjunto || 0);
-                let origem = grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados';
+                let origem = grupo.produto_id > 0
+                    ? 'automático: ' + (grupo.produto_fixo_nome || 'produto definido')
+                    : (grupo.subcategoria_nome || grupo.categoria_nome || 'produtos configurados');
                 return `${escapeHtml(grupo.nome_grupo || 'Grupo')}: ${qtd} por conjunto (${escapeHtml(origem)})`;
             }).join('<br>');
 
             $rowConjunto.find('td:first small.text-primary').after(`<small class="form-text text-muted regras-conjunto-resumo">${resumo}</small>`);
             inserirLinhasGuiaConjunto($rowConjunto, grupos);
+            sincronizarItensFixosConjunto($rowConjunto, false);
 
             if (typeof toastr !== 'undefined') {
                 toastr.info('Clique em uma guia do conjunto, como Bistrô ou Pufes, para listar os produtos compatíveis.');
@@ -2803,6 +2839,62 @@ function carregarRegrasConjunto(produtoId, $rowConjunto, callback) {
     });
 }
 
+function marcarItemFixoConjunto($rowItem, regra) {
+    if (!$rowItem || !$rowItem.length) { return; }
+    $rowItem.attr('data-item-fixo-conjunto', '1').data('item-fixo-conjunto', 1);
+    $rowItem.find('.quantidade_item').prop('readonly', true).attr('title', 'Quantidade definida automaticamente pelo conjunto');
+    $rowItem.find('.btn_trocar_produto, .btn_remover_item').remove();
+    if (!$rowItem.find('.item-fixo-conjunto-aviso').length) {
+        $rowItem.find('td:first .nome_produto_display').after('<small class="form-text text-primary item-fixo-conjunto-aviso"><i class="fas fa-lock"></i> Definido pelo conjunto · para trocar, altere o conjunto completo</small>');
+    }
+    $rowItem.attr('data-grupo-fixo-id', parseInt(regra.id || 0, 10) || '');
+}
+
+function sincronizarItensFixosConjunto($rowConjunto, criarAusentes = false) {
+    if (!$rowConjunto || !$rowConjunto.length) { return; }
+    const regras = $rowConjunto.data('regras-conjunto') || [];
+    const conjuntoIndex = parseInt($rowConjunto.data('index') || 0, 10) || 0;
+    const quantidadeConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+
+    regras.filter(function(regra) {
+        return (parseInt(regra.produto_id || 0, 10) || 0) > 0;
+    }).forEach(function(regra) {
+        const produtoId = parseInt(regra.produto_id || 0, 10) || 0;
+        const quantidadeNecessaria = Math.round(quantidadeConjunto * (parseFloat(regra.quantidade_por_conjunto || 0) || 0));
+        const $itens = $('#tabela_itens_orcamento tbody tr.item-conjunto-filho-row[data-conjunto-pai-index="' + conjuntoIndex + '"]').filter(function() {
+            return (parseInt($(this).find('.produto_id').val(), 10) || 0) === produtoId;
+        });
+
+        if ($itens.length) {
+            const $itemFixo = $itens.first();
+            $itemFixo.find('.quantidade_item').val(quantidadeNecessaria);
+            marcarItemFixoConjunto($itemFixo, regra);
+            return;
+        }
+        if (!criarAusentes || !regra.produto_fixo_nome) { return; }
+
+        const indiceAnterior = conjuntoAtivoIndex;
+        const nomeAnterior = conjuntoAtivoNome;
+        conjuntoAtivoIndex = conjuntoIndex;
+        conjuntoAtivoNome = $rowConjunto.find('.nome_produto_display').val() || 'Conjunto';
+        const $novaLinha = adicionarLinhaItemTabela({
+            id: produtoId,
+            nome_produto: regra.produto_fixo_nome,
+            preco_locacao: 0,
+            quantidade: quantidadeNecessaria,
+            tipo_item_loc_vend: 'locacao',
+            foto_path_completo: regra.produto_fixo_foto_path_completo || null,
+            categoria_id: parseInt(regra.produto_fixo_categoria_id || 0, 10) || 0,
+            subcategoria_id: parseInt(regra.produto_fixo_subcategoria_id || 0, 10) || 0,
+            eh_conjunto: parseInt(regra.produto_fixo_eh_conjunto || 0, 10) || 0
+        }, 'ITEM_CONJUNTO');
+        conjuntoAtivoIndex = indiceAnterior;
+        conjuntoAtivoNome = nomeAnterior;
+        marcarItemFixoConjunto($novaLinha, regra);
+    });
+    atualizarGuiasConjunto($rowConjunto);
+}
+
 
 function obterLinhaConjuntoPorIndex(conjuntoIndex) {
     return $('#tabela_itens_orcamento tbody tr.item-conjunto-row').filter(function() {
@@ -2811,11 +2903,16 @@ function obterLinhaConjuntoPorIndex(conjuntoIndex) {
 }
 
 function regraConjuntoCasaComItem(regra, $rowItem) {
+    const produtoItem = parseInt($rowItem.find('.produto_id').val() || 0, 10) || 0;
+    const regraProduto = parseInt(regra.produto_id || 0, 10) || 0;
     const categoriaItem = parseInt($rowItem.data('categoria-id') || 0, 10) || 0;
     const subcategoriaItem = parseInt($rowItem.data('subcategoria-id') || 0, 10) || 0;
     const regraCategoria = parseInt(regra.categoria_id || 0, 10) || 0;
     const regraSubcategoria = parseInt(regra.subcategoria_id || 0, 10) || 0;
 
+    if (regraProduto > 0) {
+        return produtoItem === regraProduto;
+    }
     if (regraSubcategoria > 0) {
         return subcategoriaItem === regraSubcategoria;
     }
@@ -3035,6 +3132,7 @@ function adicionarConjuntoAoOrcamento(produto) {
 
     if ($rowConjunto && $rowConjunto.length) {
         carregarRegrasConjunto(produto.id, $rowConjunto, function(grupos) {
+            sincronizarItensFixosConjunto($rowConjunto, true);
             ativarMontagemConjunto($rowConjunto, true);
 
             // Igual ao create: deixa as guias Bistrô/Pufes visíveis.
@@ -3059,18 +3157,29 @@ function adicionarItemAoConjuntoAtivo(produto) {
         return false;
     }
 
-    let casaComAlgumaRegra = false;
-    for (let i = 0; i < regras.length; i++) {
-        if (regraCasaComProduto(regras[i], produto)) {
-            casaComAlgumaRegra = true;
-            break;
-        }
-    }
-
-    if (!casaComAlgumaRegra) {
+    const regrasCompativeis = regras.filter(function(regra) {
+        return regraCasaComProduto(regra, produto);
+    });
+    if (!regrasCompativeis.length) {
         Swal.fire('Produto fora da montagem', 'Este produto não pertence aos grupos configurados para este conjunto. Nada foi alterado.', 'warning');
         return false;
     }
+
+    const regra = regrasCompativeis[0];
+    const qtdConjunto = parseInt($rowConjunto.find('.quantidade_item').val(), 10) || 0;
+    const qtdPorConjunto = parseFloat(regra.quantidade_por_conjunto || 1) || 1;
+    const necessario = Math.round(qtdConjunto * qtdPorConjunto);
+    const lancado = somarItensDoGrupoConjunto($rowConjunto, regra, null);
+    const faltante = Math.max(0, necessario - lancado);
+    if (faltante <= 0) {
+        Swal.fire('Grupo completo', 'Este grupo do conjunto já está completo. Diminua ou remova uma linha antes de adicionar outra.', 'warning');
+        return false;
+    }
+
+    produto.quantidade = qtdPorConjunto > 1
+        ? Math.min(Math.round(qtdPorConjunto), faltante)
+        : faltante;
+    produto.tipo_item_loc_vend = 'locacao';
 
     var $rowItem = adicionarLinhaItemTabela(produto, 'ITEM_CONJUNTO');
     if ($rowItem && $rowItem.length) {
@@ -3119,7 +3228,7 @@ function validarEstoqueQuantidade($row) {
     }
 
     if (($row.data('tipo-linha') || '') === 'CONJUNTO') {
-        atualizarGuiasConjunto($row);
+        sincronizarItensFixosConjunto($row, true);
     }
 
     // Atualiza os indicadores compactos dos grupos do conjunto, quando aplicável.
