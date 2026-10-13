@@ -783,6 +783,7 @@ class Produto {
                             (
                                 produto_conjunto_id,
                                 nome_grupo,
+                                produto_id,
                                 categoria_id,
                                 subcategoria_id,
                                 quantidade_por_conjunto,
@@ -794,6 +795,7 @@ class Produto {
                             (
                                 :produto_conjunto_id,
                                 :nome_grupo,
+                                :produto_id,
                                 :categoria_id,
                                 :subcategoria_id,
                                 :quantidade_por_conjunto,
@@ -817,6 +819,7 @@ class Produto {
 
                 $categoriaId = !empty($grupo['categoria_id']) ? (int)$grupo['categoria_id'] : null;
                 $subcategoriaId = !empty($grupo['subcategoria_id']) ? (int)$grupo['subcategoria_id'] : null;
+                $produtoId = !empty($grupo['produto_id']) ? (int)$grupo['produto_id'] : null;
 
                 $quantidade = isset($grupo['quantidade_por_conjunto'])
                     ? (float)str_replace(',', '.', (string)$grupo['quantidade_por_conjunto'])
@@ -831,6 +834,12 @@ class Produto {
 
                 $stmtInsert->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
                 $stmtInsert->bindValue(':nome_grupo', $nomeGrupo, PDO::PARAM_STR);
+
+                if ($produtoId !== null && $produtoId > 0) {
+                    $stmtInsert->bindValue(':produto_id', $produtoId, PDO::PARAM_INT);
+                } else {
+                    $stmtInsert->bindValue(':produto_id', null, PDO::PARAM_NULL);
+                }
 
                 if ($categoriaId !== null && $categoriaId > 0) {
                     $stmtInsert->bindValue(':categoria_id', $categoriaId, PDO::PARAM_INT);

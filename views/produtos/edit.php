@@ -73,6 +73,7 @@ function montarGruposConjuntoProdutoEdit(array $postGrupos): array
 
         $grupos[] = [
             'nome_grupo' => $nomeGrupo,
+            'produto_id' => !empty($linha['produto_id']) ? (int)$linha['produto_id'] : null,
             'categoria_id' => !empty($linha['categoria_id']) ? (int)$linha['categoria_id'] : null,
             'subcategoria_id' => !empty($linha['subcategoria_id']) ? (int)$linha['subcategoria_id'] : null,
             'quantidade_por_conjunto' => normalizarQuantidadeGrupoConjuntoEdit($linha['quantidade_por_conjunto'] ?? 1),
@@ -102,13 +103,14 @@ function salvarGruposConjuntoProdutoEdit(PDO $db, Produto $produtoModel, int $pr
     }
 
     $stmtInsert = $db->prepare("INSERT INTO produto_conjunto_grupos
-        (produto_conjunto_id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
+        (produto_conjunto_id, nome_grupo, produto_id, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
         VALUES
-        (:produto_conjunto_id, :nome_grupo, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
+        (:produto_conjunto_id, :nome_grupo, :produto_id, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
 
     foreach ($grupos as $ordem => $grupo) {
         $stmtInsert->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
         $stmtInsert->bindValue(':nome_grupo', $grupo['nome_grupo'], PDO::PARAM_STR);
+        $stmtInsert->bindValue(':produto_id', !empty($grupo['produto_id']) ? (int)$grupo['produto_id'] : null, !empty($grupo['produto_id']) ? PDO::PARAM_INT : PDO::PARAM_NULL);
 
         if (!empty($grupo['categoria_id'])) {
             $stmtInsert->bindValue(':categoria_id', (int)$grupo['categoria_id'], PDO::PARAM_INT);
@@ -147,6 +149,7 @@ function carregarGruposConjuntoProdutoEdit(PDO $db, int $produtoId): array
             pcg.id,
             pcg.produto_conjunto_id,
             pcg.nome_grupo,
+            pcg.produto_id,
             pcg.categoria_id,
             pcg.subcategoria_id,
             pcg.quantidade_por_conjunto,
@@ -859,6 +862,7 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
                                     <?php if (!empty($gruposConjuntoAtuais)): ?>
                                         <?php foreach ($gruposConjuntoAtuais as $idxGrupo => $grupo): ?>
                                             <div class="row grupo-conjunto-row align-items-end mb-2">
+                                                <input type="hidden" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][produto_id]" value="<?php echo (int)($grupo['produto_id'] ?? 0); ?>">
                                                 <div class="col-md-2">
                                                     <label>Nome do grupo</label>
                                                     <input type="text" name="grupos_conjunto[<?php echo (int)$idxGrupo; ?>][nome_grupo]" class="form-control form-control-sm grupo-nome" value="<?php echo htmlspecialchars($grupo['nome_grupo'] ?? ''); ?>" placeholder="Ex.: Pufes">
@@ -974,6 +978,7 @@ $controlaEstoqueAtual = isset($produto_data['controla_estoque']) ? (int)$produto
 
 <template id="template-grupo-conjunto-row">
     <div class="row grupo-conjunto-row align-items-end mb-2">
+        <input type="hidden" name="grupos_conjunto[][produto_id]" value="">
         <div class="col-md-2">
             <label>Nome do grupo</label>
             <input type="text" name="grupos_conjunto[][nome_grupo]" class="form-control form-control-sm grupo-nome" placeholder="Ex.: Pufes">

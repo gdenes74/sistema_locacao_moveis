@@ -188,26 +188,16 @@ $placeholderImgUrl = function_exists('build_url')
                             </div>
                             <!-- Filtro Categoria -->
                             <div class="col-lg-2 col-md-6 form-group mb-2 mb-md-0">
-                                 <label for="categoria_id_filtro" class="mb-1 small text-muted">Categoria</label>
+                                <label for="categoria_id_filtro" class="mb-1 small text-muted">Categoria</label>
                                 <select name="categoria_id" id="categoria_id_filtro" class="form-control form-control-sm" <?= empty($listaCategoriasFiltro) ? 'disabled' : '' ?>>
                                     <option value="">-- Todas --</option>
-                                    <?php foreach ($listaCategoriasFiltro as $cat): ?>
-                                        <option value="<?= $cat['id'] ?>" <?= (isset($_GET['categoria_id']) && $_GET['categoria_id'] == $cat['id']) ? 'selected' : '' ?>>
-                                            <?= htmlspecialchars($cat['nome']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             <!-- Filtro Subcategoria -->
-                             <div class="col-lg-3 col-md-6 form-group mb-2 mb-md-0">
-                                 <label for="subcategoria_id_filtro" class="mb-1 small text-muted">Subcategoria</label>
+                            <div class="col-lg-3 col-md-6 form-group mb-2 mb-md-0">
+                                <label for="subcategoria_id_filtro" class="mb-1 small text-muted">Subcategoria</label>
                                 <select name="subcategoria_id" id="subcategoria_id_filtro" class="form-control form-control-sm" <?= empty($listaSubcategoriasFiltro) ? 'disabled' : '' ?>>
                                     <option value="">-- Todas --</option>
-                                     <?php foreach ($listaSubcategoriasFiltro as $sub): ?>
-                                        <option value="<?= $sub['id'] ?>" <?= (isset($_GET['subcategoria_id']) && $_GET['subcategoria_id'] == $sub['id']) ? 'selected' : '' ?>>
-                                            <?= htmlspecialchars($sub['nome']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
                                 </select>
                             </div>
                             <!-- Botões -->
@@ -402,6 +392,69 @@ $placeholderImgUrl = function_exists('build_url')
     </section><!-- /.content -->
 </div><!-- /.content-wrapper -->
 
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const categorias = <?= json_encode($listaCategoriasFiltro, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const subcategorias = <?= json_encode($listaSubcategoriasFiltro, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const selectSecao = document.getElementById('secao_id_filtro');
+    const selectCategoria = document.getElementById('categoria_id_filtro');
+    const selectSubcategoria = document.getElementById('subcategoria_id_filtro');
+    const categoriaSelecionadaInicial = <?= json_encode($_GET['categoria_id'] ?? '') ?>;
+    const subcategoriaSelecionadaInicial = <?= json_encode($_GET['subcategoria_id'] ?? '') ?>;
+    function carregarCategorias(valorSelecionado = '') {
+        const secaoId = selectSecao.value;
+        selectCategoria.innerHTML = '<option value="">-- Todas --</option>';
+        categorias.forEach(function (categoria) {
+            if (secaoId === '' || String(categoria.secao_id) === String(secaoId)) {
+                const option = document.createElement('option');
+                option.value = categoria.id;
+                option.textContent = categoria.nome;
+                if (valorSelecionado !== '' && String(categoria.id) === String(valorSelecionado)) {
+                    option.selected = true;
+                }
+                selectCategoria.appendChild(option);
+            }
+        });
+    }
+    function carregarSubcategorias(valorSelecionado = '') {
+        const secaoId = selectSecao.value;
+        const categoriaId = selectCategoria.value;
+        selectSubcategoria.innerHTML = '<option value="">-- Todas --</option>';
+        subcategorias.forEach(function (subcategoria) {
+            let mostrar = false;
+            if (categoriaId !== '') {
+                mostrar = String(subcategoria.categoria_id) === String(categoriaId);
+            } else if (secaoId !== '') {
+                const categoriaPai = categorias.find(function (categoria) {
+                    return String(categoria.id) === String(subcategoria.categoria_id)
+                        && String(categoria.secao_id) === String(secaoId);
+                });
+                mostrar = !!categoriaPai;
+            } else {
+                mostrar = true;
+            }
+            if (mostrar) {
+                const option = document.createElement('option');
+                option.value = subcategoria.id;
+                option.textContent = subcategoria.nome;
+                if (valorSelecionado !== '' && String(subcategoria.id) === String(valorSelecionado)) {
+                    option.selected = true;
+                }
+                selectSubcategoria.appendChild(option);
+            }
+        });
+    }
+    carregarCategorias(categoriaSelecionadaInicial);
+    carregarSubcategorias(subcategoriaSelecionadaInicial);
+    selectSecao.addEventListener('change', function () {
+        carregarCategorias('');
+        carregarSubcategorias('');
+    });
+    selectCategoria.addEventListener('change', function () {
+        carregarSubcategorias('');
+    });
+});
+</script>
 <?php include_once __DIR__ . '/../includes/footer.php'; // Rodapé original mantido ?>
 <!-- Data/Hora Atual (Oculto) -->
 <div style="display:none;">

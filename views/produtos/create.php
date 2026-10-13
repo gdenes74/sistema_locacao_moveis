@@ -134,6 +134,7 @@ function salvarGruposConjuntoProdutoCreate(PDO $conn, Produto $produtoModel, int
         $nomeGrupo = isset($linha['nome_grupo']) ? trim((string)$linha['nome_grupo']) : '';
         $categoriaId = isset($linha['categoria_id']) && $linha['categoria_id'] !== '' ? (int)$linha['categoria_id'] : null;
         $subcategoriaId = isset($linha['subcategoria_id']) && $linha['subcategoria_id'] !== '' ? (int)$linha['subcategoria_id'] : null;
+        $produtoId = isset($linha['produto_id']) && $linha['produto_id'] !== '' ? (int)$linha['produto_id'] : null;
         $quantidade = isset($linha['quantidade_por_conjunto'])
             ? normalizarQuantidadeComposicao($linha['quantidade_por_conjunto'])
             : 1.00;
@@ -148,6 +149,7 @@ function salvarGruposConjuntoProdutoCreate(PDO $conn, Produto $produtoModel, int
 
         $linhas[] = [
             'nome_grupo' => $nomeGrupo,
+            'produto_id' => $produtoId,
             'categoria_id' => $categoriaId,
             'subcategoria_id' => $subcategoriaId,
             'quantidade_por_conjunto' => $quantidade,
@@ -170,13 +172,14 @@ function salvarGruposConjuntoProdutoCreate(PDO $conn, Produto $produtoModel, int
     }
 
     $stmt = $conn->prepare("INSERT INTO produto_conjunto_grupos
-        (produto_conjunto_id, nome_grupo, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
+        (produto_conjunto_id, nome_grupo, produto_id, categoria_id, subcategoria_id, quantidade_por_conjunto, obrigatorio, ordem, observacoes)
         VALUES
-        (:produto_conjunto_id, :nome_grupo, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
+        (:produto_conjunto_id, :nome_grupo, :produto_id, :categoria_id, :subcategoria_id, :quantidade_por_conjunto, :obrigatorio, :ordem, :observacoes)");
 
     foreach ($linhas as $ordem => $linha) {
         $stmt->bindValue(':produto_conjunto_id', $produtoConjuntoId, PDO::PARAM_INT);
         $stmt->bindValue(':nome_grupo', $linha['nome_grupo'], PDO::PARAM_STR);
+        $stmt->bindValue(':produto_id', $linha['produto_id'], $linha['produto_id'] !== null ? PDO::PARAM_INT : PDO::PARAM_NULL);
 
         if ($linha['categoria_id'] !== null) {
             $stmt->bindValue(':categoria_id', $linha['categoria_id'], PDO::PARAM_INT);
