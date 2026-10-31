@@ -35,3 +35,13 @@ Thumbs.db
 # BACKUPS LOCAIS
 # =========================
 backup_uploads/
+
+# Capturas locais geradas pelos testes e dumps de segurança
+tests/backups/
+
+# Utilitários com caminhos pessoais e desenhos experimentais não carregados
+tests/backup_antes_fotos_contextuais.php
+tests/registrar_mestres_pufes.php
+views/producao/plano_corte_desenho.php
+views/producao/plano_corte_visual.php
+views/producao/plano_tecnico_visual.php

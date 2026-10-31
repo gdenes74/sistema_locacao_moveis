@@ -1,5 +1,11 @@
 # V2 – Evolução Operacional do Sistema Mobel Festas
 
+> A seção V2.0.1 abaixo registra o marco de junho e não descreve sozinha a
+> versão em desenvolvimento em outubro. O estado atual do catálogo visual,
+> pedidos e produção está no
+> [Blueprint V2 de outubro de 2026](../diagramas/blueprint/01-blueprint-v2-outubro-2026.md)
+> e no [changelog](../../CHANGELOG.md).
+
 ## V2.0.1 – Bloqueio de kits/conjuntos com preço zerado
 
 ### Objetivo

@@ -8,6 +8,12 @@
 📊 [Diagramas e Blueprint](docs/diagramas/README.md)
 
 📜 [História do Projeto](docs/negocio/historia-projeto.md)
+
+🧩 [Motor de cores e produção](docs/arquitetura/motor-cores-e-producao.md)
+
+🗓️ [Evolução recente](CHANGELOG.md)
+
+🌿 [Versionamento e promoção](docs/roadmap/promocao-versoes.md)
 ![PHP](https://img.shields.io/badge/PHP-8%2B-777BB4?logo=php\&logoColor=white)
 ![MariaDB](https://img.shields.io/badge/MariaDB-003545?logo=mariadb\&logoColor=white)
 ![MVC](https://img.shields.io/badge/Architecture-MVC-blue)
@@ -16,6 +22,25 @@
 ![Started](https://img.shields.io/badge/Started-2019-orange)
 
 > Sistema desenvolvido a partir das necessidades reais da operação da Mobel Festas, empresa do segmento de locação de móveis e itens para eventos.
+
+## Marco operacional de outubro de 2026
+
+O catálogo passou a distinguir **componentes físicos**, **produtos comerciais
+compostos** e **serviços de forração**. Famílias e vínculos do motor de cores
+podem ser configurados no sistema; fotos mestre, máscaras e amostras exigem
+revisão antes da publicação.
+
+Em orçamentos e pedidos, a cor pode selecionar uma capa física cadastrada ou
+servir de referência ilustrativa para uma forração sob demanda. A disponibilidade
+continua baseada nos componentes reais. Pedidos confirmados podem gerar fichas
+de produção para faltas, capas novas e forrações. As fichas mostram histórico e
+plano de corte; concluir uma ficha não soma estoque automaticamente.
+
+Este é um **marco de desenvolvimento local**, com validação operacional em
+andamento. O Git contém o código e a documentação, enquanto as fotos enviadas,
+os dados do negócio e os backups permanecem na instalação local. Consulte
+[o fluxo técnico](docs/arquitetura/motor-cores-e-producao.md) e
+[o registro da evolução](CHANGELOG.md) antes de instalar ou continuar a etapa.
 
 ---
 

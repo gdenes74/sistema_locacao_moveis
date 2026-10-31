@@ -33,6 +33,7 @@ Essa abordagem evita diagramas grandes demais, melhora a leitura, facilita impre
 | Status | Diagrama | Arquivo |
 |--------|----------|---------|
 | ✅ | Blueprint Geral | [00-blueprint-geral](blueprint/00-blueprint-geral.md) |
+| 🔄 | Blueprint V2 — catálogo visual e produção | [01-blueprint-v2-outubro-2026](blueprint/01-blueprint-v2-outubro-2026.md) |
 | ✅ | Visão Geral do Sistema | [01-visao-geral-sistema](dominios/01-visao-geral-sistema.md) |
 | ✅ | Fluxo Comercial | [02-fluxo-comercial](fluxos/02-fluxo-comercial.md) |
 | ✅ | Fluxo Operacional | [03-fluxo-operacional](fluxos/03-fluxo-operacional.md) |

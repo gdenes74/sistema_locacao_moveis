@@ -18,6 +18,7 @@ Documentação relacionada ao contexto da empresa, operação e regras do sistem
 | [Contexto Operacional](negocio/contexto-operacional.md) | Funcionamento da operação de locação para eventos          |
 | [Regras de Negócio](negocio/regras-negocio.md)          | Regras operacionais implementadas no sistema               |
 | [README Original](negocio/readme-original.md)           | Primeira versão pública da documentação                    |
+| [Evolução recente](../CHANGELOG.md)                      | Marcos do código e limites de cada etapa                   |
 
 ---
 
@@ -29,6 +30,7 @@ Documentação técnica da estrutura do sistema.
 | ----------------------------------------------------- | ------------------------------------- |
 | [Arquitetura Geral](arquitetura/arquitetura-geral.md) | Visão geral dos módulos e componentes |
 | [MVC](arquitetura/mvc.md)                             | Organização do código baseada em MVC  |
+| [Motor de cores e produção](arquitetura/motor-cores-e-producao.md) | Vínculos, fotos, pedidos e fichas de corte |
 
 ---
 
@@ -53,6 +55,7 @@ Documentação técnica da estrutura do sistema.
 | Documento                                 | Descrição                                   |
 | ----------------------------------------- | ------------------------------------------- |
 | [Roadmap de Evolução](roadmap/roadmap.md) | Histórico e planejamento de funcionalidades |
+| [Versionamento e promoção](roadmap/promocao-versoes.md) | Branches, testes e ambientes |
 
 ---
 
