@@ -482,9 +482,12 @@ class Produto {
                     filho.tipo_produto,
                     filho.controla_estoque,
                     filho.quantidade_total,
-                    filho.preco_locacao
+                    filho.preco_locacao,
+                    COALESCE(fc.foto_path, filho.foto_path) AS foto_nesta_montagem,
+                    fc.id AS foto_contextual_id
                   FROM produto_composicao pc
                   INNER JOIN produtos filho ON filho.id = pc.produto_filho_id
+                  LEFT JOIN fotos_componentes_contextuais fc ON fc.produto_montado_id = pc.produto_pai_id AND fc.componente_id = pc.produto_filho_id
                   WHERE pc.produto_pai_id = :produto_pai_id
                   ORDER BY filho.nome_produto ASC";
 

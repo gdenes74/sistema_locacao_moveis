@@ -29,6 +29,7 @@ $isAdmin = function_exists('hasAccess') ? hasAccess('admin') : (isset($_SESSION[
         <?php if ($isAdmin): ?>
             <h6 class="mt-3">Admin</h6>
             <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>views/usuarios/index.php">Usuários</a></li> <!-- Supondo que index.php lista usuários -->
+            <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>views/produtos/cores_imagens.php">Montagem por cor — móveis estofados e forrados</a></li>
         <?php endif; ?>
     </ul>
 </div>

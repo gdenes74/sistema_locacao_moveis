@@ -333,6 +333,7 @@ if (!empty($produto_data['foto_path'])) {
                                         <thead class="thead-light">
                                             <tr>
                                                 <th>Componente</th>
+                                                <th style="width: 100px;" class="text-center">Foto nesta montagem</th>
                                                 <th style="width: 120px;" class="text-center">Qtd. por unidade</th>
                                                 <th style="width: 110px;" class="text-center">Obrigatório</th>
                                                 <th style="width: 120px;" class="text-center">Controla estoque</th>
@@ -351,6 +352,11 @@ if (!empty($produto_data['foto_path'])) {
                                                         <?php if (!empty($comp['tipo_produto'])): ?>
                                                             <small class="badge badge-light border"><?= htmlspecialchars($comp['tipo_produto'], ENT_QUOTES, 'UTF-8') ?></small>
                                                         <?php endif; ?>
+                                                    </td>
+                                                    <td class="text-center">
+                                                        <?php if (!empty($comp['foto_nesta_montagem']) && str_starts_with((string)$comp['foto_nesta_montagem'], 'assets/uploads/produtos/')): ?>
+                                                            <img src="<?= htmlspecialchars(build_url((string)$comp['foto_nesta_montagem']), ENT_QUOTES, 'UTF-8') ?>" alt="Imagem de <?= htmlspecialchars($comp['nome_produto'] ?? 'componente', ENT_QUOTES, 'UTF-8') ?> nesta montagem" class="img-thumbnail" style="max-width:75px;max-height:75px;object-fit:contain">
+                                                        <?php else: ?>—<?php endif; ?>
                                                     </td>
                                                     <td class="text-center"><?= number_format((float)($comp['quantidade'] ?? 0), 2, ',', '.') ?></td>
                                                     <td class="text-center">
