@@ -28,6 +28,10 @@ temáticos; não é necessário reescrever os commits históricos.
    mestre, máscara e amostras. Registrar evidências e rollback.
 6. Somente após aceite da candidata, promover a `main` e criar tag semântica.
 
+**Bloqueio conhecido para implantação pública:** a autenticação atual ainda
+usa credenciais de teste definidas em `views/usuarios/login.php`. Ela deve ser
+substituída e homologada antes de expor a aplicação fora do ambiente local.
+
 Este fluxo separa histórico do Git, banco de dados e publicação das fotos.
 Uma versão do código pode estar integrada em `develop` sem estar pronta para
 uso em produção.
