@@ -83,8 +83,10 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
     ?>
     <style>
         .select2-container--open { z-index: 9999999 !important; }
-        .datepicker { z-index: 999999 !important; }
-        body.modal-open .datepicker { z-index: 1051 !important; }
+        /* `.datepicker` também é a classe dos próprios inputs. Dar z-index
+           alto a ela fazia os campos atravessarem os modais do SweetAlert.
+           Somente o calendário flutuante precisa ficar acima do formulário. */
+        .datepicker-dropdown { z-index: 1055 !important; }
         .table-responsive { overflow-x: auto; }
         .form-control-sm { height: calc(1.8125rem + 2px); padding: .25rem .5rem; font-size: .875rem; line-height: 1.5; border-radius: .2rem; }
         .input-group-append .input-group-text { padding: .375rem .5rem; }
@@ -262,6 +264,16 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                             </li>
                         </ul>
                     </li>
+                    <li class="nav-item <?= ($page_group == 'producao') ? 'menu-open' : '' ?>">
+                        <a href="#" class="nav-link <?= ($page_group == 'producao') ? 'active' : '' ?>">
+                            <i class="nav-icon fas fa-tools"></i>
+                            <p>Produção<i class="right fas fa-angle-left"></i></p>
+                        </a>
+                        <ul class="nav nav-treeview">
+                            <li class="nav-item"><a href="<?= BASE_URL ?>/views/producao/index.php" class="nav-link <?= ($page_group == 'producao' && $current_page == 'index.php') ? 'active' : '' ?>"><i class="far fa-circle nav-icon"></i><p>Pendências de produção</p></a></li>
+                            <li class="nav-item"><a href="<?= BASE_URL ?>/views/producao/create.php" class="nav-link <?= ($page_group == 'producao' && $current_page == 'create.php') ? 'active' : '' ?>"><i class="far fa-circle nav-icon"></i><p>Nova pendência</p></a></li>
+                        </ul>
+                    </li>
                     <li class="nav-item <?= ($page_group == 'clientes') ? 'menu-open' : '' ?>">
                         <a href="#" class="nav-link <?= ($page_group == 'clientes') ? 'active' : '' ?>">
                             <i class="nav-icon fas fa-users"></i>
@@ -296,6 +308,9 @@ $resolved_page_title = isset($page_title) ? htmlspecialchars($page_title) . ' | 
                                     <i class="far fa-circle nav-icon"></i><p>Novo Produto</p>
                                 </a>
                             </li>
+                            <?php if (function_exists('hasAccess') && hasAccess('admin')): ?>
+                                    <li class="nav-item"><a href="<?= BASE_URL ?>/views/produtos/cores_imagens.php" class="nav-link <?= in_array($current_page, ['cores_imagens.php', 'novo_mestre.php', 'preparar_fotos.php'], true) ? 'active' : '' ?>"><i class="far fa-circle nav-icon"></i><p>Montagem por cor — móveis estofados e forrados</p></a></li>
+                            <?php endif; ?>
                             <li class="nav-item">
                                 <a href="<?= BASE_URL ?>/views/secoes/index.php" class="nav-link <?= ($page_group == 'produtos' && strpos($_SERVER['REQUEST_URI'], '/views/secoes/') !== false) ? 'active' : '' ?>">
                                     <i class="far fa-circle nav-icon"></i><p>Seções</p>

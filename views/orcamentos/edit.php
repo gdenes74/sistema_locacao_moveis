@@ -155,7 +155,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
             $sql = "SELECT id, nome, telefone, email, cpf_cnpj, endereco, cidade, observacoes
                     FROM clientes
                     ORDER BY id DESC
-                    LIMIT 10";
+                    LIMIT 50";
             $stmt = $db->prepare($sql);
         } else {
             $sql = "SELECT id, nome, telefone, email, cpf_cnpj, endereco, cidade, observacoes
@@ -169,7 +169,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
                             ELSE 2
                         END,
                         nome ASC
-                    LIMIT 15";
+                    LIMIT 50";
 
             $stmt = $db->prepare($sql);
             $likeTerm = "%" . $termo . "%";
@@ -1033,7 +1033,7 @@ include_once __DIR__ . '/../includes/header.php';
                                                         <small class="form-text text-muted observacoes_item_label" style="<?= $observacoesEstilo ?>">Obs. Item:</small>
                                                         <input type="text" name="observacoes_item[]" class="form-control form-control-sm observacoes_item_input mt-1" style="<?= $observacoesEstilo ?>" placeholder="Observação do item" value="<?= htmlspecialchars($item['observacoes'] ?? '') ?>">
                                                     </td>
-                                                    <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro" style="display:none;"></div></td>
+                    <td class="status-disponibilidade-cell text-center"><div class="disponibilidade-contexto status-neutro"><span class="status-principal">CONSULTAR</span><span class="status-detalhe">· aguardando consulta</span></div></td>
                                                     <td><input type="number" name="quantidade[]" class="form-control form-control-sm quantidade_item quantity-input item-qtd text-center" value="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>" min="0" style="width: 70px;" data-valor-original="<?= htmlspecialchars($item['quantidade'] ?? 0) ?>"></td>
                                                     <td><input type="text" name="valor_unitario[]" class="form-control form-control-sm valor_unitario_item text-right money-input item-valor-unitario" value="<?= $isLinhaItemConjunto ? '0,00' : $precoUnitario ?>" <?= $isLinhaItemConjunto ? 'readonly' : '' ?>></td>
                                                     <td><input type="text" name="desconto_item[]" class="form-control form-control-sm desconto_item text-right money-input" value="<?= $isLinhaItemConjunto ? '0,00' : $descontoItem ?>" <?= $isLinhaItemConjunto ? 'readonly' : '' ?>></td>
@@ -1656,7 +1656,7 @@ include_once __DIR__ . '/../includes/header.php';
     .datepicker-dropdown.dropdown-menu,
     body > .datepicker-dropdown,
     body > .datepicker-dropdown.dropdown-menu {
-        z-index: 999999 !important;
+        z-index: 1055 !important;
         background: #ffffff !important;
         border: 1px solid #ced4da !important;
         box-shadow: 0 8px 18px rgba(0,0,0,0.18) !important;
@@ -1669,7 +1669,7 @@ include_once __DIR__ . '/../includes/header.php';
     }
     .datepicker-dropdown:before,
     .datepicker-dropdown:after {
-        z-index: 1000000 !important;
+        z-index: 1056 !important;
     }
 </style>
 
@@ -1938,6 +1938,7 @@ $(document).ready(function() {
         const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
+        const estoqueSobDemanda = parseInt(response.estoque_total || 0, 10) >= 999999;
         const statusTexto = obterTextoStatusDisponibilidade(response);
         const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
         const produtoConsultadoNome = response.produto_nome || '';
@@ -2047,7 +2048,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
 
-        let detalhe = `· Ped. ${comprometido} · Orç. ${reservadoAtual} · Livre ${livreApos}`;
+        const estoqueSobDemanda = parseInt(response.estoque_total || 0, 10) >= 999999;
+        let detalhe = estoqueSobDemanda ? '· Serviço sob demanda' : `· Ped. ${comprometido} · Orç. ${reservadoAtual} · Livre ${livreApos}`;
         if (faltante > 0) {
             detalhe = `· Faltando ${faltante}`;
         }
@@ -2212,6 +2214,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
         });
     }
 
+    document.addEventListener('mobel:variante-capa-alterada', function(e) { revalidarTodasAsLinhasDisponibilidade($(e.detail.linha)); });
     function revalidarTodasAsLinhasDisponibilidade($rowAlerta = null) {
         const rowAlertaEl = $rowAlerta && $rowAlerta.length ? $rowAlerta[0] : null;
 
@@ -2223,6 +2226,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
             }
         });
     }
+    window.revalidarTodasAsLinhasDisponibilidade = revalidarTodasAsLinhasDisponibilidade;
 
     function carregarSugestoesProdutos() {
         var termoBusca = $('#busca_produto').val().trim();
@@ -3967,5 +3971,15 @@ window.TEXTOS_PADRAO_ORCAMENTO = " . json_encode([
     'condicoes' => $textoPadraoCondicoesMatriz,
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) . ";";
 
+if (empty($_SESSION['mobel_color_catalog_token'])) {
+    $_SESSION['mobel_color_catalog_token'] = bin2hex(random_bytes(24));
+}
+$inline_js_setup .= "\nwindow.MOBEL_FORRACAO_BASE = " . json_encode(BASE_URL) . ";";
+$inline_js_setup .= "\nwindow.MOBEL_COLOR_CATALOG_TOKEN = " . json_encode($_SESSION['mobel_color_catalog_token']) . ";";
+$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
+$extra_js = array_map(static function ($src) {
+    $arquivo = __DIR__ . '/../../assets/js/' . basename(parse_url($src, PHP_URL_PATH));
+    return is_file($arquivo) ? preg_replace('/\\?.*$/', '', $src) . '?v=' . filemtime($arquivo) : $src;
+}, $extra_js);
 include_once __DIR__ . '/../includes/footer.php';
 ?>

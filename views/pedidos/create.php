@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../models/Pedido.php';
 require_once __DIR__ . '/../../models/Orcamento.php';
 require_once __DIR__ . '/../../models/EstoqueMovimentacao.php';
 require_once __DIR__ . '/../../models/ConfiguracaoTexto.php';
+require_once __DIR__ . '/../../models/ProducaoPendente.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -85,7 +86,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
             $sql = "SELECT id, nome, telefone, email, cpf_cnpj, endereco, cidade, observacoes
                     FROM clientes
                     ORDER BY id DESC
-                    LIMIT 10";
+                    LIMIT 50";
             $stmt = $db->prepare($sql);
         } else {
             $sql = "SELECT id, nome, telefone, email, cpf_cnpj, endereco, cidade, observacoes
@@ -99,7 +100,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_clientes') {
                             ELSE 2
                         END,
                         nome ASC
-                    LIMIT 15";
+                    LIMIT 50";
 
             $stmt = $db->prepare($sql);
             $likeTerm = "%" . $termo . "%";
@@ -753,6 +754,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         if (!$pedidoModel->recalcularValores($pedidoIdSalvo)) {
             throw new Exception("Pedido salvo, mas houve um problema ao recalcular os valores finais. Edite o pedido para corrigir.");
         }
+        (new ProducaoPendente($db))->sincronizarCoresNovasDoPedido((int)$pedidoIdSalvo, isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null);
 
         if ($orcamento_origem_id) {
             $stmt_update_orc = $db->prepare("UPDATE orcamentos SET status = 'convertido' WHERE id = ?");
@@ -1742,7 +1744,7 @@ include_once __DIR__ . '/../includes/header.php';
                     .datepicker-dropdown.dropdown-menu,
                     body > .datepicker-dropdown,
                     body > .datepicker-dropdown.dropdown-menu {
-                        z-index: 999999 !important;
+                        z-index: 1055 !important;
                         background: #ffffff !important;
                         border: 1px solid #ced4da !important;
                         box-shadow: 0 8px 18px rgba(0,0,0,0.18) !important;
@@ -1755,7 +1757,7 @@ include_once __DIR__ . '/../includes/header.php';
                     }
                     .datepicker-dropdown:before,
                     .datepicker-dropdown:after {
-                        z-index: 1000000 !important;
+                        z-index: 1056 !important;
                     }
 
                 </style>
@@ -3071,6 +3073,7 @@ $(document).ready(function() {
         const reservadoAtual = parseInt((response.reservado_orcamento_atual ?? response.quantidade_solicitada ?? 0), 10);
         const livreApos = parseInt(response.livre_apos_orcamento !== undefined ? response.livre_apos_orcamento : 0, 10);
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
+        const estoqueSobDemanda = parseInt(response.estoque_total || 0, 10) >= 999999;
         const statusTexto = obterTextoStatusDisponibilidade(response);
         const produtoConsultadoId = parseInt(response.produto_id || 0, 10);
         const produtoConsultadoNome = response.produto_nome || '';
@@ -3180,7 +3183,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
         const faltante = parseInt(response.faltante_orcamento || 0, 10);
         const statusTexto = obterTextoStatusDisponibilidade(response);
 
-        let detalhe = `· Ped. ${comprometido} · Ped. atual ${reservadoAtual} · Livre ${livreApos}`;
+        const estoqueSobDemanda = parseInt(response.estoque_total || 0, 10) >= 999999;
+        let detalhe = estoqueSobDemanda ? '· Serviço sob demanda' : `· Ped. ${comprometido} · Ped. atual ${reservadoAtual} · Livre ${livreApos}`;
         if (faltante > 0) {
             detalhe = `· Faltando ${faltante}`;
         }
@@ -3353,6 +3357,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
         });
     }
 
+    document.addEventListener('mobel:variante-capa-alterada', function(e) { revalidarTodasLinhasPedido($(e.detail.linha)); });
     function revalidarTodasLinhasPedido($rowAlerta = null) {
         if (!validarSequenciaDatasLogisticaPedido(false)) {
             marcarLinhasPedidoComoPeriodoInvalido();
@@ -3369,6 +3374,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
             }
         });
     }
+    window.revalidarTodasAsLinhasDisponibilidade = revalidarTodasLinhasPedido;
 
     function validarEstoqueTemporalLinha($row, exibirToast = false) {
         if (exibirToast) {
@@ -4005,7 +4011,25 @@ $('#data_devolucao_prevista').on('change dp.change', function() {
         return true;
     }
 
+    function validarClienteAntesDeSalvarPedido() {
+        const clienteId = String($('#cliente_id').val() || '').trim();
+        if (clienteId !== '') return true;
+        Swal.fire({
+            title: 'Cliente obrigatório',
+            text: 'Selecione o cliente antes de salvar. O pedido permanece aberto com todas as datas e itens informados.',
+            icon: 'warning',
+            confirmButtonText: 'Selecionar cliente'
+        }).then(function() {
+            $('#cliente_id').select2('open');
+        });
+        return false;
+    }
+
     $('#formPedido').on('submit', function(e) {
+        if (!validarClienteAntesDeSalvarPedido()) {
+            e.preventDefault();
+            return false;
+        }
         if (!validarSequenciaDatasLogisticaPedido(true)) {
             e.preventDefault();
             return false;
@@ -4159,5 +4183,15 @@ window.TEXTOS_PADRAO_PEDIDO = " . json_encode([
     'condicoes' => $textoPadraoCondicoes,
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) . ";";
 
+if (empty($_SESSION['mobel_color_catalog_token'])) {
+    $_SESSION['mobel_color_catalog_token'] = bin2hex(random_bytes(24));
+}
+$inline_js_setup .= "\nwindow.MOBEL_FORRACAO_BASE = " . json_encode(BASE_URL) . ";";
+$inline_js_setup .= "\nwindow.MOBEL_COLOR_CATALOG_TOKEN = " . json_encode($_SESSION['mobel_color_catalog_token']) . ";";
+$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
+$extra_js = array_map(static function ($src) {
+    $arquivo = __DIR__ . '/../../assets/js/' . basename(parse_url($src, PHP_URL_PATH));
+    return is_file($arquivo) ? preg_replace('/\\?.*$/', '', $src) . '?v=' . filemtime($arquivo) : $src;
+}, $extra_js);
 include_once __DIR__ . '/../includes/footer.php';
 ?>

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../models/Pedido.php';
 require_once __DIR__ . '/../../models/Cliente.php';
 require_once __DIR__ . '/../../models/Produto.php';
 require_once __DIR__ . '/../../models/ConfiguracaoTexto.php';
+require_once __DIR__ . '/../../models/MotorCores.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -216,6 +217,9 @@ if (!function_exists('montarNomeItemPedidoImpressao')) {
     {
         $nomeItem = trim((string)$nomeItem);
         $observacaoItem = trim((string)$observacaoItem);
+        if (preg_match('/(?:^|\|\s*)Cor:\s*([^|]+)/iu', $observacaoItem, $corMarcada)) {
+            $observacaoItem = trim($corMarcada[1]);
+        }
 
         $nomeNormalizado = normalizarTextoComparacaoMobel($nomeItem);
         $obsNormalizada = normalizarTextoComparacaoMobel($observacaoItem);
@@ -328,6 +332,9 @@ if (!function_exists('montarNomeComponenteProducaoPedidoShow')) {
             || strpos($nomeComponenteNormalizado, 'SERVICO') !== false;
 
         if ($ehServico && observacaoItemUsadaComoCorPedidoShow($nomeItem, $observacaoItem)) {
+            if (preg_match('/(?:^|\|\s*)Cor:\s*([^|]+)/iu', $observacaoItem, $corMarcada)) {
+                $observacaoItem = trim($corMarcada[1]);
+            }
             $nomeComponenteSemDefinir = preg_replace('/\bCOR\s+A\s+DEFINIR\b/iu', '', $nomeComponente);
             return trim((string)($nomeComponenteSemDefinir ?: $nomeComponente) . ' Cor ' . $observacaoItem);
         }
@@ -471,6 +478,15 @@ if (!function_exists('limparNomeArquivoPedidoShow')) {
 
 $database = new Database();
 $conn = $database->getConnection();
+$forracaoProdutos = array_fill_keys($conn->query("SELECT produto_generico_id FROM familias_variantes WHERE ativo=1 AND modo_impacto_estoque='FORRACAO_PRODUCAO' AND produto_generico_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN), true);
+$forracaoCores = [];
+foreach ($conn->query('SELECT DISTINCT c.id,c.nome,c.slug_normalizado FROM cores_padrao c JOIN amostras_cor a ON a.cor_padrao_id=c.id AND a.ativo=1 AND a.aprovada=1 WHERE c.ativo=1') as $corAprovada) {
+    $forracaoCores[(string)$corAprovada['slug_normalizado']] = $corAprovada['nome'];
+    $forracaoCoresPorId[(int)$corAprovada['id']] = $corAprovada['nome'];
+}
+foreach ($conn->query('SELECT cor_padrao_id,alias_normalizado FROM cor_aliases WHERE ativo=1 AND familia_variante_id IS NULL') as $aliasCor) {
+    if (isset($forracaoCoresPorId[(int)$aliasCor['cor_padrao_id']])) $forracaoCores[$aliasCor['alias_normalizado']] = $forracaoCoresPorId[(int)$aliasCor['cor_padrao_id']];
+}
 $pedidoModel = new Pedido($conn);
 $clienteModel = new Cliente($conn);
 
@@ -860,9 +876,23 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                             }
 
                                             $observacaoItem = trim((string)($item['observacoes'] ?? ''));
+                                            $observacaoItemVisivel = trim((string)preg_replace('/(?:^|\|\s*)Cor:\s*[^|]+/iu', '', $observacaoItem), " |\t\n\r\0\x0B");
                                             $nomeItemExibicao = montarNomeItemPedidoImpressao($nomeItem, $observacaoItem);
                                             $obsFoiConcatenada = observacaoItemUsadaComoCorPedidoShow($nomeItem, $observacaoItem);
                                             $produtoIdItem = isset($item['produto_id']) ? (int)$item['produto_id'] : 0;
+                                            $corForracaoPendente = false;
+                                            if (isset($forracaoProdutos[$produtoIdItem])) {
+                                                $corTexto = preg_match('/(?:^|\|\s*)Cor:\s*([^|]+)/iu', $observacaoItem, $corCapturada) ? trim($corCapturada[1]) : $observacaoItem;
+                                                $corCanonica = $forracaoCores[MotorCores::normalizar($corTexto)] ?? null;
+                                                $nomeItemExibicao = $corCanonica
+                                                    ? (string)preg_replace('/\bCor\s+A\s+Definir\b/iu', 'Cor ' . $corCanonica, $nomeItem)
+                                                    : $nomeItem;
+                                                $obsFoiConcatenada = $corCanonica !== null;
+                                                if ($corCanonica === null) {
+                                                    $observacaoItemVisivel = $observacaoItem;
+                                                    $corForracaoPendente = $observacaoItem !== '';
+                                                }
+                                            }
                                             $componentesItem = $produtoIdItem > 0 && isset($componentesPorProduto[$produtoIdItem]) ? $componentesPorProduto[$produtoIdItem] : [];
                                             if (!empty($componentesItem)) {
                                                 foreach ($componentesItem as $componenteItem) {
@@ -872,7 +902,7 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                             $componentesItemOrdenados = !empty($componentesItem) ? ordenarComponentesProducaoPedidoShow($componentesItem, $observacaoItem, $nomeItem) : [];
                                             $classeLinhaItem = $ehConjuntoPai ? 'linha-conjunto-pai' : ($ehItemConjunto ? 'linha-conjunto-filho' : '');
                                             ?>
-                                            <tr class="<?= $classeLinhaItem ?>">
+                                            <tr class="<?= $classeLinhaItem ?> mobel-forracao-impressao" data-produto-id="<?= $produtoIdItem ?>" data-observacao="<?= htmlspecialchars($observacaoItem, ENT_QUOTES, 'UTF-8') ?>">
                                                 <td class="text-center qtd-item <?= $ehItemConjunto ? 'qtd-item-conjunto-filho' : '' ?>"><strong><?= htmlspecialchars(number_format($quantidadeItem, 0)) ?></strong></td>
                                                 <td class="descricao-item <?= $ehItemConjunto ? 'descricao-item-conjunto-filho' : '' ?>">
                                                     <?php if ($ehItemConjunto): ?>
@@ -888,8 +918,8 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
                                                         <?php if ($ehConjuntoPai): ?>
                                                             <br><small class="indicador-conjunto-pai">↓ itens internos do conjunto</small>
                                                         <?php endif; ?>
-                                                        <?php if ($observacaoItem !== '' && !$obsFoiConcatenada): ?>
-                                                            <br><small class="observacao-item text-muted" style="font-style: italic;"><?= htmlspecialchars($observacaoItem) ?></small>
+                                                        <?php if ($observacaoItemVisivel !== '' && (!$obsFoiConcatenada || str_contains($observacaoItem, 'Cor:'))): ?>
+                                                            <br><small class="observacao-item text-muted<?= $corForracaoPendente ? ' cor-forracao-pendente' : '' ?>" style="font-style: italic;"><?= htmlspecialchars($observacaoItemVisivel) ?></small>
                                                         <?php endif; ?>
 
                                                         <?php if (!empty($componentesItemOrdenados)): ?>
@@ -1899,7 +1929,11 @@ $inline_js_setup = "window.PEDIDO_ID = " . $id
 
         /* Oculta observações na impressão para cliente */
         .impressao-cliente .observacao-item {
-            display: none !important;
+            display: inline !important;
+        }
+
+        .impressao-cliente .observacao-item.cor-forracao-pendente {
+            display: inline !important;
         }
 
         .linha-conjunto-pai td {
@@ -3422,7 +3456,7 @@ function limparModoImpressaoPedido() {
 
 function imprimirCliente() {
     var observacoes = document.querySelectorAll('.observacao-item');
-    observacoes.forEach(function (el) { el.style.display = 'none'; });
+    observacoes.forEach(function (el) { el.style.display = 'inline'; });
     document.body.classList.remove('impressao-producao');
     document.body.classList.add('impressao-cliente');
     definirTituloDocumentoPedido('cliente');
@@ -3453,5 +3487,11 @@ console.log('Show.php de pedidos carregado com sucesso');
 console.log('PEDIDO_ID:', typeof PEDIDO_ID !== 'undefined' ? PEDIDO_ID : 'não definido');
 JS;
 
+if (empty($_SESSION['mobel_color_catalog_token'])) {
+    $_SESSION['mobel_color_catalog_token'] = bin2hex(random_bytes(24));
+}
+$inline_js_setup = ($inline_js_setup ?? '') . "\nwindow.MOBEL_FORRACAO_BASE = " . json_encode(BASE_URL) . ";";
+$inline_js_setup .= "\nwindow.MOBEL_COLOR_CATALOG_TOKEN = " . json_encode($_SESSION['mobel_color_catalog_token']) . ";";
+$extra_js = array_merge($extra_js ?? [], [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js']);
 include_once __DIR__ . '/../includes/footer.php';
 ?>
