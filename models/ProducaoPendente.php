@@ -8,7 +8,7 @@ class ProducaoPendente
     private PDO $conn;
     private string $tabela = 'producao_pendencias';
 
-    public const STATUS_VALIDOS = ['PENDENTE', 'PROGRAMADA', 'PRODUZIDA', 'CANCELADA'];
+    public const STATUS_VALIDOS = ['PENDENTE', 'PROGRAMADA', 'PRODUZIDA', 'ENCERRADA', 'CANCELADA'];
     public const ORIGENS_VALIDAS = ['PEDIDO', 'ORCAMENTO', 'MANUAL'];
 
     public function __construct(PDO $conn)
@@ -47,6 +47,8 @@ class ProducaoPendente
         if (!empty($filtros['status']) && in_array($filtros['status'], self::STATUS_VALIDOS, true)) {
             $sql .= ' AND pp.status = :status';
             $params[':status'] = $filtros['status'];
+        } elseif (empty($filtros['status'])) {
+            $sql .= " AND pp.status <> 'CANCELADA'";
         }
         if (!empty($filtros['busca'])) {
             $sql .= ' AND (pp.descricao_item LIKE :busca1 OR pp.cor LIKE :busca2 OR c.nome LIKE :busca3 OR p.nome_produto LIKE :busca4)';
@@ -65,7 +67,7 @@ class ProducaoPendente
             $params[':data_ate'] = $this->normalizarData($filtros['data_ate']);
         }
 
-        $sql .= " ORDER BY FIELD(pp.status, 'PENDENTE', 'PROGRAMADA', 'PRODUZIDA', 'CANCELADA'),
+        $sql .= " ORDER BY FIELD(pp.status, 'PENDENTE', 'PROGRAMADA', 'PRODUZIDA', 'ENCERRADA', 'CANCELADA'),
                           COALESCE(pp.data_entrega, pp.data_evento, '9999-12-31') ASC, pp.id DESC";
         $stmt = $this->conn->prepare($sql);
         $stmt->execute($params);
@@ -113,7 +115,8 @@ class ProducaoPendente
             ':status' => $dados['status'], ':criado_por' => $usuarioId, ':atualizado_por' => $usuarioId,
         ]);
         $id = (int) $this->conn->lastInsertId();
-        $this->registrarHistorico($id, 'CRIADA', null, $dados['status'], 'Pendência cadastrada manualmente.', $usuarioId);
+        $this->registrarHistorico($id, 'CRIADA', null, $dados['status'],
+            $dados['origem_tipo'] === 'MANUAL' ? 'Pendência cadastrada manualmente.' : 'Ficha gerada a partir do documento de origem.', $usuarioId);
         return $id;
     }
 
@@ -198,10 +201,16 @@ class ProducaoPendente
     public function sincronizarCoresNovasDoPedido(int $pedidoId, ?int $usuarioId = null): int
     {
         if (!$this->schemaInstalado() || $pedidoId <= 0) return 0;
-        $pedido = $this->conn->prepare('SELECT id,cliente_id,data_evento,data_entrega,situacao_pedido FROM pedidos WHERE id=?');
+        $pedido = $this->conn->prepare('SELECT id,cliente_id,data_evento,data_entrega,hora_entrega,turno_entrega,
+            data_devolucao_prevista,hora_devolucao,turno_devolucao,situacao_pedido FROM pedidos WHERE id=?');
         $pedido->execute([$pedidoId]); $cab=$pedido->fetch(PDO::FETCH_ASSOC);
-        if (!$cab || strtolower((string)$cab['situacao_pedido']) !== 'confirmado') return 0;
-        $q=$this->conn->prepare("SELECT DISTINCT ip.produto_id,ip.quantidade,ip.observacoes,p.nome_produto,f.id familia_id,COALESCE(f.nome,p.nome_produto) familia_nome
+        if (!$cab) return 0;
+        $ativos = [];
+        if (strtolower((string)$cab['situacao_pedido']) !== 'confirmado') {
+            $this->encerrarFichasSemNecessidade($pedidoId, $ativos, 'Pedido deixou de estar confirmado.', $usuarioId);
+            return 0;
+        }
+        $q=$this->conn->prepare("SELECT DISTINCT ip.produto_id,ip.quantidade,ip.observacoes,p.nome_produto,p.tipo_produto,p.descricao_detalhada AS ficha_produto,f.id familia_id,COALESCE(f.nome,p.nome_produto) familia_nome
             FROM itens_pedido ip JOIN produtos p ON p.id=ip.produto_id
             LEFT JOIN produto_variantes pv ON pv.produto_id=p.id AND pv.ativo=1 AND pv.eh_generica=1
             LEFT JOIN familias_variantes f ON (f.id=pv.familia_variante_id OR f.produto_generico_id=p.id) AND f.ativo=1
@@ -212,6 +221,8 @@ class ProducaoPendente
                 )))");
         $q->execute([$pedidoId]); $criados=0;
         foreach($q->fetchAll(PDO::FETCH_ASSOC) as $item){
+            $guardanapoGenerico=$item['tipo_produto']==='SIMPLES'
+                && preg_match('/^guardanapo\s+cor\s+a\s+definir$/iu',(string)$item['nome_produto']);
             $observacao=trim((string)$item['observacoes']);
             if (preg_match('/(?:^|[\r\n]|\|)\s*cor\s*:\s*([^|\r\n]+)/iu', $observacao, $m)) {
                 $cor=trim($m[1]);
@@ -219,16 +230,40 @@ class ProducaoPendente
                 && count(preg_split('/\s+/u', $observacao)) <= 3) {
                 // Mesmo formato curto aceito pelo formulário, por exemplo Neon.
                 $cor=$observacao;
+            } elseif ($guardanapoGenerico) {
+                $cor='A definir';
             } else {
                 continue;
             }
-            if($cor==='' || preg_match('/^(?:cor\s+)?a\s*definir$/iu',$cor)) continue;
+            if($cor==='' || preg_match('/^(?:cor\s+)?a\s*definir$/iu',$cor)) {
+                if (!$guardanapoGenerico) continue;
+                $cor='A definir';
+            }
             $normalizar=static function(string $v):string { $v=iconv('UTF-8','ASCII//TRANSLIT//IGNORE',$v)?:$v; $v=strtolower($v); return trim((string)preg_replace('/[^a-z0-9]+/','-',$v),'-'); };
             $slug=$normalizar($cor);
             $corId=$this->conn->prepare('SELECT c.id FROM cores_padrao c LEFT JOIN cor_aliases a ON a.cor_padrao_id=c.id AND a.ativo=1 WHERE c.ativo=1 AND (c.slug_normalizado=? OR a.alias_normalizado=?) LIMIT 1'); $corId->execute([$slug,$slug]); $idCor=$corId->fetchColumn();
-            $tem=$this->conn->prepare('SELECT 1 FROM produto_variantes WHERE familia_variante_id=? AND cor_padrao_id=? AND ativo=1 AND eh_generica=0 LIMIT 1'); if($idCor){$tem->execute([$item['familia_id'],$idCor]); if($tem->fetchColumn()) continue;}
-            $existe=$this->conn->prepare("SELECT id FROM {$this->tabela} WHERE pedido_id=? AND produto_id=? AND cor=? AND status IN ('PENDENTE','PROGRAMADA') LIMIT 1"); $existe->execute([$pedidoId,$item['produto_id'],$cor]); if($existe->fetchColumn()) continue;
-            $this->criar(['origem_tipo'=>'PEDIDO','origem_id'=>$pedidoId,'pedido_id'=>$pedidoId,'cliente_id'=>$cab['cliente_id'],'produto_id'=>$item['produto_id'],'descricao_item'=>'Nova capa/cor: '.$item['nome_produto'],'cor'=>$cor,'quantidade_solicitada'=>$item['quantidade'],'quantidade_faltante'=>$item['quantidade'],'data_evento'=>$cab['data_evento'],'data_entrega'=>$cab['data_entrega'],'observacoes'=>'Cor sem variante física cadastrada na família '.$item['familia_nome'].'. Após produzir, cadastre/conte a capa real no estoque.','status'=>'PENDENTE'],$usuarioId);
+            $tem=$this->conn->prepare('SELECT 1 FROM produto_variantes WHERE familia_variante_id=? AND cor_padrao_id=? AND ativo=1 AND eh_generica=0 LIMIT 1'); if($idCor && !$guardanapoGenerico){$tem->execute([$item['familia_id'],$idCor]); if($tem->fetchColumn()) continue;}
+            $prefixo=$guardanapoGenerico ? 'Novo guardanapo/cor:' : 'Nova capa/cor:';
+            $existe=$this->conn->prepare("SELECT id,status FROM {$this->tabela} WHERE pedido_id=? AND produto_id=? AND cor=? AND descricao_item LIKE ? AND status IN ('PENDENTE','PROGRAMADA','ENCERRADA') ORDER BY FIELD(status,'PENDENTE','PROGRAMADA','ENCERRADA'), id LIMIT 1");
+            $existe->execute([$pedidoId,$item['produto_id'],$cor,$prefixo.'%']);
+            $existente=$existe->fetch(PDO::FETCH_ASSOC) ?: [];
+            $idExistente=(int)($existente['id'] ?? 0);
+            if ($idExistente) {
+                if (($existente['status'] ?? '') === 'ENCERRADA') {
+                    $this->alterarStatus($idExistente,'PENDENTE','Necessidade voltou após alteração do pedido.',$usuarioId);
+                }
+                $ativos[$idExistente]=true;
+                $this->atualizarDados($idExistente, ['quantidade_solicitada'=>$item['quantidade'],
+                    'quantidade_faltante'=>$item['quantidade'],'data_entrega'=>$cab['data_entrega']], $usuarioId);
+                continue;
+            }
+            $observacoesProducao=$guardanapoGenerico
+                ? 'Guardanapo sob demanda da família '.$item['familia_nome'].'. Confira se já existe produto físico desta cor antes de produzir. Após autorizado e produzido, cadastre/conte as unidades reais no estoque; a ficha não aumenta o estoque automaticamente.'
+                : 'Cor sem variante física cadastrada na família '.$item['familia_nome'].'. Após produzir, cadastre/conte a capa real no estoque.';
+            if ($guardanapoGenerico && trim((string)$item['ficha_produto']) !== '')
+                $observacoesProducao .= "\n\n".trim((string)$item['ficha_produto']);
+            $idNovo=$this->criar(['origem_tipo'=>'PEDIDO','origem_id'=>$pedidoId,'pedido_id'=>$pedidoId,'cliente_id'=>$cab['cliente_id'],'produto_id'=>$item['produto_id'],'descricao_item'=>$prefixo.' '.$item['nome_produto'],'cor'=>$cor,'quantidade_solicitada'=>$item['quantidade'],'quantidade_faltante'=>$item['quantidade'],'data_evento'=>$cab['data_evento'],'data_entrega'=>$cab['data_entrega'],'observacoes'=>$observacoesProducao,'status'=>'PENDENTE'],$usuarioId);
+            $ativos[$idNovo]=true;
             $criados++;
         }
 
@@ -253,96 +288,376 @@ class ProducaoPendente
             JOIN produtos s ON s.id=pc.produto_filho_id AND s.tipo_produto='SERVICO'
             WHERE ip.pedido_id=?");
         $forracoes->execute([$pedidoId]);
-        foreach ($forracoes->fetchAll(PDO::FETCH_ASSOC) as $forracao) {
-            $qtd = max(0, (float)$forracao['quantidade'] * (float)$forracao['servicos_por_item']);
-            if ($qtd <= 0) continue;
-            $observacaoItem = trim((string)$forracao['observacoes']);
+        // Um sofá pode ter serviço de capa do assento e do encosto. Eles
+        // continuam tecnicamente separados na composição, mas a produção do
+        // lote deve aparecer em uma única ficha de tecido por produto/cor.
+        $forracoesAgrupadas=[];
+        foreach ($forracoes->fetchAll(PDO::FETCH_ASSOC) as $linhaForracao) {
+            $observacaoItem = trim((string)$linhaForracao['observacoes']);
             $cor = null;
             if (preg_match('/(?:^|[\r\n|])\s*cor\s*:\s*([^|\r\n]+)/iu', $observacaoItem, $m)) $cor=trim($m[1]);
             elseif (preg_match('/^\p{L}[\p{L}\s-]{0,32}$/u', $observacaoItem)) $cor=$observacaoItem;
+            $chaveForracao=(int)$linhaForracao['produto_id'].'|'.mb_strtolower((string)$cor);
+            if(!isset($forracoesAgrupadas[$chaveForracao])){
+                $forracoesAgrupadas[$chaveForracao]=['base'=>$linhaForracao,'cor'=>$cor,'qtd'=>0,'servicos'=>[],'ids'=>[]];
+            }
+            $qtdLinha=max(0,(float)$linhaForracao['quantidade']*(float)$linhaForracao['servicos_por_item']);
+            $forracoesAgrupadas[$chaveForracao]['qtd']=max($forracoesAgrupadas[$chaveForracao]['qtd'],$qtdLinha);
             $ficha = implode("\n\n", array_unique(array_filter([
-                trim((string)$forracao['servico_descricao']),
-                trim((string)$forracao['servico_observacoes']),
+                trim((string)$linhaForracao['servico_descricao']),
+                trim((string)$linhaForracao['servico_observacoes']),
             ])));
-            if (!empty($forracao['servico_material'])) $ficha .= ($ficha?"\n\n":'').'Material cadastrado: '.$forracao['servico_material'].'.';
-            $descricao = 'Forração para o pedido: '.$forracao['nome_produto'];
+            if (!empty($linhaForracao['servico_material'])) $ficha .= ($ficha?"\n\n":'').'Material cadastrado: '.$linhaForracao['servico_material'].'.';
+            $forracoesAgrupadas[$chaveForracao]['servicos'][]=['id'=>(int)$linhaForracao['servico_id'],'nome'=>$linhaForracao['servico_nome'],'ficha'=>$ficha];
+            $forracoesAgrupadas[$chaveForracao]['ids'][]=(int)$linhaForracao['servico_id'];
+        }
+        foreach ($forracoesAgrupadas as $grupoForracao) {
+            $forracao=$grupoForracao['base']; $qtd=(float)$grupoForracao['qtd'];
+            if ($qtd <= 0 || !$grupoForracao['servicos']) continue;
+            $cor=$grupoForracao['cor'];
+            $fichasGrupo=array_values(array_filter(array_map(static fn($s)=>trim((string)$s['ficha']),$grupoForracao['servicos'])));
+            $nomesGrupo=array_values(array_filter(array_map(static fn($s)=>trim((string)$s['nome']),$grupoForracao['servicos'])));
+            $ficha=implode("\n\n",array_unique($fichasGrupo));
+            $descricao = 'Forração/costura para o pedido: '.$forracao['nome_produto'];
             $observacoes = 'Serviço de forração a executar para este pedido. Não gera capa física nem movimenta estoque.'
+                .($nomesGrupo?"\n\nPartes de tecido nesta ficha: ".implode(' + ',$nomesGrupo).'.':'')
                 .($ficha?"\n\n".$ficha:'');
-            $existe = $this->conn->prepare("SELECT id FROM {$this->tabela}
-                WHERE pedido_id=? AND produto_id=? AND componente_id=?
-                  AND status IN ('PENDENTE','PROGRAMADA') LIMIT 1");
-            $existe->execute([$pedidoId,$forracao['produto_id'],$forracao['servico_id']]);
-            $idPendente=(int)$existe->fetchColumn();
-            $dados=['componente_id'=>(int)$forracao['servico_id'],'descricao_item'=>$descricao,
+            $idsGrupo=$grupoForracao['ids']; $primario=(int)$idsGrupo[0];
+            $existe = $this->conn->prepare("SELECT id,status,componente_id FROM {$this->tabela}
+                WHERE pedido_id=? AND produto_id=? AND componente_id IN (".implode(',',array_fill(0,count($idsGrupo),'?')).")
+                  AND status IN ('PENDENTE','PROGRAMADA','ENCERRADA')
+                ORDER BY FIELD(status,'PENDENTE','PROGRAMADA','ENCERRADA'), id");
+            $existe->execute(array_merge([$pedidoId,$forracao['produto_id']],$idsGrupo));
+            $existentes=$existe->fetchAll(PDO::FETCH_ASSOC);
+            $idsPendentes=array_map(static fn(array $r): int => (int)$r['id'],$existentes);
+            $idPendente=(int)($idsPendentes[0]??0);
+            if($idPendente){
+                $primario=(int)($existentes[0]['componente_id'] ?? 0);
+                if (($existentes[0]['status'] ?? '') === 'ENCERRADA') {
+                    $this->alterarStatus($idPendente,'PENDENTE','Necessidade de forração voltou após alteração do pedido.',$usuarioId);
+                }
+            }
+            $dados=['componente_id'=>$primario,'descricao_item'=>$descricao,
                 'cor'=>$cor,'quantidade_solicitada'=>$qtd,'quantidade_faltante'=>$qtd,
                 'data_entrega'=>$cab['data_entrega'],'observacoes'=>$observacoes];
-            if($idPendente){$this->atualizarDados($idPendente,$dados,$usuarioId);continue;}
-            $this->criar(array_merge($dados,[
+            if($idPendente){
+                $ativos[$idPendente]=true;
+                $this->atualizarDados($idPendente,$dados,$usuarioId);
+                foreach(array_slice($idsPendentes,1) as $duplicado){
+                    $this->alterarStatus((int)$duplicado,'CANCELADA','Consolidada na ficha de tecido #'.$idPendente.'.',$usuarioId);
+                }
+                continue;
+            }
+            $idNovo=$this->criar(array_merge($dados,[
                 'origem_tipo'=>'PEDIDO','origem_id'=>$pedidoId,'pedido_id'=>$pedidoId,
                 'cliente_id'=>$cab['cliente_id'],'produto_id'=>$forracao['produto_id'],
                 'data_evento'=>$cab['data_evento'],'status'=>'PENDENTE'
             ]),$usuarioId);
+            $ativos[$idNovo]=true;
             $criados++;
         }
 
-        // Capas físicas existentes também podem faltar.  A produção deve ser
-        // planejada para a diferença entre a necessidade deste pedido e o
-        // estoque físico atual; não movimenta estoque e é idempotente.
-        $faltas = $this->conn->prepare("SELECT ip.produto_id, ip.quantidade AS qtd_pedido,
-                p.nome_produto, p.cor AS cor_produto, pc.produto_filho_id AS componente_id,
-                pc.quantidade AS qtd_por_item, c.nome_produto AS componente_nome,
-                c.cor AS componente_cor, c.material AS componente_material,
-                c.descricao_detalhada AS componente_descricao, c.observacoes AS componente_observacoes,
-                c.quantidade_total AS estoque_componente
-            FROM itens_pedido ip
-            JOIN produtos p ON p.id=ip.produto_id
-            JOIN produto_composicao pc ON pc.produto_pai_id=p.id AND pc.quantidade>0
-            JOIN produtos c ON c.id=pc.produto_filho_id
-            WHERE ip.pedido_id=?
-              AND c.nome_produto LIKE 'Capa %'
-              AND COALESCE(c.quantidade_total,0) < (ip.quantidade * pc.quantidade)");
-        $faltas->execute([$pedidoId]);
-        foreach ($faltas->fetchAll(PDO::FETCH_ASSOC) as $falta) {
-            $necessaria = (float)$falta['qtd_pedido'] * (float)$falta['qtd_por_item'];
-            $estoque = max(0, (float)$falta['estoque_componente']);
-            $faltante = max(0, $necessaria - $estoque);
-            if ($faltante <= 0) continue;
-            $fichaTecnica = implode("\n\n", array_unique(array_filter([
-                trim((string)$falta['componente_descricao']), trim((string)$falta['componente_observacoes'])
-            ])));
-            if ($falta['componente_material']) $fichaTecnica .= ' Material cadastrado: '.$falta['componente_material'].'.';
-            if ($falta['componente_cor']) $fichaTecnica .= ' Cor: '.$falta['componente_cor'].'.';
-            $existe = $this->conn->prepare("SELECT id FROM {$this->tabela}
-                WHERE pedido_id=? AND produto_id=? AND componente_id=?
-                  AND status IN ('PENDENTE','PROGRAMADA') LIMIT 1");
-            $existe->execute([$pedidoId, $falta['produto_id'], $falta['componente_id']]);
-            $idPendente = $existe->fetchColumn();
-            if ($idPendente) {
-                // Recalcula a falta quando o estoque ou a quantidade do pedido
-                // mudou, sem criar uma segunda ficha.
-                $this->atualizarDados((int)$idPendente, [
-                    'quantidade_solicitada' => $necessaria,
-                    'quantidade_faltante' => $faltante,
-                    'cor' => $falta['componente_cor'] ?: $falta['cor_produto'],
-                    'descricao_item' => 'Reposição de capa: '.$falta['componente_nome'],
-                    'observacoes' => 'Capa física existente com estoque insuficiente para este pedido. Estoque atual: '.$estoque.'. '.$fichaTecnica.' Após produzir, registre a quantidade conferida manualmente.',
-                ], $usuarioId);
-                continue;
-            }
-            $this->criar([
-                'origem_tipo'=>'PEDIDO','origem_id'=>$pedidoId,'pedido_id'=>$pedidoId,
-                'cliente_id'=>$cab['cliente_id'],'produto_id'=>$falta['produto_id'],
-                'componente_id'=>$falta['componente_id'],
-                'descricao_item'=>'Reposição de capa: '.$falta['componente_nome'],
-                'cor'=>$falta['componente_cor'] ?: $falta['cor_produto'],
-                'quantidade_solicitada'=>$necessaria,'quantidade_faltante'=>$faltante,
-                'data_evento'=>$cab['data_evento'],'data_entrega'=>$cab['data_entrega'],
-                'observacoes'=>'Capa física existente com estoque insuficiente para este pedido. Estoque atual: '.$estoque.'. '.$fichaTecnica.' Após produzir, registre a quantidade conferida manualmente.',
-                'status'=>'PENDENTE'
-            ], $usuarioId);
-            $criados++;
+        if (empty($cab['data_entrega']) || empty($cab['data_devolucao_prevista'])) {
+            // A ausência de datas não prova que a necessidade física terminou.
+            return $criados;
         }
+        $criados += $this->sincronizarFaltasFisicas($pedidoId, $cab, $ativos, $usuarioId);
+        $this->encerrarFichasSemNecessidade($pedidoId, $ativos,
+            'Necessidade encerrada após atualização do pedido, cor, quantidade ou estoque no período.', $usuarioId);
         return $criados;
+    }
+
+    /** Estoque físico compartilhado é consultado uma vez por componente para o pedido inteiro. */
+    private function sincronizarFaltasFisicas(int $pedidoId, array $cab, array &$ativos, ?int $usuarioId): int
+    {
+        if (empty($cab['data_entrega']) || empty($cab['data_devolucao_prevista'])) {
+            // Sem janela confiável, não há como recalcular nem encerrar fichas físicas.
+            return 0;
+        }
+        require_once __DIR__ . '/EstoqueMovimentacao.php';
+        $estoque = new EstoqueMovimentacao($this->conn);
+        // O conjunto pai não é físico; as linhas internas consomem estoque e geram faltas.
+        $itens = $this->conn->prepare("SELECT ip.produto_id, SUM(ip.quantidade) AS quantidade,
+                p.nome_produto, p.cor AS cor_produto, p.tipo_produto, p.controla_estoque
+            FROM itens_pedido ip JOIN produtos p ON p.id=ip.produto_id
+            WHERE ip.pedido_id=? AND ip.tipo_linha IN ('PRODUTO','ITEM_CONJUNTO') AND ip.tipo='locacao'
+            GROUP BY ip.produto_id,p.nome_produto,p.cor,p.tipo_produto,p.controla_estoque
+            ORDER BY ip.produto_id");
+        $itens->execute([$pedidoId]);
+        $itens = $itens->fetchAll(PDO::FETCH_ASSOC);
+        $pools = [];
+        foreach ($this->conn->query('SELECT produto_pai_id,produto_principal_id,produto_adicional_id
+            FROM produto_estoque_alternativo')->fetchAll(PDO::FETCH_ASSOC) as $pool) {
+            $pools[(int)$pool['produto_pai_id']] = $pool;
+        }
+        $produtoFisico = $this->conn->prepare('SELECT id,nome_produto,cor,material,
+            descricao_detalhada,observacoes,dimensoes FROM produtos WHERE id=?');
+        $genericoSimples=$this->conn->prepare("SELECT 1 FROM familias_variantes WHERE produto_generico_id=? AND ativo=1 AND modo_impacto_estoque='COMPONENTE_COR' LIMIT 1");
+        $demanda = []; $porProduto = []; $contexto = []; $demandaPool = [];
+        foreach ($itens as $item) {
+            $pid = (int)$item['produto_id'];
+            if ($item['tipo_produto']==='SIMPLES') {
+                $genericoSimples->execute([$pid]);
+                if ($genericoSimples->fetchColumn()) continue; // Cor sob demanda já possui ficha própria por cor.
+            }
+            $contexto[] = ['produto_id'=>$pid,'quantidade'=>(float)$item['quantidade']];
+            $pecas = $this->obterPecasFisicasComposicao($pid);
+            if (isset($pools[$pid])) {
+                $pool = $pools[$pid];
+                $principal = (int)$pool['produto_principal_id'];
+                $pecas = array_values(array_filter($pecas,
+                    static fn($peca)=>(int)$peca['id'] !== $principal));
+                $adicional = (int)$pool['produto_adicional_id'];
+                $produtoFisico->execute([$adicional]); $fisico = $produtoFisico->fetch(PDO::FETCH_ASSOC);
+                if ($fisico) {
+                    $pecas[] = ['id'=>$adicional,'por_item'=>1,
+                        'nome_produto'=>'Estruturas de cubo para forração (estoque compartilhado)',
+                        'cor'=>$fisico['cor'],'material'=>$fisico['material'],
+                        'descricao_detalhada'=>$fisico['descricao_detalhada'],
+                        'observacoes'=>$fisico['observacoes'],'dimensoes'=>$fisico['dimensoes']];
+                    $demandaPool[$pid] = (float)$item['quantidade'];
+                }
+            }
+            if (!$pecas && in_array($item['tipo_produto'], ['COMPONENTE','SIMPLES'], true)
+                && (int)$item['controla_estoque'] === 1) {
+                $pecas = [[ 'id'=>$pid, 'por_item'=>1, 'nome_produto'=>$item['nome_produto'],
+                    'cor'=>$item['cor_produto'], 'material'=>null, 'descricao_detalhada'=>null,
+                    'observacoes'=>null, 'dimensoes'=>null ]];
+            }
+            foreach ($pecas as $peca) {
+                $cid = (int)$peca['id'];
+                $qtd = (float)$item['quantidade'] * (float)$peca['por_item'];
+                if (!isset($pools[$pid]) || $cid !== (int)$pools[$pid]['produto_adicional_id']) {
+                    $demanda[$cid] = ($demanda[$cid] ?? 0) + $qtd;
+                }
+                $porProduto[$pid][$cid] = ['peca'=>$peca, 'quantidade'=>$qtd,
+                    'produto'=>$item];
+            }
+        }
+        $faltas = []; $saldos = [];
+        foreach ($demanda as $cid=>$quantidade) {
+            $consulta = $estoque->consultarDisponibilidadePeriodo((int)$cid,
+                $cab['data_entrega'], $cab['hora_entrega'], $cab['turno_entrega'],
+                $cab['data_devolucao_prevista'], $cab['hora_devolucao'], $cab['turno_devolucao'],
+                (int)ceil($quantidade), $pedidoId);
+            if (empty($consulta['consulta_periodo_valida'])) {
+                throw new RuntimeException('Não foi possível consultar o período para o componente #'.$cid.'.');
+            }
+            $faltas[$cid] = max(0, (float)($consulta['faltante_orcamento'] ?? 0));
+            $saldos[$cid] = (float)($consulta['livre_periodo'] ?? 0);
+        }
+        foreach ($demandaPool as $pid=>$quantidade) {
+            $consulta = $estoque->consultarDisponibilidadePeriodo((int)$pid,
+                $cab['data_entrega'], $cab['hora_entrega'], $cab['turno_entrega'],
+                $cab['data_devolucao_prevista'], $cab['hora_devolucao'], $cab['turno_devolucao'],
+                (int)ceil($quantidade), $pedidoId, $contexto);
+            if (empty($consulta['consulta_periodo_valida'])) {
+                throw new RuntimeException('Não foi possível consultar o estoque conjunto do produto #'.$pid.'.');
+            }
+            $cid = (int)$pools[$pid]['produto_adicional_id'];
+            $faltas[$cid] = max(0,(float)($consulta['faltante_orcamento'] ?? 0));
+            $saldos[$cid] = (float)($consulta['livre_periodo'] ?? 0);
+        }
+        $criados = 0; $atribuido = [];
+        foreach ($porProduto as $pid=>$pecas) {
+            $grupos = [];
+            foreach ($pecas as $cid=>$info) {
+                $nome = (string)$info['peca']['nome_produto'];
+                $tipo = preg_match('/^capa\b/iu',$nome) ? 'CAPAS'
+                    : (preg_match('/^colch[aã]o\b/iu',$nome) ? 'COLCHOES' : 'FISICO_'.$cid);
+                $grupos[$tipo][$cid] = $info;
+            }
+            foreach ($grupos as $tipo=>$grupo) {
+                $ids = array_keys($grupo); $faltantes = [];
+                foreach ($grupo as $cid=>$info) {
+                    if (($faltas[$cid] ?? 0) > 0 && !isset($atribuido[$cid])) {
+                        $faltantes[$cid] = $faltas[$cid];
+                        $atribuido[$cid] = true;
+                    }
+                }
+                if (!$faltantes) continue;
+                $principal = (int)array_key_first($faltantes);
+                $necessaria = max(array_map(static fn($i)=>(float)$i['quantidade'], $grupo));
+                $faltante = max($faltantes);
+                $item = reset($grupo)['produto'];
+                $rotulo = $tipo === 'CAPAS' ? 'Reposição de capas: '
+                    : ($tipo === 'COLCHOES' ? 'Produção de colchão assento e encosto: '
+                    : 'Produção de componente: ');
+                $descricao = $rotulo.$item['nome_produto'];
+                $detalhes = [];
+                foreach ($grupo as $cid=>$info) {
+                    $p = $info['peca'];
+                    $detalhes[] = implode("\n", array_filter([
+                        $p['nome_produto'].' — neste pedido: '.$info['quantidade'].'; livre antes: '.($saldos[$cid] ?? 0)
+                            .'; faltam no período: '.($faltas[$cid] ?? 0).'.',
+                        $p['dimensoes'] ? 'Dimensões: '.$p['dimensoes'] : null,
+                        trim((string)$p['descricao_detalhada']), trim((string)$p['observacoes'])
+                    ]));
+                }
+                $observacoes = 'Necessidade física calculada pelo estoque compartilhado no período. '
+                    .'A produção não movimenta estoque automaticamente.' . "\n\n"
+                    .implode("\n\n",array_unique($detalhes));
+                $placeholders = implode(',',array_fill(0,count($ids),'?'));
+                $busca = $this->conn->prepare("SELECT id,componente_id,observacoes,status FROM {$this->tabela}
+                    WHERE pedido_id=? AND produto_id=? AND componente_id IN ($placeholders)
+                      AND status IN ('PENDENTE','PROGRAMADA','ENCERRADA')
+                      AND (descricao_item LIKE 'Produção de %' OR descricao_item LIKE 'Reposição de %')
+                    ORDER BY FIELD(status,'PENDENTE','PROGRAMADA','ENCERRADA'), id");
+                $busca->execute(array_merge([$pedidoId,$pid],$ids));
+                $existentes = $busca->fetchAll(PDO::FETCH_ASSOC);
+                if ($existentes) {
+                    $id = (int)$existentes[0]['id']; $ativos[$id]=true;
+                    $dados = ['componente_id'=>(int)$existentes[0]['componente_id'],
+                        'descricao_item'=>$descricao, 'cor'=>$tipo==='CAPAS'
+                            ? ($grupo[$principal]['peca']['cor'] ?: $item['cor_produto'])
+                            : ($item['cor_produto'] ?: $grupo[$principal]['peca']['cor']),
+                        'quantidade_solicitada'=>$necessaria,'quantidade_faltante'=>$faltante,
+                        'data_entrega'=>$cab['data_entrega']];
+                    if ($existentes[0]['status'] === 'PENDENTE') $dados['observacoes'] = $observacoes;
+                    $this->atualizarDados($id,$dados,$usuarioId);
+                    if ($existentes[0]['status'] === 'ENCERRADA') {
+                        $this->alterarStatus($id,'PENDENTE','Necessidade voltou após atualização do pedido/estoque.', $usuarioId);
+                    }
+                    foreach (array_slice($existentes,1) as $duplicada) {
+                        $this->alterarStatus((int)$duplicada['id'],'ENCERRADA',
+                            'Ficha consolidada na #'.$id.'.',$usuarioId);
+                    }
+                } else {
+                    $id = $this->criar(['origem_tipo'=>'PEDIDO','origem_id'=>$pedidoId,
+                        'pedido_id'=>$pedidoId,'cliente_id'=>$cab['cliente_id'],'produto_id'=>$pid,
+                        'componente_id'=>$principal,'descricao_item'=>$descricao,
+                        'cor'=>$tipo==='CAPAS' ? ($grupo[$principal]['peca']['cor'] ?: $item['cor_produto'])
+                            : ($item['cor_produto'] ?: $grupo[$principal]['peca']['cor']),
+                        'quantidade_solicitada'=>$necessaria,'quantidade_faltante'=>$faltante,
+                        'data_evento'=>$cab['data_evento'],'data_entrega'=>$cab['data_entrega'],
+                        'observacoes'=>$observacoes,'status'=>'PENDENTE'],$usuarioId);
+                    $ativos[$id]=true; $criados++;
+                }
+            }
+        }
+        // Um mesmo componente físico pode ser usado por produtos diferentes no
+        // mesmo pedido (por exemplo, a estrutura compartilhada dos sofás). A
+        // falta já foi calculada sobre a demanda total; portanto, não podemos
+        // deixar uma ficha ativa por produto, pois isso duplica a produção.
+        $this->consolidarFichasFisicasCompartilhadas($pedidoId, $ativos, $usuarioId);
+        return $criados;
+    }
+
+    /** Mantém uma única ficha ativa por componente físico compartilhado no pedido. */
+    private function consolidarFichasFisicasCompartilhadas(int $pedidoId, array &$ativos, ?int $usuarioId): void
+    {
+        $q = $this->conn->prepare("SELECT id,componente_id,quantidade_solicitada,quantidade_faltante
+            FROM {$this->tabela}
+            WHERE pedido_id=? AND status IN ('PENDENTE','PROGRAMADA')
+              AND componente_id IS NOT NULL
+              AND (descricao_item LIKE 'Produção de %' OR descricao_item LIKE 'Produção de componente: %'
+                   OR descricao_item LIKE 'Produção de colchão%')
+            ORDER BY componente_id,id");
+        $q->execute([$pedidoId]);
+        $porComponente = [];
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $ficha) {
+            $cid = (int)$ficha['componente_id'];
+            $porComponente[$cid][] = $ficha;
+        }
+        foreach ($porComponente as $fichas) {
+            if (count($fichas) < 2) continue;
+            $principal = $fichas[0];
+            $faltante = max(array_map(static fn($f)=>(float)$f['quantidade_faltante'], $fichas));
+            $solicitada = max(array_map(static fn($f)=>(float)$f['quantidade_solicitada'], $fichas));
+            $this->atualizarDados((int)$principal['id'], [
+                'quantidade_solicitada'=>$solicitada,
+                'quantidade_faltante'=>$faltante
+            ], $usuarioId);
+            $ativos[(int)$principal['id']] = true;
+            foreach (array_slice($fichas, 1) as $duplicada) {
+                unset($ativos[(int)$duplicada['id']]);
+                $this->alterarStatus((int)$duplicada['id'], 'ENCERRADA',
+                    'Ficha consolidada na pendência do componente físico compartilhado #'.(int)$principal['id'].'.', $usuarioId);
+            }
+        }
+    }
+
+    /** Desce por compostos intermediários até as peças físicas, sem somar o pai comercial. */
+    private function obterPecasFisicasComposicao(int $produtoId, array $pilha = []): array
+    {
+        if (in_array($produtoId, $pilha, true)) {
+            throw new RuntimeException('Ciclo na composição do produto #'.$produtoId.'.');
+        }
+        $pilha[] = $produtoId;
+        $q = $this->conn->prepare("SELECT pc.produto_filho_id AS id, pc.quantidade AS por_item,
+                c.nome_produto,c.cor,c.material,c.descricao_detalhada,c.observacoes,c.dimensoes,
+                c.tipo_produto,c.controla_estoque
+            FROM produto_composicao pc JOIN produtos c ON c.id=pc.produto_filho_id
+            WHERE pc.produto_pai_id=? AND pc.quantidade>0 ORDER BY c.id");
+        $q->execute([$produtoId]);
+        $pecas = [];
+        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $filho) {
+            $fator = (float)$filho['por_item'];
+            if ($filho['tipo_produto'] === 'COMPOSTO') {
+                foreach ($this->obterPecasFisicasComposicao((int)$filho['id'], $pilha) as $peca) {
+                    $peca['por_item'] = (float)$peca['por_item'] * $fator;
+                    $cid = (int)$peca['id'];
+                    if (isset($pecas[$cid])) $pecas[$cid]['por_item'] += $peca['por_item'];
+                    else $pecas[$cid] = $peca;
+                }
+            } elseif (in_array($filho['tipo_produto'], ['COMPONENTE','SIMPLES'], true)
+                && (int)$filho['controla_estoque'] === 1) {
+                $cid = (int)$filho['id'];
+                if (isset($pecas[$cid])) $pecas[$cid]['por_item'] += $fator;
+                else $pecas[$cid] = [
+                    'id'=>$cid, 'por_item'=>$fator, 'nome_produto'=>$filho['nome_produto'],
+                    'cor'=>$filho['cor'], 'material'=>$filho['material'],
+                    'descricao_detalhada'=>$filho['descricao_detalhada'],
+                    'observacoes'=>$filho['observacoes'], 'dimensoes'=>$filho['dimensoes'],
+                ];
+            }
+        }
+        return array_values($pecas);
+    }
+
+    /** Mantém o histórico e cancela fichas que o pedido não exige mais. */
+    private function encerrarFichasSemNecessidade(int $pedidoId, array $ativos, string $motivo, ?int $usuarioId): void
+    {
+        $q = $this->conn->prepare("SELECT id FROM {$this->tabela}
+            WHERE pedido_id=? AND origem_tipo='PEDIDO' AND status IN ('PENDENTE','PROGRAMADA')
+              AND (descricao_item LIKE 'Nova capa/cor:%' OR descricao_item LIKE 'Novo guardanapo/cor:%' OR descricao_item LIKE 'Forração/costura para o pedido:%'
+                   OR descricao_item LIKE 'Produção de %' OR descricao_item LIKE 'Reposição de %')");
+        $q->execute([$pedidoId]);
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (!isset($ativos[(int)$id])) {
+                $this->alterarStatus((int)$id,'CANCELADA',$motivo,$usuarioId);
+            }
+        }
+    }
+
+    /** Reavalia pedidos afetados quando um estoque físico é corrigido no cadastro. */
+    public function sincronizarPedidosAfetadosPorProduto(int $produtoId, ?int $usuarioId = null): int
+    {
+        if (!$this->schemaInstalado() || $produtoId <= 0) return 0;
+        $q = $this->conn->prepare("SELECT DISTINCT p.id FROM pedidos p
+            JOIN itens_pedido ip ON ip.pedido_id=p.id
+            LEFT JOIN produto_composicao pc ON pc.produto_pai_id=ip.produto_id
+            LEFT JOIN produto_estoque_alternativo pea ON pea.produto_pai_id=ip.produto_id
+            WHERE p.situacao_pedido='confirmado'
+              AND p.data_devolucao_prevista >= CURRENT_DATE()
+              AND (ip.produto_id=? OR pc.produto_filho_id=?
+                   OR pea.produto_principal_id=? OR pea.produto_adicional_id=?)
+            UNION SELECT pp.pedido_id FROM {$this->tabela} pp
+            JOIN pedidos p ON p.id=pp.pedido_id
+            WHERE pp.componente_id=? AND pp.status IN ('PENDENTE','PROGRAMADA')
+              AND p.situacao_pedido='confirmado' AND p.data_devolucao_prevista >= CURRENT_DATE()");
+        $q->execute([$produtoId,$produtoId,$produtoId,$produtoId,$produtoId]);
+        $ids = array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN));
+        $propria = !$this->conn->inTransaction();
+        if ($propria) $this->conn->beginTransaction();
+        try {
+            foreach ($ids as $id) $this->sincronizarCoresNovasDoPedido($id,$usuarioId);
+            if ($propria) $this->conn->commit();
+        } catch (Throwable $e) {
+            if ($propria && $this->conn->inTransaction()) $this->conn->rollBack();
+            throw $e;
+        }
+        return count($ids);
     }
 
     private function listarPorCondicao(string $condicao, array $params): array

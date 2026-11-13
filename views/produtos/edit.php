@@ -441,6 +441,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $db->commit();
 
+            try {
+                require_once __DIR__.'/../../models/ProducaoPendente.php';
+                // Composição, estoque alternativo e dados do produto também
+                // podem mudar sem alterar a quantidade total cadastrada.
+                (new ProducaoPendente($db))->sincronizarPedidosAfetadosPorProduto(
+                    $produto_id, isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null);
+            } catch (Throwable $erroProducao) {
+                error_log('[views/produtos/edit.php] Falha ao reavaliar produção após produto #'
+                    .$produto_id.': '.$erroProducao->getMessage());
+                $_SESSION['error'] = 'Produto salvo, mas as fichas de produção precisam ser reavaliadas.';
+            }
+
             $_SESSION['message'] = "Produto '" . htmlspecialchars($produto->nome_produto) . "' atualizado com sucesso!";
             redirect('views/produtos/index.php');
 

@@ -79,7 +79,26 @@
       if(o.dataset.produtoGenerico === String(p.produto_id))return true;
       try{return JSON.parse(o.dataset.produtos || '[]').map(String).includes(String(p.produto_id));}catch(_){return false;}
     });
-    familia.value = candidata ? candidata.value : '';
+    // A família é uma consequência da composição do produto. Quando ainda
+    // não existe uma configuração persistida, mostre isso explicitamente na
+    // tela em vez de deixar um campo vazio que pareça erro de cadastro.
+    const automatica = familia.querySelector('option[data-automatica="1"]');
+    if (candidata) {
+      if (automatica) automatica.remove();
+      familia.value = candidata.value;
+    } else {
+      if (automatica) automatica.remove();
+      const temComposicao = String(p.composicao_resumo || '').trim() !== '';
+      const opcao = new Option(
+        temComposicao
+          ? 'Automática — será criada a partir da composição'
+          : 'Automática — aguardando composição do produto',
+        '__AUTO__'
+      );
+      opcao.dataset.automatica = '1';
+      familia.add(opcao, 0);
+      familia.value = '__AUTO__';
+    }
     atualizarReferenciaFamilia();
     const link=document.getElementById('configurar-mestre-produto');
     if(link)link.href='configurar_motor.php?produto='+encodeURIComponent(p.produto_id);
@@ -155,9 +174,13 @@
         contexto.stroke();
       }
     }
-    salvar.disabled = !imagem || !produto?.value || !nome?.value || !familia?.value || (pontos.length > 0 && pontos.length < 3);
+    // A família pode ainda não existir: o servidor a deriva da composição no
+    // primeiro salvamento. O usuário não deve ficar bloqueado por esse detalhe.
+    salvar.disabled = !imagem || !produto?.value || !nome?.value || (pontos.length > 0 && pontos.length < 3);
     estado.textContent = !produto?.value
       ? 'Selecione o produto ao qual esta foto pertence.'
+      : !familia?.value
+        ? 'Produto selecionado. A família/regra visual será criada automaticamente ao salvar, desde que a composição esteja cadastrada.'
       : pontos.length === 0
         ? regioes.length ? `${regioes.length} área(s) de tecido fechada(s). Escolha uma cor para testar.` : 'Foto carregada. Marque o tecido para testar uma cor ou guarde a foto para revisão.'
         : pontos.length < 3

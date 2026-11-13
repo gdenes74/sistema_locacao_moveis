@@ -14,7 +14,13 @@ if($_SERVER['REQUEST_METHOD']==='POST') {
     try {
         if(!hash_equals($_SESSION['csrf_motor_cores'],(string)($_POST['csrf']??'')))throw new DomainException('Sessão do formulário expirada. Reabra a página.');
         $acao=$_POST['acao']??'';$usuario=(int)$_SESSION['user_id'];
-        if($acao==='salvar'){
+        if($acao==='automatico'){
+            $produtoAutomatico=(int)($_POST['produto_generico_id']??0);
+            if(!$produtoAutomatico) throw new DomainException('Selecione um produto composto para derivar a regra automática.');
+            $id=$motor->prepararFamiliaAutomatica($produtoAutomatico,$usuario);
+            $_SESSION['success_message']='Regra visual criada/confirmada automaticamente a partir da composição. Agora você pode criar o mestre e, se necessário, ajustar detalhes avançados.';
+            redirect('views/produtos/configurar_motor.php?editar='.$id);
+        }elseif($acao==='salvar'){
             if(empty($_POST['familia_id']) && !empty($_POST['produto_generico_id'])){
                 foreach($familias as $existente)if((int)$existente['produto_generico_id']===(int)$_POST['produto_generico_id']){
                     $_SESSION['success_message']='Este produto já estava configurado. Você está editando a configuração existente.';
@@ -41,9 +47,9 @@ $modos=['FORRACAO_PRODUCAO'=>'Forração sob demanda (sem capa em estoque)','COM
 <?php if($erro):?><div class="alert alert-danger" role="alert"><?=hConfig($erro)?></div><?php endif;?>
 <?php if(!empty($_SESSION['success_message'])):?><div class="alert alert-success"><?=hConfig($_SESSION['success_message'])?></div><?php unset($_SESSION['success_message']);endif;?>
 <div class="card"><div class="card-header"><h2 class="card-title"><?=(int)$form['familia_id']?'Editar configuração #'.(int)$form['familia_id']:'Incluir novo produto no motor'?></h2></div><div class="card-body">
-<p>1. Escolha o produto montado. 2. Defina a regra da família. 3. Salve e crie o mestre. Depois confira e aprove a foto-base e as amostras nesta mesma área.</p>
+<p>Escolha o produto montado. No fluxo normal, a regra da família é derivada automaticamente da composição quando o mestre é salvo; use esta tela para revisar ou tratar exceções avançadas.</p>
 <form method="post" id="configurar-produto-motor">
-<input type="hidden" name="csrf" value="<?=hConfig($_SESSION['csrf_motor_cores'])?>"><input type="hidden" name="acao" value="salvar"><input type="hidden" name="familia_id" value="<?=(int)$form['familia_id']?>">
+<input type="hidden" name="csrf" value="<?=hConfig($_SESSION['csrf_motor_cores'])?>"><input type="hidden" name="familia_id" value="<?=(int)$form['familia_id']?>">
 <div class="form-row"><label class="form-group col-md-4">Filtrar a lista de produtos<input class="form-control" id="filtro-produto-motor" placeholder="Ex.: pufe redondo, mesa"><small class="form-text text-muted">A lista ao lado é filtrada enquanto você digita. Depois selecione o produto nela.</small></label>
 <label class="form-group col-md-8">Produto-base “Cor a definir”<select class="form-control" name="produto_generico_id" id="config-produto" required><option value="">Selecione um produto composto</option><?php foreach($catalogo as $p):?><option value="<?=(int)$p['produto_id']?>" <?=(int)$form['produto_generico_id']===(int)$p['produto_id']?'selected':''?>>#<?=(int)$p['produto_id']?> — <?=hConfig($p['nome_produto'])?> · <?=hConfig($p['categoria_nome'])?> / <?=hConfig($p['subcategoria_nome'])?></option><?php endforeach;?></select></label></div>
 <p id="composicao-config" class="text-muted"></p>
@@ -52,7 +58,8 @@ $modos=['FORRACAO_PRODUCAO'=>'Forração sob demanda (sem capa em estoque)','COM
 <label class="form-group">Como usar o preço<select class="form-control" name="politica_preco"><option value="MESMO_PRECO" <?=$form['politica_preco']==='MESMO_PRECO'?'selected':''?>>Manter o preço do produto-base (recomendado para forração)</option><option value="PRECO_DA_VARIANTE" <?=$form['politica_preco']==='PRECO_DA_VARIANTE'?'selected':''?>>Usar o preço cadastrado em cada produto/variante</option></select><small class="form-text text-muted">Forração: mantenha o preço do produto-base. A segunda opção só é usada quando cada cor é um produto comercial com preço próprio.</small></label>
 <div class="form-group"><label><input type="checkbox" name="permite_cor_livre" value="1" <?=!empty($form['permite_cor_livre'])?'checked':''?>> Permitir informar uma cor nova na observação</label><br><label><input type="checkbox" name="exige_revisao" value="1" <?=!empty($form['exige_revisao'])?'checked':''?>> Exigir revisão humana das imagens</label></div>
 <label class="form-group d-block">Observações da configuração<textarea class="form-control" name="observacoes"><?=hConfig($form['observacoes']??'')?></textarea></label>
-<button class="btn btn-primary">Salvar configuração</button>
+<button type="submit" name="acao" value="automatico" class="btn btn-info" formnovalidate>Derivar automaticamente da composição</button>
+<button type="submit" name="acao" value="salvar" class="btn btn-primary">Salvar configuração avançada</button>
 <?php if((int)$form['familia_id']):?><a class="btn btn-success" href="novo_mestre.php?produto=<?=(int)$form['produto_generico_id']?>&amp;familia=<?=(int)$form['familia_id']?>">Criar mestre deste produto</a><a class="btn btn-outline-primary" href="cores_imagens.php#amostras">Amostras e cores</a><?php endif;?>
 </form></div></div>
 <div class="card"><div class="card-header"><h2 class="card-title">Configurações cadastradas</h2></div><div class="card-body table-responsive"><table class="table"><thead><tr><th>Família</th><th>Produto-base</th><th>Regra</th><th>Mestres</th><th>Ações</th></tr></thead><tbody>

@@ -57,8 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $pontos = json_decode((string)($_POST['pontos'] ?? ''), true);
         $regioes = isset($_POST['regioes']) ? json_decode((string)$_POST['regioes'], true) : ($pontos ? [$pontos] : []);
-        if ($nome === '' || mb_strlen($nome) > 150 || !$familiaId || !$produtoOrigemId || !is_array($pontos) || (count($pontos) > 0 && count($pontos) < 3) || count($pontos) > 100) {
-            throw new InvalidArgumentException('Informe nome, produto e tipo visual; para marcar o tecido, use pelo menos três pontos ou deixe sem marcação.');
+        if ($nome === '' || mb_strlen($nome) > 150 || !$produtoOrigemId || !is_array($pontos) || (count($pontos) > 0 && count($pontos) < 3) || count($pontos) > 100) {
+            throw new InvalidArgumentException('Informe nome e produto; para marcar o tecido, use pelo menos três pontos ou deixe sem marcação.');
         }
         foreach ($pontos as $ponto) {
             if (!is_array($ponto) || count($ponto) !== 2 || !is_numeric($ponto[0]) || !is_numeric($ponto[1])
@@ -72,14 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($regiao as $ponto) {
                 if (!is_array($ponto) || count($ponto) !== 2 || !is_numeric($ponto[0]) || !is_numeric($ponto[1]) || $ponto[0] < 0 || $ponto[0] > 800 || $ponto[1] < 0 || $ponto[1] > 800) throw new InvalidArgumentException('Ponto de tecido inválido.');
             }
-        }
-        $verificarFamilia = $db->prepare('SELECT id, modo_impacto_estoque, produto_generico_id FROM familias_variantes WHERE id = ? AND ativo=1');
-        $verificarFamilia->execute([$familiaId]);
-        $familiaEscolhida = $verificarFamilia->fetch(PDO::FETCH_ASSOC);
-        if (!$familiaEscolhida) throw new DomainException('Tipo de produto não encontrado.');
-        if ($familiaEscolhida['modo_impacto_estoque'] === 'FORRACAO_PRODUCAO'
-            && (int)$familiaEscolhida['produto_generico_id'] !== $produtoOrigemId) {
-            throw new DomainException('Para forração sob demanda, escolha o produto forrado correspondente a este tipo de mestre.');
         }
         $verificarProduto = $db->prepare("SELECT id FROM produtos WHERE id=? AND tipo_produto='COMPOSTO'");
         $verificarProduto->execute([$produtoOrigemId]);
@@ -98,6 +90,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             throw new RuntimeException('Não foi possível salvar o mestre.');
         }
         $db->beginTransaction();
+        // A família/regra é derivada da composição. Se ainda não existir, o
+        // primeiro salvamento do mestre a cria dentro da mesma transação.
+        if (!$familiaId) {
+            $familiaId = $motor->prepararFamiliaAutomatica($produtoOrigemId, (int)$_SESSION['user_id']);
+        }
+        $verificarFamilia = $db->prepare('SELECT id, modo_impacto_estoque, produto_generico_id FROM familias_variantes WHERE id = ? AND ativo=1');
+        $verificarFamilia->execute([$familiaId]);
+        $familiaEscolhida = $verificarFamilia->fetch(PDO::FETCH_ASSOC);
+        if (!$familiaEscolhida) throw new DomainException('Família/regra visual não encontrada.');
+        if ($familiaEscolhida['modo_impacto_estoque'] === 'FORRACAO_PRODUCAO'
+            && (int)$familiaEscolhida['produto_generico_id'] !== $produtoOrigemId) {
+            throw new DomainException('Para forração sob demanda, escolha o produto forrado correspondente a este tipo de mestre.');
+        }
         $observacoes = $mascara !== null ? 'Áreas de tecido marcadas na tela: ' . json_encode($regioes) : 'Foto pronta importada; recorte ainda não marcado.';
         if ($registroEdicao) {
             $id = (int)$registroEdicao['id'];
@@ -175,7 +180,7 @@ require_once __DIR__ . '/../includes/header.php';
     <input type="hidden" name="regioes" id="regioes">
     <div class="row"><div class="col-md-3 form-group"><label for="mestre-secao">1. Seção do cadastro</label><select class="form-control" id="mestre-secao"><option value="">Todas as seções</option></select><small class="form-text text-muted">Mostra todas as seções cadastradas, como na lista de produtos.</small></div><div class="col-md-3 form-group"><label for="mestre-categoria">Categoria do cadastro</label><select class="form-control" id="mestre-categoria"><option value="">Todas as categorias</option></select><small id="mestre-categoria-info" class="form-text text-muted">Selecione a categoria do produto que receberá o mestre.</small></div><div class="col-md-3 form-group"><label for="mestre-subcategoria">Subcategoria do cadastro</label><select class="form-control" id="mestre-subcategoria"><option value="">Todas as subcategorias</option></select></div><div class="col-md-3 form-group"><label for="mestre-produto">Produto montado</label><select class="form-control" id="mestre-produto" name="produto_origem_id" required><option value="">Escolha o produto</option></select><small id="mestre-produto-info" class="form-text text-muted">Depois dos filtros, aparecem somente produtos montados que podem receber uma foto mestre.</small></div></div>
     <div class="row"><div class="col-md-4 form-group"><label for="nome">Nome do modelo (automático)</label><input class="form-control" id="nome" name="nome" maxlength="150" readonly required><small class="form-text text-muted">Identifica o formato do produto; a cor não faz parte do modelo.</small></div>
-    <div class="col-md-4 form-group"><label for="familia">Tipo de produto</label><select class="form-control" id="familia" name="familia_variante_id" required><option value="">Escolha</option><?php foreach ($familias as $familia): ?><option value="<?= (int)$familia['id'] ?>" data-produto-generico="<?= (int)$familia['produto_generico_id'] ?>" data-produtos="<?= htmlspecialchars(json_encode(array_values(array_map(static fn($v)=>(int)$v['produto_id'],array_filter($vinculosMestre,static fn($v)=>(int)$v['ativo']===1 && (int)$v['familia_variante_id']===(int)$familia['id'])))),ENT_QUOTES,'UTF-8') ?>"><?= htmlspecialchars($familia['nome']) ?></option><?php endforeach; ?></select></div>
+    <div class="col-md-4 form-group"><label for="familia">Família/regra visual (automática)</label><select class="form-control" id="familia" name="familia_variante_id"><option value="">Será criada a partir da composição ao salvar</option><?php foreach ($familias as $familia): ?><option value="<?= (int)$familia['id'] ?>" data-produto-generico="<?= (int)$familia['produto_generico_id'] ?>" data-produtos="<?= htmlspecialchars(json_encode(array_values(array_map(static fn($v)=>(int)$v['produto_id'],array_filter($vinculosMestre,static fn($v)=>(int)$v['ativo']===1 && (int)$v['familia_variante_id']===(int)$familia['id'])))),ENT_QUOTES,'UTF-8') ?>"><?= htmlspecialchars($familia['nome']) ?></option><?php endforeach; ?></select><small class="form-text text-muted">Produtos compostos com composição válida não exigem configuração manual; a regra é inferida no primeiro salvamento.</small></div>
     <div class="col-md-4 form-group border rounded bg-light p-3"><label for="foto-mestre" class="font-weight-bold">2. <?= $modeloEdicao ? 'Foto-base já carregada' : 'Envie a foto preparada' ?></label><input type="file" class="form-control-file" id="foto-mestre" accept="image/png,image/jpeg" <?= $modeloEdicao ? '' : 'required' ?>><small class="form-text text-muted"><?= $modeloEdicao ? 'Não precisa enviar outra foto. Se escolher um arquivo, ele substituirá a base deste rascunho.' : 'PNG ou JPG; a foto só é guardada quando tu confirmar no final.' ?></small></div></div>
     <div class="d-flex flex-wrap align-items-center mb-2"><button type="button" id="desfazer-ponto" class="btn btn-outline-secondary btn-sm mr-2" disabled>Desfazer último ponto</button><button type="button" id="fechar-area" class="btn btn-outline-primary btn-sm mr-2" disabled>Fechar área e marcar outra parte</button><button type="button" id="limpar-pontos" class="btn btn-outline-secondary btn-sm mr-2" disabled>Recomeçar marcação</button><span id="estado-mestre" role="status">Envie uma foto para liberar a marcação.</span></div>
     <p class="small text-muted">Clique ao redor do assento. Para marcar também o encosto, use “Fechar área e marcar outra parte” e contorne o encosto separadamente. Use PNG ou JPG com pelo menos 800 pixels no lado maior; a foto pode ser retangular e será centralizada sem esticar. O sistema não remove o fundo.</p>

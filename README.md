@@ -42,6 +42,26 @@ os dados do negócio e os backups permanecem na instalação local. Consulte
 [o fluxo técnico](docs/arquitetura/motor-cores-e-producao.md) e
 [o registro da evolução](CHANGELOG.md) antes de instalar ou continuar a etapa.
 
+## Marco operacional de novembro de 2026
+
+O catálogo passou a usar filtros encadeados de categoria e subcategoria nas
+telas de criação e edição de pedidos e orçamentos. As categorias podem receber
+ícones editáveis e os produtos aparecem com miniaturas maiores durante a
+seleção. Conjuntos comerciais permanecem na classificação de sua apresentação,
+sem criar uma categoria paralela para montagem.
+
+O resumo de disponibilidade consolida componentes compartilhados de conjuntos
+fixos e reage à alteração de quantidade. Produtos físicos inteiros recebem a
+descrição correta da falta; serviços sem estoque não viram saldo fictício. A
+produção pendente distingue tecido, capa, colchão e estrutura física e mantém a
+origem no pedido que gerou a necessidade.
+
+Essa etapa foi validada visualmente no navegador interno em novo pedido, edição
+de pedido, novo orçamento e edição de orçamento. A categoria Bares exibiu as
+subcategorias Forrado, Madeira e Preto, com resultados correspondentes; uma
+categoria com apenas uma subcategoria manteve o seletor visível. A revisão
+visual do portfólio e a captura de telas continuam como próximo marco.
+
 ---
 
 # 📖 Sobre o Projeto
@@ -272,6 +292,16 @@ O sistema combina:
 🔄 Melhorias operacionais contínuas
 
 🔄 Evolução da documentação
+
+🔄 Autenticação de usuários, hospedagem e revisão de segurança
+
+🔄 Capturas de tela e revisão visual responsiva
+
+## 🖥️ Telas do sistema
+
+As capturas de tela serão adicionadas depois da revisão visual final, sem dados
+de clientes. A seleção prevista cobre o catálogo comercial, a disponibilidade
+por componentes, o motor de cores e a produção com plano de corte.
 
 ---
 

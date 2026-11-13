@@ -7,13 +7,34 @@
   const indice = new Map();
   const fotoUrl = path => path ? `${base}/${String(path).replace(/^\/+/, '')}` : '';
 
-  function identificar(texto, familia) {
+  const rotulo = produto => `${produto.nome}${produto.codigo ? ` — ${String(produto.codigo).toUpperCase()}` : ''}`;
+  function buscarVariantes(texto, familia) {
     const bruto = String(texto || '').trim();
     const trecho = bruto.match(/(?:^|\|\s*)cor:\s*([^|]+)/i);
     const procurado = normalizar(trecho ? trecho[1] : bruto.replace(/^cor\s+/i, ''));
-    if (!procurado) return null;
-    const achados = familia.variantes.filter(v => v.aliases.some(a => normalizar(a) === procurado));
+    if (!procurado) return [];
+    const variantes = familia.variantes;
+    const porCodigo = variantes.filter(v => v.codigo && normalizar(v.codigo) === procurado);
+    if (porCodigo.length) return porCodigo;
+    const porNome = variantes.filter(v => normalizar(v.nome) === procurado);
+    if (porNome.length) return porNome;
+    const porCor = variantes.filter(v => (v.aliases || []).some(a => normalizar(a) === procurado));
+    if (porCor.length) return porCor;
+    // Uma descrição parcial, como "floral rosa graúdo", identifica a estampa.
+    // Cores repetidas só são escolhidas quando o nome/código distingue a capa.
+    if (procurado.length < 6 || !procurado.includes(' ')) return [];
+    return variantes.filter(v => (` ${normalizar(v.nome)} `).includes(` ${procurado} `));
+  }
+  function identificar(texto, familia) {
+    const achados = buscarVariantes(texto, familia);
     return achados.length === 1 ? achados[0] : null;
+  }
+  function correspondenciaExata(texto, produto) {
+    const bruto = String(texto || '').trim();
+    const trecho = bruto.match(/(?:^|\|\s*)cor:\s*([^|]+)/i);
+    const procurado = normalizar(trecho ? trecho[1] : bruto.replace(/^cor\s+/i, ''));
+    return procurado !== '' && [produto.codigo, produto.nome, ...(produto.aliases || [])]
+      .some(valor => valor && normalizar(valor) === procurado);
   }
   function corInformada(texto) {
     const bruto = String(texto || '').trim();
@@ -24,23 +45,26 @@
     return trecho || (/^[\p{L}][\p{L}\s-]{0,32}$/u.test(candidato) && candidato.split(/\s+/).length <= 3)
       ? candidato : '';
   }
-  function removerCorHerdada(texto, familia) {
+  function removerCorHerdada(texto, familia, produtoAnteriorId) {
     const bruto = String(texto || '').trim();
     if (!bruto) return '';
+    const pertenceAoAnterior = valor => buscarVariantes(valor, familia)
+      .some(v => v.id === produtoAnteriorId);
     const marcada = bruto.match(/(^|\|\s*)cor:\s*([^|]+)/i);
-    if (marcada && identificar(`Cor: ${marcada[2]}`, familia)) {
+    if (marcada && pertenceAoAnterior(`Cor: ${marcada[2]}`)) {
       return bruto.replace(/(^|\|\s*)cor:\s*[^|]+/i, '$1')
         .replace(/^\s*\|\s*|\s*\|\s*$/g, '').trim();
     }
     // Linhas antigas podem ter somente o nome da cor salvo na observação.
-    return identificar(bruto, familia) ? '' : bruto;
+    return pertenceAoAnterior(bruto) ? '' : bruto;
   }
   async function trocar(linha, familia, produto) {
     const atual = Number(linha.querySelector('.produto_id')?.value || 0);
     if (!produto || atual === produto.id) return;
+    const recurso = familia.generico.tipo === 'SIMPLES' ? 'guardanapo' : 'capa';
     const confirmar = window.Swal ? await window.Swal.fire({
       title: 'Confirmar troca do produto?',
-      text: `Usar ${produto.nome}? A disponibilidade das capas será consultada novamente. O preço e a observação serão mantidos.`,
+      text: `Usar ${produto.nome}? A disponibilidade do ${recurso} será consultada novamente. O preço e a observação serão mantidos.`,
       icon: 'question', showCancelButton: true, confirmButtonText: 'Sim, trocar', cancelButtonText: 'Cancelar'
     }).then(r => r.isConfirmed) : window.confirm(`Usar ${produto.nome}? O preço e a observação serão mantidos.`);
     if (!confirmar || !linha.isConnected || Number(linha.querySelector('.produto_id')?.value || 0) !== atual) return;
@@ -83,9 +107,11 @@
     bloco.dataset.familia=String(familia.id);
     bloco.dataset.produtoId=String(linha.querySelector('.produto_id')?.value || '');
     const titulo=document.createElement('label'); titulo.className='small font-weight-bold mb-1 d-block'; titulo.textContent='Cor com capa cadastrada';
+    const simples=familia.generico.tipo==='SIMPLES';
+    titulo.textContent=simples ? 'Guardanapo com cor cadastrada' : 'Cor com capa cadastrada';
     const select=document.createElement('select'); select.className='form-control form-control-sm';
     select.add(new Option('Cor a definir',String(familia.generico.id)));
-    for (const v of familia.variantes) select.add(new Option(v.cor,String(v.id)));
+    for (const v of familia.variantes) select.add(new Option(rotulo(v),String(v.id)));
     const aviso=document.createElement('small'); aviso.className='form-text text-muted';
     aviso.textContent='Escolha a cor ou escreva na observação. A troca consulta a disponibilidade da capa.';
     const corNova=document.createElement('div'); corNova.className='alert alert-danger py-1 px-2 mt-2 mb-0 small'; corNova.hidden=true;
@@ -93,16 +119,21 @@
     bloco.append(titulo,select,aviso,sugerir,corNova); obs.insertAdjacentElement('afterend',bloco);
     const atualizar=() => {
       select.value=String(linha.querySelector('.produto_id')?.value || familia.generico.id);
-      const sugestao=identificar(obs.value,familia);
+      const candidatas=buscarVariantes(obs.value,familia);
+      const sugestao=candidatas.length===1 ? candidatas[0] : null;
       const escrita=corInformada(obs.value);
       const produtoAtual=Number(linha.querySelector('.produto_id')?.value || 0);
-      const nova = Boolean(escrita) && !sugestao && produtoAtual === familia.generico.id;
+      const nova = Boolean(escrita) && candidatas.length===0 && produtoAtual === familia.generico.id;
+      aviso.textContent=candidatas.length>1
+        ? `Há ${candidatas.length} ${simples ? 'guardanapos' : 'capas'} correspondentes. Escolha pelo nome completo e código no menu: ${candidatas.slice(0,4).map(rotulo).join('; ')}${candidatas.length>4 ? '; ...' : ''}.`
+        : `Escolha ${simples ? 'o guardanapo' : 'a capa'} pelo nome e código ou escreva a cor na observação. A troca consulta a disponibilidade.`;
       corNova.hidden=!nova;
-      const mensagemCorNova=nova ? `COR NOVA: “${escrita}” não possui capa cadastrada. A produção ainda precisa ser registrada manualmente; ela não vira estoque automaticamente.` : '';
+      const nomePrevisto=(familia.generico.nome || '').replace(/cor\s+a\s+definir/iu,`Cor ${escrita}`);
+      const mensagemCorNova=nova ? `No documento: ${nomePrevisto}. Não foi ${simples ? 'encontrado guardanapo cadastrado' : 'encontrada capa cadastrada'} para “${escrita}”; ao confirmar o pedido, ${simples ? 'o guardanapo' : 'a capa'} entra na produção pendente. A ficha não aumenta o estoque automaticamente.` : '';
       if (corNova.textContent !== mensagemCorNova) corNova.textContent=mensagemCorNova;
       linha.dataset.mobelCorNova = nova ? escrita : '';
       sugerir.hidden=!sugestao || sugestao.id===Number(linha.querySelector('.produto_id')?.value || 0);
-      if (!sugerir.hidden) { const texto=`Usar ${sugestao.nome}`; if (sugerir.textContent!==texto) sugerir.textContent=texto; sugerir._produto=sugestao; }
+      if (!sugerir.hidden) { const texto=`Usar ${rotulo(sugestao)}`; if (sugerir.textContent!==texto) sugerir.textContent=texto; sugerir._produto=sugestao; }
     };
     select.addEventListener('change',async () => {
       const escolhido=Number(select.value)===familia.generico.id ? familia.generico : familia.variantes.find(v=>v.id===Number(select.value));
@@ -114,7 +145,7 @@
       atualizar();
       const sugestao = identificar(obs.value, familia);
       const atual = Number(linha.querySelector('.produto_id')?.value || 0);
-      if (sugestao && atual === Number(familia.generico.id) && ultimaTrocaAutomatica !== sugestao.id) {
+      if (sugestao && correspondenciaExata(obs.value, sugestao) && atual === Number(familia.generico.id) && ultimaTrocaAutomatica !== sugestao.id) {
         ultimaTrocaAutomatica = sugestao.id;
         trocar(linha, familia, sugestao).then(atualizar).catch(() => { ultimaTrocaAutomatica = 0; });
       }
@@ -183,7 +214,7 @@
           const origemDaFamilia = familia && (anterior===Number(familia.generico.id) || familia.variantes.some(v=>Number(v.id)===anterior));
           if (familia && anterior && anterior!==atual && origemDaFamilia && alvoDaFamilia) {
             const obs=linha.querySelector('.observacoes_item_input');
-            if (obs) obs.value=atual===Number(familia.generico.id) ? removerCorHerdada(obs.value,familia) : '';
+            if (obs) obs.value=atual===Number(familia.generico.id) ? removerCorHerdada(obs.value,familia,anterior) : '';
           }
           if (bloco) bloco.dataset.produtoId=String(atual || '');
           varrer();

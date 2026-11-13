@@ -114,16 +114,37 @@
     if (!img.dataset.originalSrc) img.dataset.originalSrc = img.getAttribute('src') || '';
     return img;
   }
+  function preservarImagemOriginal(linha) {
+    const img = linha.querySelector('.foto-produto-linha');
+    if (!img || img.dataset.originalSrc) return;
+    const atual = img.getAttribute('src') || '';
+    // A miniatura carregada pelo PHP é a referência do serviço. Preserve-a
+    // antes de qualquer prévia gerada para uma cor; sem isso, a primeira
+    // inicialização em “Cor a definir” removia a imagem original.
+    if (atual && !atual.startsWith('data:image/')) img.dataset.originalSrc = atual;
+  }
+  function nomeContextual(linha, cor) {
+    const nome = linha.querySelector('.nome_produto_display')?.value || 'Produto';
+    if (!cor) return nome;
+    const comCor = nome.replace(/cor\s+a\s+definir/iu, `Cor ${cor.nome}`);
+    return comCor === nome ? `${nome} — ${cor.nome}` : comCor;
+  }
   function restaurarImagem(linha) {
     const img = linha.querySelector('.foto-produto-linha');
     if (!img) return;
+    preservarImagemOriginal(linha);
     const original = img.dataset.originalSrc || '';
-    if (original) { img.src=original; img.dataset.fotoCompleta=original; }
+    if (original) {
+      img.src=original;
+      img.dataset.fotoCompleta=original;
+      img.dataset.nomeProduto=nomeContextual(linha,null);
+    }
     else img.remove();
   }
   async function prepararLinha(linha, produtoId) {
     const dados = await obterDetalhes(produtoId);
     if (!linha.isConnected || Number(linha.querySelector('input[name="produto_id[]"]')?.value) !== produtoId || !dados.cores) return;
+    preservarImagemOriginal(linha);
     const obs = linha.querySelector('.observacoes_item_input');
     if (!obs) return;
     let bloco = linha.querySelector('.mobel-forracao-cor');
@@ -151,14 +172,22 @@
         const minhaVersao = ++versao;
         const cor = dados.cores.find(c => String(c.id) === select.value);
         if (!cor) { restaurarImagem(linha); aviso.textContent='Cor a definir: foto de serviço e estoque da estrutura.'; return; }
-        if (!dados.modelo) { restaurarImagem(linha); aviso.textContent='Cor anotada; falta aprovar o mestre para gerar a foto ilustrativa.'; return; }
+        if (!dados.modelo) {
+          restaurarImagem(linha);
+          const img = linha.querySelector('.foto-produto-linha');
+          if (img) img.dataset.nomeProduto=`${nomeContextual(linha,cor)} (foto de referência; prévia indisponível)`;
+          aviso.textContent='Cor anotada; falta aprovar o mestre para gerar a foto ilustrativa.';
+          return;
+        }
         aviso.textContent=`Montando prévia de ${cor.nome}…`;
         try {
           const imagem = await montar(Number(dados.modelo.id),cor);
           if (minhaVersao !== versao || !linha.isConnected
               || Number(linha.querySelector('input[name="produto_id[]"]')?.value) !== produtoId) return;
           const img = imagemDaLinha(linha);
-          img.src=imagem; img.dataset.fotoCompleta=imagem;
+          img.src=imagem;
+          img.dataset.fotoCompleta=imagem;
+          img.dataset.nomeProduto=nomeContextual(linha,cor);
           aviso.textContent=`Prévia ilustrativa de ${cor.nome}. Tecido sob demanda; a disponibilidade é da estrutura.`;
         } catch (erro) {
           if (minhaVersao !== versao) return;

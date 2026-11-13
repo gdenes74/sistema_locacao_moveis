@@ -171,6 +171,57 @@ class MotorCores
         }catch(Throwable $e){if($propria&&$this->conn->inTransaction())$this->conn->rollBack();throw $e;}
     }
 
+    /**
+     * Garante a família visual do produto composto quando o usuário inicia um mestre.
+     * A família continua editável em configuração avançada, mas não deve ser
+     * exigida como cadastro manual repetitivo para cada produto novo.
+     */
+    public function prepararFamiliaAutomatica(int $produtoId, ?int $usuarioId): int
+    {
+        $q = $this->conn->prepare('SELECT id, nome_produto, tipo_produto FROM produtos WHERE id=?');
+        $q->execute([$produtoId]);
+        $produto = $q->fetch(PDO::FETCH_ASSOC);
+        if (!$produto || strtoupper((string)$produto['tipo_produto']) !== 'COMPOSTO') {
+            throw new DomainException('Selecione um produto montado (composto).');
+        }
+
+        $q = $this->conn->prepare('SELECT id FROM familias_variantes WHERE produto_generico_id=? AND ativo=1 LIMIT 1');
+        $q->execute([$produtoId]);
+        $existente = $q->fetchColumn();
+        if ($existente) return (int)$existente;
+
+        $q = $this->conn->prepare('SELECT COUNT(*) FROM produto_composicao WHERE produto_pai_id=? AND quantidade>0');
+        $q->execute([$produtoId]);
+        if (!(int)$q->fetchColumn()) {
+            throw new DomainException('Este produto ainda não tem composição. Cadastre a estrutura, capa/tecido ou serviço antes de criar o mestre.');
+        }
+
+        $q = $this->conn->prepare("SELECT
+                SUM(CASE WHEN filho.tipo_produto='SERVICO' AND (filho.nome_produto LIKE '%Forra%' OR filho.nome_produto LIKE '%Tecido%') THEN 1 ELSE 0 END) AS tem_forraje,
+                SUM(CASE WHEN filho.tipo_produto='COMPONENTE' AND (filho.nome_produto LIKE 'Capa %' OR filho.nome_produto LIKE 'Assento %' OR filho.nome_produto LIKE 'Encosto %' OR filho.nome_produto LIKE 'Colchão%') THEN 1 ELSE 0 END) AS tem_capa
+            FROM produto_composicao pc JOIN produtos filho ON filho.id=pc.produto_filho_id
+            WHERE pc.produto_pai_id=? AND pc.quantidade>0");
+        $q->execute([$produtoId]);
+        $sinais = $q->fetch(PDO::FETCH_ASSOC) ?: [];
+        $temForracao = (int)($sinais['tem_forraje'] ?? 0) > 0 || stripos((string)$produto['nome_produto'], 'forrad') !== false;
+        $temCapa = (int)($sinais['tem_capa'] ?? 0) > 0;
+        $modo = $temForracao && !$temCapa ? 'FORRACAO_PRODUCAO' : ($temCapa ? 'COMPONENTE_COR' : 'SEM_IMPACTO_FISICO');
+        $nome = preg_replace('/\s+Cor\s+A\s+Definir$/iu', '', trim((string)$produto['nome_produto'])) ?: (string)$produto['nome_produto'];
+        $nome = preg_replace('/\s+Forrada$/iu', ' Forrada', $nome) ?: $nome;
+        $dados = [
+            'familia_id' => 0,
+            'nome' => $nome,
+            'slug' => 'auto-' . $produtoId . '-' . self::normalizar($nome),
+            'produto_generico_id' => $produtoId,
+            'modo_impacto_estoque' => $modo,
+            'politica_preco' => 'MESMO_PRECO',
+            'permite_cor_livre' => 1,
+            'exige_revisao' => 1,
+            'observacoes' => 'Família criada automaticamente a partir da composição do produto. Pode ser ajustada em configuração avançada.',
+        ];
+        return $this->configurarProdutoNoMotor($dados, $usuarioId);
+    }
+
     public function reativarFamilia(int $id,?int $usuarioId): void
     {
         $s=$this->conn->prepare('SELECT * FROM familias_variantes WHERE id=?');$s->execute([$id]);$antes=$s->fetch(PDO::FETCH_ASSOC);

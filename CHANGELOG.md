@@ -3,6 +3,41 @@
 Este registro acompanha o código versionado. Dados de clientes, estoque, fotografias
 enviadas e backups pertencem à instalação local e não são publicados neste repositório.
 
+## 13/11/2026 — Catálogo navegável, disponibilidade composta e produção integrada
+
+### Catálogo e seleção comercial
+
+- Pedidos e orçamentos passaram a oferecer filtros encadeados de categoria e subcategoria nas telas de criação e edição.
+- As categorias podem receber ícones editáveis e os resultados comerciais ganharam miniaturas maiores.
+- A reorganização inicial separa apresentações de madeira, pretas e forradas sem criar uma classificação paralela para conjuntos.
+- Componentes e serviços internos continuam fora da seleção comercial, preservando as regras existentes de produtos simples, compostos e conjuntos.
+
+### Estoque e disponibilidade
+
+- O resumo de disponibilidade consolida componentes de conjuntos fixos e reage à mudança de quantidade.
+- Componentes compartilhados são considerados uma única vez no consumo do pedido, evitando duplicação de tampos, bases e estruturas.
+- Produtos físicos inteiros recebem descrições próprias de falta; serviços sem estoque não aparecem como saldo artificial.
+
+### Cores, mestres e produção
+
+- A foto original do serviço é preservada quando a cor ainda não possui prévia ou quando o mestre não está aprovado.
+- Famílias visuais podem ser inferidas da composição válida no primeiro salvamento do mestre.
+- Pendências de produção distinguem tecido, capa, colchão e estrutura física e preservam o vínculo com o pedido de origem.
+- Planos de corte e fichas de produção receberam ajustes de cálculo e apresentação, sem movimentar estoque automaticamente.
+
+### Validação realizada
+
+- A navegação foi validada visualmente no navegador interno do Codex em novo pedido, edição de pedido, novo orçamento e edição de orçamento.
+- A categoria Bares exibiu Forrado, Madeira e Preto; os resultados respeitaram a subcategoria e preservaram os conjuntos comerciais.
+- Categorias com uma única subcategoria mantiveram o seletor visível.
+- Nenhum erro de console foi registrado nesses testes.
+
+### Próximo marco
+
+- Capturas de tela do portfólio, sem dados pessoais.
+- Autenticação de usuários e revisão de segurança.
+- Hospedagem e revisão responsiva para uso em celular.
+
 ## 30/10/2026 — Marco de cores, composição e produção
 
 O trabalho desde o último commit de 13/10 concentrou-se em transformar regras

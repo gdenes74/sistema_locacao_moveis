@@ -81,6 +81,11 @@ class EstoqueMovimentacao {
                 return 0;
             }
 
+            $pool = $this->obterEstoqueAlternativo((int) $produto_id);
+            if ($pool && (int) $pool['produto_pai_id'] === (int) $produto_id) {
+                return (int) $pool['estoque_principal'] + (int) $pool['estoque_adicional'];
+            }
+
             if ($this->produtoSemControleEstoque($produto) && !$this->produtoEhComposto($produto)) {
                 return 999999;
             }
@@ -164,6 +169,15 @@ class EstoqueMovimentacao {
 
         $pilhaProdutos[] = $produtoId;
 
+        $pool = $this->obterEstoqueAlternativo($produtoId);
+        if ($pool) {
+            return $this->consultarDisponibilidadeEstoqueAlternativo(
+                $produto, $pool, $dataInicio, $horaInicio, $turnoInicio,
+                $dataFim, $horaFim, $turnoFim, $quantidadeSolicitada,
+                $ignorarPedidoId, $itensContextoAtual
+            );
+        }
+
         if ($this->produtoEhComposto($produto)) {
             return $this->consultarDisponibilidadeProdutoComposto(
                 $produto,
@@ -180,6 +194,12 @@ class EstoqueMovimentacao {
             );
         }
 
+        // Linhas avulsas também disputam o estoque com as apresentações compostas.
+        $consumoContexto = $this->calcularConsumoLimitadorNoContexto($produtoId, $itensContextoAtual);
+        if ($consumoContexto > 0) {
+            $quantidadeSolicitada = (int) ceil($consumoContexto);
+        }
+
         return $this->consultarDisponibilidadeProdutoIndividual(
             $produto,
             $dataInicio,
@@ -191,6 +211,157 @@ class EstoqueMovimentacao {
             $quantidadeSolicitada,
             $ignorarPedidoId
         );
+    }
+
+    /**
+     * Um produto forrado pode usar duas estruturas físicas, enquanto a apresentação
+     * em madeira usa apenas a primeira. A soma física é consultada como um pool;
+     * os dois cadastros permanecem separados para patrimônio e restrição de uso.
+     */
+    private function consultarDisponibilidadeEstoqueAlternativo(
+        array $produto,
+        array $pool,
+        ?string $dataInicio,
+        ?string $horaInicio,
+        ?string $turnoInicio,
+        ?string $dataFim,
+        ?string $horaFim,
+        ?string $turnoFim,
+        int $quantidadeSolicitada,
+        ?int $ignorarPedidoId,
+        array $itensContextoAtual
+    ): array {
+        $produtoId = (int)$produto['id'];
+        $paiId = (int)$pool['produto_pai_id'];
+        $principalId = (int)$pool['produto_principal_id'];
+        $adicionalId = (int)$pool['produto_adicional_id'];
+        $ehForrado = $produtoId === $paiId;
+        $principalTotal = (int)$pool['estoque_principal'];
+        $adicionalTotal = (int)$pool['estoque_adicional'];
+        $totalFisico = $principalTotal + $adicionalTotal;
+        $resultado = $this->montarResultadoBase($produto, $produtoId, $quantidadeSolicitada);
+        $resultado['produto_composto'] = $ehForrado;
+        $resultado['estoque_total'] = $ehForrado ? $totalFisico : $principalTotal;
+
+        if ((int)($produto['disponivel_locacao'] ?? 1) !== 1) {
+            $resultado['alertas'][] = 'Produto marcado como indisponível para locação.';
+            $resultado['nivel_alerta'] = 'indisponivel';
+        }
+
+        $temPeriodo = !empty($dataInicio) && !empty($dataFim);
+        $inicioConsulta = null;
+        $fimConsulta = null;
+        if ($temPeriodo) {
+            $inicioConsulta = $this->resolverDataHora($dataInicio, $horaInicio, $turnoInicio, 'inicio');
+            $fimConsulta = $this->resolverDataHora($dataFim, $horaFim, $turnoFim, 'fim');
+            if (!$inicioConsulta || !$fimConsulta || $inicioConsulta > $fimConsulta) {
+                $resultado['nivel_alerta'] = 'indisponivel';
+                $resultado['alertas'][] = 'Período de entrega/devolução inválido.';
+                return $resultado;
+            }
+            $resultado['consulta_periodo_valida'] = true;
+        }
+
+        $comprometidoPrincipal = 0.0;
+        $comprometidoForrado = 0.0;
+        $comprometidoAdicional = 0.0;
+        $agenda = [];
+        if ($temPeriodo) {
+            $janelaInicio = (clone $inicioConsulta)->modify('-15 days')->format('Y-m-d H:i:s');
+            $janelaFim = (clone $fimConsulta)->modify('+15 days')->format('Y-m-d H:i:s');
+            foreach ($this->obterAgendaProduto($principalId, $janelaInicio, $janelaFim, $ignorarPedidoId) as $reserva) {
+                $inicioReserva = new DateTime($reserva['inicio_dt']);
+                $fimReserva = new DateTime($reserva['fim_dt']);
+                if (!$this->intervalosSeSobrepoem($inicioConsulta, $fimConsulta, $inicioReserva, $fimReserva)) continue;
+                $agenda[] = $reserva;
+                if ((int)($reserva['produto_origem_id'] ?? 0) === $paiId) {
+                    $comprometidoForrado += (float)$reserva['quantidade'];
+                } else {
+                    $comprometidoPrincipal += (float)$reserva['quantidade'];
+                }
+            }
+            foreach ($this->obterAgendaProduto($adicionalId, $janelaInicio, $janelaFim, $ignorarPedidoId) as $reserva) {
+                $inicioReserva = new DateTime($reserva['inicio_dt']);
+                $fimReserva = new DateTime($reserva['fim_dt']);
+                if (!$this->intervalosSeSobrepoem($inicioConsulta, $fimConsulta, $inicioReserva, $fimReserva)) continue;
+                $agenda[] = $reserva;
+                $comprometidoAdicional += (float)$reserva['quantidade'];
+            }
+        }
+
+        $contextoPrincipal = 0.0;
+        $contextoForrado = 0.0;
+        $contextoAdicional = 0.0;
+        $incluiConsultado = false;
+        foreach ($this->normalizarItensContextoAtual($itensContextoAtual) as $item) {
+            $origem = (int)$item['produto_id'];
+            $quantidade = (float)$item['quantidade'];
+            if ($origem === $produtoId) $incluiConsultado = true;
+            if ($origem === $paiId) {
+                $contextoForrado += $quantidade;
+                continue;
+            }
+            $consumos = $this->expandirConsumoEstoqueProduto($origem, $quantidade);
+            $contextoPrincipal += (float)($consumos[$principalId] ?? 0);
+            $contextoAdicional += (float)($consumos[$adicionalId] ?? 0);
+        }
+        if (!$incluiConsultado) {
+            if ($ehForrado) $contextoForrado += max(0, $quantidadeSolicitada);
+            else $contextoPrincipal += max(0, $quantidadeSolicitada);
+        }
+
+        $livreTotal = $totalFisico - $comprometidoPrincipal - $comprometidoForrado - $comprometidoAdicional;
+        $livreTotalApos = $livreTotal - $contextoPrincipal - $contextoForrado - $contextoAdicional;
+        $livrePrincipal = min($principalTotal - $comprometidoPrincipal, $livreTotal);
+        $livrePrincipalApos = min($principalTotal - $comprometidoPrincipal - $contextoPrincipal, $livreTotalApos);
+        $livre = $ehForrado ? $livreTotal : $livrePrincipal;
+        $livreApos = $ehForrado ? $livreTotalApos : $livrePrincipalApos;
+        $faltante = max(0, 0 - $livreApos);
+        $resultado['estoque_disponivel'] = $this->normalizarNumeroEstoque($livre);
+        $resultado['livre_periodo'] = $this->normalizarNumeroEstoque($livre);
+        $resultado['livre_apos_orcamento'] = $this->normalizarNumeroEstoque($livreApos);
+        $resultado['faltante_orcamento'] = $this->normalizarNumeroEstoque($faltante);
+        $resultado['comprometido_periodo'] = $this->normalizarNumeroEstoque(($ehForrado ? $totalFisico : $principalTotal) - $livre);
+        $resultado['reservado_orcamento_atual'] = $this->normalizarNumeroEstoque($ehForrado ? $contextoForrado : $contextoPrincipal);
+        $resultado['disponivel'] = $livreApos >= 0 && $resultado['nivel_alerta'] !== 'indisponivel';
+        $resultado['conflitos'] = $this->deduplicarRegistrosPorItemPedido($agenda);
+        $resultado['agenda'] = $resultado['conflitos'];
+        $resultado['pool_estoque'] = [
+            'principal_id' => $principalId,
+            'principal_total' => $principalTotal,
+            'adicional_id' => $adicionalId,
+            'adicional_total' => $adicionalTotal,
+            'total_fisico' => $totalFisico,
+        ];
+        if ($ehForrado) {
+            $resultado['componentes'] = [[
+                'tipo_limitador' => 'ESTOQUE_ALTERNATIVO',
+                'produto_id' => $principalId,
+                'produto_nome' => 'Estruturas de cubo 0,75 m (madeira + exclusivas de forração)',
+                'tipo_produto' => 'COMPONENTE',
+                'controla_estoque' => true,
+                'quantidade_por_unidade' => 1,
+                'quantidade_necessaria' => $this->normalizarNumeroEstoque($contextoForrado),
+                'obrigatorio' => true,
+                'estoque_total' => $totalFisico,
+                'comprometido_periodo' => $this->normalizarNumeroEstoque($totalFisico - $livreTotal),
+                'livre_periodo' => $this->normalizarNumeroEstoque($livreTotal),
+                'livre_apos_orcamento' => $this->normalizarNumeroEstoque($livreTotalApos),
+                'faltante_orcamento' => $this->normalizarNumeroEstoque(max(0, -$livreTotalApos)),
+                'disponivel' => $livreTotalApos >= 0,
+                'nivel_alerta' => $livreTotalApos < 0 ? 'indisponivel' : 'ok',
+                'alertas' => [],
+                'conflitos' => $resultado['conflitos'],
+                'observacoes_composicao' => '12 cubos também saem em madeira; 8 cubos adicionais somente forrados.',
+            ]];
+        }
+        if (!$resultado['disponivel']) {
+            $resultado['nivel_alerta'] = 'indisponivel';
+            $resultado['alertas'][] = 'Quantidade insuficiente de cubos para o período. Faltante: '.$this->normalizarNumeroEstoque($faltante).'.';
+        } elseif ($agenda) {
+            $resultado['nivel_alerta'] = 'atencao';
+        }
+        return $resultado;
     }
 
     private function consultarDisponibilidadeProdutoIndividual(
@@ -445,7 +616,11 @@ class EstoqueMovimentacao {
                 $qtdNecessaria = (int) ceil($qtdNecessariaContexto);
             }
 
-            if ($this->produtoSemControleEstoque($produtoLimitador)) {
+            // Produto composto intermediário não possui estoque próprio: sua
+            // disponibilidade vem dos componentes físicos. Não o trate como
+            // serviço/sob demanda antes de descer pela composição.
+            if ($this->produtoSemControleEstoque($produtoLimitador)
+                && !$this->produtoEhComposto($produtoLimitador)) {
                 $resumoSemEstoque = [
                     'tipo_limitador' => $limitador['tipo_limitador'],
                     'produto_id' => $produtoLimitadorId,
@@ -872,6 +1047,22 @@ class EstoqueMovimentacao {
         return array_merge($resultado, $sobrescrever);
     }
 
+    private function obterEstoqueAlternativo(int $produtoId): ?array {
+        static $cache = [];
+        if (array_key_exists($produtoId, $cache)) return $cache[$produtoId];
+        $sql = 'SELECT pea.produto_pai_id, pea.produto_principal_id, pea.produto_adicional_id,
+                       principal.quantidade_total AS estoque_principal,
+                       adicional.quantidade_total AS estoque_adicional
+                FROM produto_estoque_alternativo pea
+                JOIN produtos principal ON principal.id = pea.produto_principal_id
+                JOIN produtos adicional ON adicional.id = pea.produto_adicional_id
+                WHERE pea.produto_pai_id = ? OR pea.produto_principal_id = ? LIMIT 1';
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute([$produtoId, $produtoId]);
+        $cache[$produtoId] = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $cache[$produtoId];
+    }
+
     private function obterProduto(int $produtoId): ?array {
         try {
             $query = "
@@ -940,7 +1131,7 @@ class EstoqueMovimentacao {
 
         foreach ($this->obterComponentesProdutoComposto((int) $produto['id']) as $componente) {
             $produtoFilho = $this->obterProduto((int) $componente['produto_filho_id']);
-            if (!$produtoFilho || $this->produtoSemControleEstoque($produtoFilho)) {
+            if (!$produtoFilho || ($this->produtoSemControleEstoque($produtoFilho) && !$this->produtoEhComposto($produtoFilho))) {
                 continue;
             }
 
@@ -956,7 +1147,12 @@ class EstoqueMovimentacao {
 
         $menor = null;
         foreach ($limitadores as $limitador) {
-            $estoque = (int) ($limitador['produto']['quantidade_total'] ?? 0);
+            $produtoLimitador = $limitador['produto'];
+            // Compostos aninhados também não possuem quantidade própria:
+            // a capacidade vem recursivamente dos componentes físicos.
+            $estoque = $this->produtoEhComposto($produtoLimitador)
+                ? $this->obterEstoqueTotalComposto($produtoLimitador)
+                : (int) ($produtoLimitador['quantidade_total'] ?? 0);
             $qtdPorUnidade = (float) $limitador['quantidade_por_unidade'];
             $possivel = (int) floor($estoque / $qtdPorUnidade);
             $menor = $menor === null ? $possivel : min($menor, $possivel);
@@ -1010,6 +1206,11 @@ class EstoqueMovimentacao {
         foreach ($itens as $item) {
             $produtoOrigemId = (int) $item['produto_id'];
             $quantidadeOrigem = (float) $item['quantidade'];
+
+            // O contexto das quatro telas contém PRODUTO e ITEM_CONJUNTO;
+            // o cabeçalho CONJUNTO comercial já foi excluído pelo coletor.
+            // Cada linha restante é uma demanda real. A presença de um composto
+            // não torna uma linha avulsa do seu componente uma duplicação.
 
             $consumos = $this->expandirConsumoEstoqueProduto(
                 $produtoOrigemId,

@@ -32,8 +32,10 @@ Antes de trabalhar neste repositório, leia:
 ## Regras do domínio
 
 - COMPONENTE representa estoque e patrimônio físico.
+- COMPONENTE físico utilizado por um produto alugável deve permanecer habilitado para locação e venda; sua disponibilidade é limitada pelo estoque físico compartilhado, não por serviço sem estoque.
 - COMPOSTO representa produto comercial e não deve duplicar patrimônio.
 - SERVICO não possui estoque físico.
+- SERVICO de forração/costura não pode bloquear a disponibilidade do COMPOSTO: ele entra na produção pendente quando necessário, mas não reduz o estoque.
 - Componentes compartilhados devem limitar a disponibilidade temporal de todos os produtos que os utilizam.
 - `preco_custo` é reposição atual; `preco_venda` é valor usado; `preco_locacao` é preço comercial.
 

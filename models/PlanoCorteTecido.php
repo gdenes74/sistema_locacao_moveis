@@ -88,6 +88,11 @@ class PlanoCorteTecido
             throw new InvalidArgumentException('Informe quantidade positiva e largura maior que as duas bordas.');
         if(!$pecas||count($pecas)>30) throw new InvalidArgumentException('Informe entre uma e 30 peças de corte.');
         $util=$largura-2*$borda; $linhas=[]; $total=0; $area=0;
+        // Namoradeira: saias lado a lado e tampos em faixa separada. O
+        // cálculo antigo repetia 4,65 m por unidade e não aproveitava o rolo.
+        if(self::ehPacoteNamoradeira($pecas)) {
+            return self::calcularNamoradeira($quantidade,$pecas,$util);
+        }
         foreach($pecas as $indice=>$p) {
             $w=(float)($p['largura']??0);$h=(float)($p['comprimento']??0);$n=(float)($p['por_unidade']??0);
             if(!is_finite($w)||!is_finite($h)||!is_finite($n)||$w<=0||$h<=0||$n<1||floor($n)!=$n)
@@ -112,5 +117,76 @@ class PlanoCorteTecido
             $total+=$metros;$area+=$necessarias*$w*$h/10000;
         }
         return ['largura_util'=>$util,'linhas'=>$linhas,'metros'=>$total,'area_pecas'=>$area];
+    }
+
+    private static function ehPacoteNamoradeira(array $pecas): bool
+    {
+        if(count($pecas)!==2) return false;
+        $saia=$pecas[0]; $tampo=$pecas[1];
+        return isset($tampo['sobra_de'])
+            && (int)$tampo['sobra_de']===0
+            && (float)($saia['largura']??0)>=50 && (float)($saia['largura']??0)<=60
+            && (float)($saia['comprimento']??0)>=400
+            && (float)($tampo['largura']??0)>=65 && (float)($tampo['largura']??0)<=80
+            && (float)($tampo['comprimento']??0)>=150;
+    }
+
+    private static function calcularNamoradeira(int $quantidade,array $pecas,float $util): array
+    {
+        $saia=$pecas[0]; $tampo=$pecas[1];
+        $nSaia=max(1,(int)($saia['por_unidade']??1));
+        $nTampo=max(1,(int)($tampo['por_unidade']??1));
+        if($nSaia!==$nTampo) throw new InvalidArgumentException('As peças da namoradeira precisam ter a mesma quantidade por unidade.');
+        $q=$quantidade*$nSaia;
+        $wSaia=(float)$saia['largura']; $hSaia=(float)$saia['comprimento'];
+        // A medida útil informada (72 x 162) recebe a folga prática de corte
+        // solicitada: 75 x 165 cm.
+        $wTampo=max(5.0,ceil((float)$tampo['largura']/5)*5);
+        $hTampo=max(5.0,ceil((float)$tampo['comprimento']/5)*5);
+        if($q===1) {
+            $sobra=max(0,$util-$wSaia);
+            $porSobra=max(0,(int)floor(($sobra+0.000001)/$wTampo));
+            $linhaSaia=array_merge($saia,[
+                'total_pecas'=>1,'por_fileira'=>1,'fileiras'=>1,
+                'metros'=>$hSaia/100,'por_unidade'=>$nSaia,
+                'nota_planejamento'=>'Saia inteira; o tampo é retirado da sobra lateral.'
+            ]);
+            $linhaTampo=array_merge($tampo,[
+                'largura'=>$wTampo,'comprimento'=>$hTampo,'total_pecas'=>1,
+                'por_fileira'=>$porSobra,'fileiras'=>0,'metros'=>0,
+                'por_unidade'=>$nTampo,'reuso'=>true,'base'=>$linhaSaia,
+                'sobra_largura'=>$sobra,
+                'nota_planejamento'=>'Tampo aproveitado na sobra lateral da saia.'
+            ]);
+            return [
+                'largura_util'=>$util,
+                'linhas'=>[$linhaSaia,$linhaTampo],
+                'metros'=>$hSaia/100,
+                'area_pecas'=>$wSaia*$hSaia/10000 + $wTampo*$hTampo/10000,
+            ];
+        }
+        $porSaia=max(1,(int)floor(($util+0.000001)/$wSaia));
+        $porTampo=max(1,(int)floor(($util+0.000001)/$wTampo));
+        $fileirasSaia=(int)ceil($q/$porSaia);
+        $fileirasTampo=(int)ceil($q/$porTampo);
+        $metrosSaia=$fileirasSaia*$hSaia/100;
+        $metrosTampo=$fileirasTampo*$hTampo/100;
+        $linhaSaia=array_merge($saia,[
+            'total_pecas'=>$q,'por_fileira'=>$porSaia,'fileiras'=>$fileirasSaia,
+            'metros'=>$metrosSaia,'por_unidade'=>$nSaia,
+            'nota_planejamento'=>'Saias agrupadas na largura útil; corte longitudinal.'
+        ]);
+        $linhaTampo=array_merge($tampo,[
+            'largura'=>$wTampo,'comprimento'=>$hTampo,'total_pecas'=>$q,
+            'por_fileira'=>$porTampo,'fileiras'=>$fileirasTampo,
+            'metros'=>$metrosTampo,'por_unidade'=>$nTampo,'reuso'=>false,
+            'nota_planejamento'=>'Tampos cortados em faixa separada, aproveitando duas peças por largura quando possível.'
+        ]);
+        return [
+            'largura_util'=>$util,
+            'linhas'=>[$linhaSaia,$linhaTampo],
+            'metros'=>$metrosSaia+$metrosTampo,
+            'area_pecas'=>$q*$wSaia*$hSaia/10000 + $q*$wTampo*$hTampo/10000,
+        ];
     }
 }

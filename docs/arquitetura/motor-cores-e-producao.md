@@ -10,6 +10,7 @@ cadastros e fotos aprovadas são dados da instalação, não arquivos deste Git.
 | --- | --- | --- | --- |
 | Produto com capa removível | Variante composta por cor | Estrutura, assento/colchão e capa cadastrada | Variante ou prévia aprovada |
 | Forração sob demanda | Composto `Cor A Definir` | Estrutura compartilhada | Prévia contextual do mestre e da amostra |
+| Guardanapo por cor | Genérico `SIMPLES` com estoque zero ou guardanapo físico da cor | Cada guardanapo colorido tem estoque próprio | Foto do guardanapo cadastrado; genérico usa foto ilustrativa |
 | Cor nova de capa | Composto ainda sem capa daquela cor | Componentes existentes; capa a produzir | Serviço até haver foto/capa aprovadas |
 
 `SIMPLES` e `COMPONENTE` representam patrimônio físico. `COMPOSTO` representa

@@ -21,7 +21,7 @@ $familias = $db->query("SELECT f.id,f.nome,f.slug,COALESCE(f.produto_generico_id
     END) AS generico_id
     FROM familias_variantes f WHERE f.ativo=1 AND f.modo_impacto_estoque='COMPONENTE_COR'")
     ->fetchAll(PDO::FETCH_ASSOC);
-$produtos = $db->query("SELECT p.id,p.nome_produto,p.cor,p.foto_path,p.subcategoria_id
+$produtos = $db->query("SELECT p.id,p.codigo,p.nome_produto,p.cor,p.foto_path,p.subcategoria_id
     FROM produtos p WHERE p.tipo_produto='COMPOSTO'
       AND EXISTS (SELECT 1 FROM produto_composicao pc JOIN produtos capa ON capa.id=pc.produto_filho_id
                   WHERE pc.produto_pai_id=p.id AND pc.quantidade>0 AND capa.tipo_produto='COMPONENTE' AND capa.nome_produto LIKE 'Capa %')")
@@ -31,7 +31,11 @@ $aliases = $db->query('SELECT cor_padrao_id,alias_original,familia_variante_id F
 $porNome=[];
 foreach ($cores as $cor) $porNome[MotorCores::normalizar((string)$cor['nome'])][]=(int)$cor['id'];
 foreach ($aliases as $alias) if ($alias['familia_variante_id'] === null) $porNome[MotorCores::normalizar((string)$alias['alias_original'])][]=(int)$alias['cor_padrao_id'];
-$obterGenerico=$db->prepare('SELECT id,nome_produto,subcategoria_id,foto_path FROM produtos WHERE id=? AND tipo_produto=\'COMPOSTO\'');
+$obterGenerico=$db->prepare("SELECT id,nome_produto,subcategoria_id,foto_path,tipo_produto FROM produtos WHERE id=? AND tipo_produto IN ('COMPOSTO','SIMPLES')");
+$obterSimples=$db->prepare("SELECT p.id,p.codigo,p.nome_produto,p.cor,p.foto_path,p.subcategoria_id
+    FROM produto_variantes pv JOIN produtos p ON p.id=pv.produto_id
+    WHERE pv.familia_variante_id=? AND pv.ativo=1 AND pv.eh_generica=0
+      AND p.tipo_produto='SIMPLES' AND p.controla_estoque=1");
 $resultado=[];
 foreach ($familias as $familia) {
     if (!$familia['generico_id']) continue;
@@ -42,7 +46,12 @@ foreach ($familias as $familia) {
     $prefixo=MotorCores::normalizar($prefixo);
     if ($prefixo==='') continue;
     $variantes=[];
-    foreach ($produtos as $produto) {
+    $genericoSimples=$generico['tipo_produto']==='SIMPLES';
+    if ($genericoSimples) {
+        $obterSimples->execute([(int)$familia['id']]);
+        $produtosFamilia=$obterSimples->fetchAll(PDO::FETCH_ASSOC);
+    } else $produtosFamilia=$produtos;
+    foreach ($produtosFamilia as $produto) {
         if ((int)$produto['subcategoria_id'] !== (int)$generico['subcategoria_id']) continue;
         $nome=MotorCores::normalizar((string)$produto['nome_produto']);
         // MotorCores::normalizar separa as palavras com hífen. A variante
@@ -53,15 +62,15 @@ foreach ($familias as $familia) {
         $ids=array_values(array_unique($porNome[MotorCores::normalizar($corTexto)] ?? []));
         $corId=count($ids)===1 ? $ids[0] : null;
         $nomes=[$corTexto];
-        if ($corId) foreach ($aliases as $alias) {
+        if ($corId && !$genericoSimples) foreach ($aliases as $alias) {
             if ((int)$alias['cor_padrao_id']===$corId && ($alias['familia_variante_id']===null || (int)$alias['familia_variante_id']===(int)$familia['id'])) $nomes[]=$alias['alias_original'];
         }
-        $variantes[]=['id'=>(int)$produto['id'],'nome'=>$produto['nome_produto'],'cor'=>$corTexto,
+        $variantes[]=['id'=>(int)$produto['id'],'nome'=>$produto['nome_produto'],'codigo'=>$produto['codigo'],'cor'=>$corTexto,
             'foto'=>$produto['foto_path'],'aliases'=>array_values(array_unique($nomes))];
     }
-    usort($variantes,static fn($a,$b)=>strcoll($a['cor'],$b['cor']));
+    usort($variantes,static fn($a,$b)=>strcoll($a['nome'],$b['nome']));
     $resultado[]=['id'=>(int)$familia['id'],'nome'=>$familia['nome'],
-        'generico'=>['id'=>(int)$generico['id'],'nome'=>$generico['nome_produto'],'foto'=>$generico['foto_path']],
+        'generico'=>['id'=>(int)$generico['id'],'nome'=>$generico['nome_produto'],'foto'=>$generico['foto_path'],'tipo'=>$generico['tipo_produto']],
         'variantes'=>$variantes];
 }
 echo json_encode(['familias'=>$resultado],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);

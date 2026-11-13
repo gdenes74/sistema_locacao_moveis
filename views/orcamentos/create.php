@@ -159,6 +159,11 @@ $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPO
             $executeParams[] = "%" . $termo . "%";
         }
 
+        if (!empty($_GET['subcategoria_id'])) {
+            $conditions[] = 'p.subcategoria_id = ?';
+            $executeParams[] = (int) $_GET['subcategoria_id'];
+        }
+
         if ($categoria_principal_id > 0) {
             $sqlSubcategorias = "SELECT id FROM subcategorias WHERE categoria_id = ?";
             $stmtSub = $db->prepare($sqlSubcategorias);
@@ -788,6 +793,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <div class="card-body">
                         <div class="row mb-3 orcamento-busca-barra">
                             <div class="col-md-5">
+                                <?php include __DIR__ . "/../includes/filtro_subcategoria_comercial.php"; ?>
                                 <label for="busca_categoria_produto">Filtrar por Categoria:</label>
                                 <select id="busca_categoria_produto" class="form-control form-control-sm">
                                     <option value="">Todas as Categorias</option>
@@ -2027,7 +2033,7 @@ function consultarDisponibilidadeAjax(produtoId, quantidade, callbackSucesso, ca
             url: 'create.php?ajax=buscar_produtos',
             type: 'GET',
             dataType: 'json',
-            data: { termo: termoBusca, categoria_id: categoriaSelecionada },
+            data: { termo: termoBusca, categoria_id: categoriaSelecionada, subcategoria_id: $('#busca_subcategoria_produto').val() || '' },
             success: function(produtos) {
                 $('#sugestoes_produtos').empty().show();
                 if (produtos && produtos.length > 0) {
@@ -2394,7 +2400,8 @@ $('#sugestoes_produtos').on('click', '.item-sugestao-produto', function(e) {
     $('#tabela_itens_orcamento').on('click', '.foto-produto-linha', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        abrirFotoProduto($(this).data('foto-completa'), $(this).data('nome-produto'));
+        abrirFotoProduto(this.currentSrc || this.src || this.getAttribute('data-foto-completa'),
+            this.getAttribute('data-nome-produto') || 'Produto');
     });
 
     function selecionarGrupoConjunto($guia, abrirSugestoes = true) {
@@ -3733,7 +3740,7 @@ if (empty($_SESSION['mobel_color_catalog_token'])) {
 }
 $inline_js_setup .= "\nwindow.MOBEL_FORRACAO_BASE = " . json_encode(BASE_URL) . ";";
 $inline_js_setup .= "\nwindow.MOBEL_COLOR_CATALOG_TOKEN = " . json_encode($_SESSION['mobel_color_catalog_token']) . ";";
-$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
+$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261110-modal-cor-1', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261110-guardanapo-1', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
 $extra_js = array_map(static function ($src) {
     $arquivo = __DIR__ . '/../../assets/js/' . basename(parse_url($src, PHP_URL_PATH));
     return is_file($arquivo) ? preg_replace('/\\?.*$/', '', $src) . '?v=' . filemtime($arquivo) : $src;

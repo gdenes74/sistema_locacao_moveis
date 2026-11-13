@@ -356,12 +356,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] == 'buscar_produtos') {
 
         // Não mostrar componentes internos na busca operacional do pedido.
         // Conjuntos comerciais também precisam aparecer, pois são linhas comerciais pai.
+        // Não mostrar componentes internos na busca operacional do pedido.
+        // Conjuntos comerciais também precisam aparecer, pois são linhas comerciais pai.
         $conditions[] = "(p.tipo_produto IS NULL OR p.tipo_produto IN ('SIMPLES', 'COMPOSTO'))";
 
         if (!empty($termo)) {
             $conditions[] = "(p.nome_produto LIKE ? OR p.codigo LIKE ?)";
             $executeParams[] = "%" . $termo . "%";
             $executeParams[] = "%" . $termo . "%";
+        }
+
+        if (!empty($_GET['subcategoria_id'])) {
+            $conditions[] = 'p.subcategoria_id = ?';
+            $executeParams[] = (int) $_GET['subcategoria_id'];
         }
 
         if ($categoria_principal_id > 0) {
@@ -1075,6 +1082,7 @@ include_once __DIR__ . '/../includes/header.php';
                     <div class="card-body">
                         <div class="row mb-3">
                             <div class="col-md-5">
+                                <?php include __DIR__ . "/../includes/filtro_subcategoria_comercial.php"; ?>
                                 <label for="busca_categoria_produto">Filtrar por Categoria:</label>
                                 <select id="busca_categoria_produto" class="form-control form-control-sm">
                                     <option value="">Todas as Categorias</option>
@@ -2386,7 +2394,7 @@ $(document).ready(function() {
             url: 'create.php?ajax=buscar_produtos',
             type: 'GET',
             dataType: 'json',
-            data: { termo: termoBusca, categoria_id: categoriaSelecionada },
+            data: { termo: termoBusca, categoria_id: categoriaSelecionada, subcategoria_id: $('#busca_subcategoria_produto').val() || '' },
             success: function(produtos) {
                 $('#sugestoes_produtos').empty().show();
                 if (produtos && produtos.length > 0) {
@@ -3154,7 +3162,7 @@ if (response.produto_composto && response.componentes && response.componentes.le
     }).join('');
 
     html += `<div class="painel-box mt-2">
-        <strong>Componentes do produto composto</strong>
+        <strong>${response.resumo_conjunto_fixo ? 'Componentes físicos do conjunto' : 'Componentes do produto composto'}</strong>
         <ul class="mb-0 pl-3 mt-1">${componentesHtml}</ul>
     </div>`;
 }
@@ -3489,8 +3497,8 @@ if (response.produto_composto && response.componentes && response.componentes.le
     $('#tabela_itens_pedido').on('click', '.foto-produto-linha', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        var fotoUrl = $(this).data('foto-completa');
-        var nomeProduto = $(this).data('nome-produto') || 'Produto';
+        var fotoUrl = this.currentSrc || this.src || this.getAttribute('data-foto-completa');
+        var nomeProduto = this.getAttribute('data-nome-produto') || 'Produto';
 
         if (fotoUrl) {
             Swal.fire({
@@ -3582,6 +3590,15 @@ if (response.produto_composto && response.componentes && response.componentes.le
         var $row = $(this).closest('tr');
         var response = $row.data('disponibilidade-response');
         var nomeProduto = $row.find('.nome_produto_display').val() || 'Produto';
+        if ($row.hasClass('item-conjunto-filho-row')) {
+            const conjuntoIndex = parseInt($row.data('conjunto-pai-index') || 0, 10) || 0;
+            const $pai = obterLinhaConjuntoPorIndex(conjuntoIndex);
+            const respostaConjunto = $pai.data('disponibilidade-response');
+            if (respostaConjunto && respostaConjunto.resumo_conjunto_fixo) {
+                response = respostaConjunto;
+                nomeProduto = $pai.find('.nome_produto_display').val() || nomeProduto;
+            }
+        }
         if (response) {
             atualizarPainelConsultaDisponibilidade(nomeProduto, response);
             $('html, body').animate({ scrollTop: $('#painel_consulta_disponibilidade').offset().top - 90 }, 200);
@@ -3604,15 +3621,23 @@ if (response.produto_composto && response.componentes && response.componentes.le
                 validarLimiteItemConjunto($row, true);
             }
 
-            validarEstoqueQuantidade($row);
-
             if ($row.hasClass('item-conjunto-row')) {
-                carregarRegrasConjunto(parseInt($row.find('.produto_id').val(), 10) || 0, $row, function() {
+                const validarAposSincronizar = function() {
                     sincronizarItensFixosConjunto($row, true);
-                });
-            } else if ($row.hasClass('item-conjunto-filho-row')) {
-                const conjuntoIndex = parseInt($row.data('conjunto-pai-index') || 0, 10) || 0;
-                atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoIndex));
+                    validarEstoqueQuantidade($row);
+                };
+
+                if ($row.attr('data-regras-carregadas') === '1') {
+                    validarAposSincronizar();
+                } else {
+                    carregarRegrasConjunto(parseInt($row.find('.produto_id').val(), 10) || 0, $row, validarAposSincronizar);
+                }
+            } else {
+                validarEstoqueQuantidade($row);
+                if ($row.hasClass('item-conjunto-filho-row')) {
+                    const conjuntoIndex = parseInt($row.data('conjunto-pai-index') || 0, 10) || 0;
+                    atualizarGuiasConjunto(obterLinhaConjuntoPorIndex(conjuntoIndex));
+                }
             }
         }, 800));
     });
@@ -4188,7 +4213,7 @@ if (empty($_SESSION['mobel_color_catalog_token'])) {
 }
 $inline_js_setup .= "\nwindow.MOBEL_FORRACAO_BASE = " . json_encode(BASE_URL) . ";";
 $inline_js_setup .= "\nwindow.MOBEL_COLOR_CATALOG_TOKEN = " . json_encode($_SESSION['mobel_color_catalog_token']) . ";";
-$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261028-evita-travamento-7', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
+$extra_js = [BASE_URL . '/assets/js/motor_recoloracao.js', BASE_URL . '/assets/js/forracao_orcamento_pedido.js?v=20261110-modal-cor-1', BASE_URL . '/assets/js/variantes_capa_orcamento_pedido.js?v=20261110-guardanapo-1', BASE_URL . '/assets/js/resumo_disponibilidade_componentes.js'];
 $extra_js = array_map(static function ($src) {
     $arquivo = __DIR__ . '/../../assets/js/' . basename(parse_url($src, PHP_URL_PATH));
     return is_file($arquivo) ? preg_replace('/\\?.*$/', '', $src) . '?v=' . filemtime($arquivo) : $src;

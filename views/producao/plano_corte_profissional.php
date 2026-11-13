@@ -65,7 +65,7 @@ $labelPlan = static fn($name) => (string)preg_replace('/^.*? — /u', '', (strin
      <div class="plan-cut-note"><strong>Trecho:</strong> <?=$nPlan($lengthPlan/100)?> m no comprimento × <?=$nPlan($usablePlan)?> cm de largura útil.</div>
      <?php if($linearOnlyPlan): ?><div class="plan-callout">Este trecho mostra apenas a metragem de referência para compra. O molde da peça ainda precisa de medidas técnicas cadastradas; a forma do corte não foi presumida.</div>
      <?php else: ?>
-      <div class="plan-cut-note"><strong>Aproveitamento:</strong> <?=$perPlan?> peça(s) cabem na largura útil. <?php if($scrapPlan>0.001): ?>Neste trecho, a faixa cinza de <?=$nPlan($scrapPlan)?> cm é uma sobra a conferir.<?php else: ?>Neste trecho, a largura útil fica ocupada.<?php endif; ?></div>
+       <div class="plan-cut-note"><strong>Aproveitamento:</strong> <?=$perPlan?> peça(s) cabem na largura útil. <?php if($scrapPlan>0.001): ?>Neste trecho, a faixa restante de <?=$nPlan($scrapPlan)?> cm é sobra de corte.<?php else: ?>Neste trecho, a largura útil fica ocupada.<?php endif; ?></div>
       <?php if($nextPlan && empty($nextPlan['reuso']) && $scrapPlan>0.001 && $scrapPlan+0.0001<(float)$nextPlan['largura']): ?><div class="plan-next">A próxima peça exige <?=$nPlan($nextPlan['largura'])?> cm na largura. Ela não cabe na sobra de <?=$nPlan($scrapPlan)?> cm; precisa de outro trecho do rolo.</div><?php endif; ?>
      <?php endif; ?>
      <div class="plan-cut-note"><strong>Lote:</strong> <?=$rowsPlan?> trecho(s) de <?=$nPlan($lengthPlan/100)?> m = <?=$nPlan($linePlan['metros'])?> m lineares.<?php if($rowsPlan>1 && $lastPlan<$perPlan): ?> No último trecho, somente <?=$lastPlan?> de <?=$perPlan?> posição(ões) são usadas.<?php endif; ?></div>

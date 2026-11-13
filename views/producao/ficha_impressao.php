@@ -76,6 +76,7 @@ $planoVisual=$planoVisual??PlanoCorteTecido::planoVisualTecnico($item);
 </style>
 <section id="producao-impressao">
 <h1>Ficha de produção #<?=(int)$item['id']?></h1>
+<?php if (!empty($item['foto_mestre_url'])): ?><img src="<?=hFichaPrint($item['foto_mestre_url'])?>" alt="Foto de referência do produto" style="float:right;width:38mm;height:30mm;object-fit:contain;margin:0 0 2mm 3mm"><?php endif; ?>
 <p><strong><?=hFichaPrint($tituloPrint)?></strong> · Cor: <?=hFichaPrint($item['cor']?:'a definir')?> · Quantidade: <?=nFichaPrint($q)?></p>
 <p>Cliente: <?=hFichaPrint($item['cliente_nome']?:'não informado')?> · Pedido: <?=hFichaPrint($item['pedido_id']?:'manual')?> · Entrega: <?=hFichaPrint($item['data_entrega']?:'não informada')?></p>
 <p>Material: <?=hFichaPrint($material?:'não informado')?></p>

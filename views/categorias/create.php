@@ -44,6 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Tentar criar a categoria
         if ($categoria->criar()) {
+            $iconeEscolhido = $_POST['icone_categoria'] ?? '📦'; $iconesPermitidos = ['📦','🛋️','🪑','🟫','🧊','🍸','🧵','🌈','🛏️','🔲','🍽️','◻️','🧶']; if (!in_array($iconeEscolhido, $iconesPermitidos, true)) { $iconeEscolhido = '📦'; } $db->prepare('UPDATE categorias SET icone=? WHERE id=?')->execute([$iconeEscolhido, $categoria->id]);
             $_SESSION['message'] = "Categoria '" . htmlspecialchars($categoria->nome) . "' criada com sucesso!";
             redirect('views/categorias/index.php'); // Volta para a lista de categorias
         } else {
@@ -137,6 +138,7 @@ include_once __DIR__ . '/../includes/header.php';
                             >
                         </div>
 
+                        <?php include __DIR__ . '/../includes/categoria_icone_campo.php'; ?>
                         <!-- Campo Descrição (Opcional) -->
                         <div class="form-group">
                             <label for="descricao">Descrição</label>

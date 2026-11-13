@@ -35,7 +35,13 @@ final class ReferenciaCorteProducao
         require_once __DIR__.'/PlanoCorteTecido.php';
         $fontes=[];
         if(!empty($item['componente_id'])) {
-            $texto=PlanoCorteTecido::instrucoes(array_intersect_key($item,array_flip(['componente_descricao_detalhada','componente_observacoes'])));
+            // A ficha consolidada de um sofá guarda as referências de assento
+            // e encosto em pp.observacoes. Elas precisam entrar junto com a
+            // descrição do componente para gerar um único plano de tecido.
+            $texto=PlanoCorteTecido::instrucoes(array_merge(
+                array_intersect_key($item,array_flip(['componente_descricao_detalhada','componente_observacoes'])),
+                ['observacoes'=>$item['observacoes']??'']
+            ));
             $pecas=PlanoCorteTecido::sugerirPecas($texto,$larguraUtil);
             if(!$pecas) {
                 $texto=PlanoCorteTecido::instrucoes($item);

@@ -12,8 +12,13 @@ $pedido=$db->query("SELECT pe.id FROM pedidos pe
     WHERE LOWER(pe.situacao_pedido)='confirmado' ORDER BY pe.id DESC LIMIT 1")->fetchColumn();
 if(!$pedido){echo "SEM_PEDIDO_CONFIRMADO_COM_FORRACAO\n";exit(2);}
 $antes=$db->query('SELECT * FROM producao_pendencias ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
-$backup=__DIR__.'/backups/producao_pendencias_antes_teste_forracao_'.date('Ymd_His').'.json';
-file_put_contents($backup,json_encode($antes,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+$pastaBackup='C:/Users/larak/Documents/Codex/2026-10-07/ass/backups';
+if(!is_dir($pastaBackup)) @mkdir($pastaBackup,0777,true);
+$backup=$pastaBackup.'/producao_pendencias_antes_teste_forracao_'.date('Ymd_His').'.json';
+if(@file_put_contents($backup,json_encode($antes,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE))===false){
+    $backup=sys_get_temp_dir().'/producao_pendencias_antes_teste_forracao_'.date('Ymd_His').'.json';
+    file_put_contents($backup,json_encode($antes,JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE));
+}
 $db->beginTransaction();
 try{
     $motor=new ProducaoPendente($db);$motor->sincronizarCoresNovasDoPedido((int)$pedido,null);
